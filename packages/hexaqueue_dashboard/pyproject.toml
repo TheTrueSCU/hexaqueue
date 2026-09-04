@@ -1,7 +1,7 @@
 [project]
-name = "hexaqueue-monitor"
+name = "hexaqueue-dashboard"
 version = "0.1.0"
-description = "Hexaqueue Monitor - Cluster health, worker/server heartbeat telemetry, and budget tracking daemon"
+description = "Hexaqueue Dashboard - Modern web interface, cluster visualizer, and operator console"
 readme = "README.md"
 license = "Apache-2.0"
 authors = [

@@ -12,6 +12,7 @@ dependencies = [
     "hexaqueue-cli",
     "hexaqueue-collateral",
     "hexaqueue-core",
+    "hexaqueue-dashboard",
     "hexaqueue-monitor",
     "hexaqueue-scanner",
     "hexaqueue-server",
@@ -26,6 +27,7 @@ build-backend = "hatchling.build"
 hexaqueue-cli = { workspace = true }
 hexaqueue-collateral = { workspace = true }
 hexaqueue-core = { workspace = true }
+hexaqueue-dashboard = { workspace = true }
 hexaqueue-monitor = { workspace = true }
 hexaqueue-scanner = { workspace = true }
 hexaqueue-server = { workspace = true }

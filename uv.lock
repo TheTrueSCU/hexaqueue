@@ -8,6 +8,7 @@ members = [
     "hexaqueue-cli",
     "hexaqueue-collateral",
     "hexaqueue-core",
+    "hexaqueue-dashboard",
     "hexaqueue-monitor",
     "hexaqueue-scanner",
     "hexaqueue-server",
@@ -182,6 +183,7 @@ dependencies = [
     { name = "hexaqueue-cli" },
     { name = "hexaqueue-collateral" },
     { name = "hexaqueue-core" },
+    { name = "hexaqueue-dashboard" },
     { name = "hexaqueue-monitor" },
     { name = "hexaqueue-scanner" },
     { name = "hexaqueue-server" },
@@ -193,6 +195,7 @@ requires-dist = [
     { name = "hexaqueue-cli", editable = "packages/hexaqueue_cli" },
     { name = "hexaqueue-collateral", editable = "packages/hexaqueue_collateral" },
     { name = "hexaqueue-core", editable = "packages/hexaqueue_core" },
+    { name = "hexaqueue-dashboard", editable = "packages/hexaqueue_dashboard" },
     { name = "hexaqueue-monitor", editable = "packages/hexaqueue_monitor" },
     { name = "hexaqueue-scanner", editable = "packages/hexaqueue_scanner" },
     { name = "hexaqueue-server", editable = "packages/hexaqueue_server" },
@@ -237,6 +240,17 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "pydantic", specifier = ">=2.10.0" }]
+
+[[package]]
+name = "hexaqueue-dashboard"
+version = "0.1.0"
+source = { editable = "packages/hexaqueue_dashboard" }
+dependencies = [
+    { name = "hexaqueue-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "hexaqueue-core", editable = "packages/hexaqueue_core" }]
 
 [[package]]
 name = "hexaqueue-monitor"

@@ -25,6 +25,7 @@ hexaqueue = { workspace = true }
 hexaqueue-cli = { workspace = true }
 hexaqueue-collateral = { workspace = true }
 hexaqueue-core = { workspace = true }
+hexaqueue-dashboard = { workspace = true }
 hexaqueue-monitor = { workspace = true }
 hexaqueue-scanner = { workspace = true }
 hexaqueue-server = { workspace = true }
@@ -127,6 +128,7 @@ known-first-party = [
     "hexaqueue_cli",
     "hexaqueue_collateral",
     "hexaqueue_core",
+    "hexaqueue_dashboard",
     "hexaqueue_monitor",
     "hexaqueue_scanner",
     "hexaqueue_server",
