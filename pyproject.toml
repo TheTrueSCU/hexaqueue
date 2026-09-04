@@ -33,16 +33,27 @@ hexaqueue-worker = { workspace = true }
 
 [dependency-groups]
 dev = [
+    "complexipy>=7.0.0",
+    "deptry>=0.23.0",
+    "detect-secrets>=1.5.0",
     "faker>=33.0.0",
     "hexastack-tools>=0.3.0",
     "hypothesis>=6.120.0",
+    "import-linter>=2.13",
+    "inline-snapshot>=0.35.0",
+    "mutmut<3",
+    "pip-audit>=2.10.0",
     "pre-commit>=4.0.0",
+    "pydeps>=3.0.0",
     "pytest>=8.3.0",
+    "pytest-archon>=0.0.7",
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=6.0.0",
     "pytest-xdist>=3.6.0",
+    "rope>=1.14.0",
     "ruff>=0.9.0",
     "ty>=0.0.75",
+    "vulture>=2.14",
 ]
 
 [tool.coverage.run]
