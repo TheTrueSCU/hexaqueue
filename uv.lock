@@ -6,8 +6,10 @@ requires-python = ">=3.13"
 members = [
     "hexaqueue",
     "hexaqueue-cli",
+    "hexaqueue-collateral",
     "hexaqueue-core",
     "hexaqueue-monitor",
+    "hexaqueue-scanner",
     "hexaqueue-server",
     "hexaqueue-worker",
     "hexaqueue-workspace",
@@ -178,8 +180,10 @@ version = "0.1.0"
 source = { editable = "packages/hexaqueue" }
 dependencies = [
     { name = "hexaqueue-cli" },
+    { name = "hexaqueue-collateral" },
     { name = "hexaqueue-core" },
     { name = "hexaqueue-monitor" },
+    { name = "hexaqueue-scanner" },
     { name = "hexaqueue-server" },
     { name = "hexaqueue-worker" },
 ]
@@ -187,8 +191,10 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "hexaqueue-cli", editable = "packages/hexaqueue_cli" },
+    { name = "hexaqueue-collateral", editable = "packages/hexaqueue_collateral" },
     { name = "hexaqueue-core", editable = "packages/hexaqueue_core" },
     { name = "hexaqueue-monitor", editable = "packages/hexaqueue_monitor" },
+    { name = "hexaqueue-scanner", editable = "packages/hexaqueue_scanner" },
     { name = "hexaqueue-server", editable = "packages/hexaqueue_server" },
     { name = "hexaqueue-worker", editable = "packages/hexaqueue_worker" },
 ]
@@ -211,6 +217,17 @@ requires-dist = [
 ]
 
 [[package]]
+name = "hexaqueue-collateral"
+version = "0.1.0"
+source = { editable = "packages/hexaqueue_collateral" }
+dependencies = [
+    { name = "hexaqueue-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "hexaqueue-core", editable = "packages/hexaqueue_core" }]
+
+[[package]]
 name = "hexaqueue-core"
 version = "0.1.0"
 source = { editable = "packages/hexaqueue_core" }
@@ -225,6 +242,17 @@ requires-dist = [{ name = "pydantic", specifier = ">=2.10.0" }]
 name = "hexaqueue-monitor"
 version = "0.1.0"
 source = { editable = "packages/hexaqueue_monitor" }
+dependencies = [
+    { name = "hexaqueue-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "hexaqueue-core", editable = "packages/hexaqueue_core" }]
+
+[[package]]
+name = "hexaqueue-scanner"
+version = "0.1.0"
+source = { editable = "packages/hexaqueue_scanner" }
 dependencies = [
     { name = "hexaqueue-core" },
 ]

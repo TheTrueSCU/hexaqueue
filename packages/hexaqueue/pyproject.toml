@@ -10,8 +10,10 @@ authors = [
 requires-python = ">=3.13"
 dependencies = [
     "hexaqueue-cli",
+    "hexaqueue-collateral",
     "hexaqueue-core",
     "hexaqueue-monitor",
+    "hexaqueue-scanner",
     "hexaqueue-server",
     "hexaqueue-worker",
 ]
@@ -22,7 +24,9 @@ build-backend = "hatchling.build"
 
 [tool.uv.sources]
 hexaqueue-cli = { workspace = true }
+hexaqueue-collateral = { workspace = true }
 hexaqueue-core = { workspace = true }
 hexaqueue-monitor = { workspace = true }
+hexaqueue-scanner = { workspace = true }
 hexaqueue-server = { workspace = true }
 hexaqueue-worker = { workspace = true }

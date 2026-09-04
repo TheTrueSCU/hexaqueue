@@ -23,8 +23,10 @@ members = [
 [tool.uv.sources]
 hexaqueue = { workspace = true }
 hexaqueue-cli = { workspace = true }
+hexaqueue-collateral = { workspace = true }
 hexaqueue-core = { workspace = true }
 hexaqueue-monitor = { workspace = true }
+hexaqueue-scanner = { workspace = true }
 hexaqueue-server = { workspace = true }
 hexaqueue-worker = { workspace = true }
 
@@ -123,8 +125,10 @@ ignore = [
 known-first-party = [
     "hexaqueue",
     "hexaqueue_cli",
+    "hexaqueue_collateral",
     "hexaqueue_core",
     "hexaqueue_monitor",
+    "hexaqueue_scanner",
     "hexaqueue_server",
     "hexaqueue_worker",
 ]
