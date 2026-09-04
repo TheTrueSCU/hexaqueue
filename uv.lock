@@ -9,10 +9,14 @@ members = [
     "hexaqueue-collateral",
     "hexaqueue-core",
     "hexaqueue-dashboard",
+    "hexaqueue-github-runner",
+    "hexaqueue-gitlab-runner",
+    "hexaqueue-kueue",
     "hexaqueue-monitor",
     "hexaqueue-scanner",
     "hexaqueue-server",
     "hexaqueue-worker",
+    "hexaqueue-workflow",
     "hexaqueue-workspace",
 ]
 
@@ -682,17 +686,21 @@ wheels = [
 
 [[package]]
 name = "hexaqueue"
-version = "0.1.0"
+version = "0.0.0"
 source = { editable = "packages/hexaqueue" }
 dependencies = [
     { name = "hexaqueue-cli" },
     { name = "hexaqueue-collateral" },
     { name = "hexaqueue-core" },
     { name = "hexaqueue-dashboard" },
+    { name = "hexaqueue-github-runner" },
+    { name = "hexaqueue-gitlab-runner" },
+    { name = "hexaqueue-kueue" },
     { name = "hexaqueue-monitor" },
     { name = "hexaqueue-scanner" },
     { name = "hexaqueue-server" },
     { name = "hexaqueue-worker" },
+    { name = "hexaqueue-workflow" },
 ]
 
 [package.metadata]
@@ -701,15 +709,19 @@ requires-dist = [
     { name = "hexaqueue-collateral", editable = "packages/hexaqueue_collateral" },
     { name = "hexaqueue-core", editable = "packages/hexaqueue_core" },
     { name = "hexaqueue-dashboard", editable = "packages/hexaqueue_dashboard" },
+    { name = "hexaqueue-github-runner", editable = "packages/hexaqueue_github_runner" },
+    { name = "hexaqueue-gitlab-runner", editable = "packages/hexaqueue_gitlab_runner" },
+    { name = "hexaqueue-kueue", editable = "packages/hexaqueue_kueue" },
     { name = "hexaqueue-monitor", editable = "packages/hexaqueue_monitor" },
     { name = "hexaqueue-scanner", editable = "packages/hexaqueue_scanner" },
     { name = "hexaqueue-server", editable = "packages/hexaqueue_server" },
     { name = "hexaqueue-worker", editable = "packages/hexaqueue_worker" },
+    { name = "hexaqueue-workflow", editable = "packages/hexaqueue_workflow" },
 ]
 
 [[package]]
 name = "hexaqueue-cli"
-version = "0.1.0"
+version = "0.0.0"
 source = { editable = "packages/hexaqueue_cli" }
 dependencies = [
     { name = "hexaqueue-core" },
@@ -734,7 +746,7 @@ requires-dist = [
 
 [[package]]
 name = "hexaqueue-collateral"
-version = "0.1.0"
+version = "0.0.0"
 source = { editable = "packages/hexaqueue_collateral" }
 dependencies = [
     { name = "hexaqueue-core" },
@@ -755,7 +767,7 @@ requires-dist = [
 
 [[package]]
 name = "hexaqueue-core"
-version = "0.1.0"
+version = "0.0.0"
 source = { editable = "packages/hexaqueue_core" }
 dependencies = [
     { name = "hexastack-core" },
@@ -772,7 +784,7 @@ requires-dist = [
 
 [[package]]
 name = "hexaqueue-dashboard"
-version = "0.1.0"
+version = "0.0.0"
 source = { editable = "packages/hexaqueue_dashboard" }
 dependencies = [
     { name = "hexaqueue-core" },
@@ -790,8 +802,41 @@ requires-dist = [
 ]
 
 [[package]]
+name = "hexaqueue-github-runner"
+version = "0.0.0"
+source = { editable = "packages/hexaqueue_github_runner" }
+dependencies = [
+    { name = "hexaqueue-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "hexaqueue-core", editable = "packages/hexaqueue_core" }]
+
+[[package]]
+name = "hexaqueue-gitlab-runner"
+version = "0.0.0"
+source = { editable = "packages/hexaqueue_gitlab_runner" }
+dependencies = [
+    { name = "hexaqueue-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "hexaqueue-core", editable = "packages/hexaqueue_core" }]
+
+[[package]]
+name = "hexaqueue-kueue"
+version = "0.0.0"
+source = { editable = "packages/hexaqueue_kueue" }
+dependencies = [
+    { name = "hexaqueue-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "hexaqueue-core", editable = "packages/hexaqueue_core" }]
+
+[[package]]
 name = "hexaqueue-monitor"
-version = "0.1.0"
+version = "0.0.0"
 source = { editable = "packages/hexaqueue_monitor" }
 dependencies = [
     { name = "hexaqueue-core" },
@@ -810,7 +855,7 @@ requires-dist = [
 
 [[package]]
 name = "hexaqueue-scanner"
-version = "0.1.0"
+version = "0.0.0"
 source = { editable = "packages/hexaqueue_scanner" }
 dependencies = [
     { name = "hexaqueue-core" },
@@ -831,7 +876,7 @@ requires-dist = [
 
 [[package]]
 name = "hexaqueue-server"
-version = "0.1.0"
+version = "0.0.0"
 source = { editable = "packages/hexaqueue_server" }
 dependencies = [
     { name = "hexaqueue-core" },
@@ -860,7 +905,7 @@ requires-dist = [
 
 [[package]]
 name = "hexaqueue-worker"
-version = "0.1.0"
+version = "0.0.0"
 source = { editable = "packages/hexaqueue_worker" }
 dependencies = [
     { name = "hexaqueue-core" },
@@ -880,8 +925,19 @@ requires-dist = [
 ]
 
 [[package]]
+name = "hexaqueue-workflow"
+version = "0.0.0"
+source = { editable = "packages/hexaqueue_workflow" }
+dependencies = [
+    { name = "hexaqueue-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "hexaqueue-core", editable = "packages/hexaqueue_core" }]
+
+[[package]]
 name = "hexaqueue-workspace"
-version = "0.1.0"
+version = "0.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "hexaqueue" },

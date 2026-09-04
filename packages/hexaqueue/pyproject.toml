@@ -1,6 +1,6 @@
 [project]
 name = "hexaqueue"
-version = "0.1.0"
+version = "0.0.0"
 description = "Hexaqueue - Cloud-Agnostic HPC Batch Scheduler and Distributed Job Orchestrator"
 readme = "README.md"
 license = "Apache-2.0"
@@ -13,10 +13,14 @@ dependencies = [
     "hexaqueue-collateral",
     "hexaqueue-core",
     "hexaqueue-dashboard",
+    "hexaqueue-github-runner",
+    "hexaqueue-gitlab-runner",
+    "hexaqueue-kueue",
     "hexaqueue-monitor",
     "hexaqueue-scanner",
     "hexaqueue-server",
     "hexaqueue-worker",
+    "hexaqueue-workflow",
 ]
 
 [build-system]
@@ -28,7 +32,11 @@ hexaqueue-cli = { workspace = true }
 hexaqueue-collateral = { workspace = true }
 hexaqueue-core = { workspace = true }
 hexaqueue-dashboard = { workspace = true }
+hexaqueue-github-runner = { workspace = true }
+hexaqueue-gitlab-runner = { workspace = true }
+hexaqueue-kueue = { workspace = true }
 hexaqueue-monitor = { workspace = true }
 hexaqueue-scanner = { workspace = true }
 hexaqueue-server = { workspace = true }
 hexaqueue-worker = { workspace = true }
+hexaqueue-workflow = { workspace = true }

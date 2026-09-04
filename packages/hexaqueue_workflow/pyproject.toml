@@ -1,7 +1,7 @@
 [project]
-name = "hexaqueue-collateral"
+name = "hexaqueue-workflow"
 version = "0.0.0"
-description = "Hexaqueue Collateral - Ingestion, upload handling, and staging storage service"
+description = "Hexaqueue Workflow - Temporal Activity Worker & Argo Workflow Task Driver"
 readme = "README.md"
 license = "Apache-2.0"
 authors = [
@@ -10,10 +10,6 @@ authors = [
 requires-python = ">=3.13"
 dependencies = [
     "hexaqueue-core",
-    "hexastack-auth>=0.3.0",
-    "hexastack-core>=0.3.0",
-    "hexastack-events>=0.3.0",
-    "hexastack-fastapi>=0.3.0",
 ]
 
 [build-system]

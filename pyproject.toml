@@ -1,6 +1,6 @@
 [project]
 name = "hexaqueue-workspace"
-version = "0.1.0"
+version = "0.0.0"
 description = "Hexaqueue - Cloud-Agnostic HPC Batch Scheduler and Distributed Job Orchestrator"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -26,10 +26,14 @@ hexaqueue-cli = { workspace = true }
 hexaqueue-collateral = { workspace = true }
 hexaqueue-core = { workspace = true }
 hexaqueue-dashboard = { workspace = true }
+hexaqueue-github-runner = { workspace = true }
+hexaqueue-gitlab-runner = { workspace = true }
+hexaqueue-kueue = { workspace = true }
 hexaqueue-monitor = { workspace = true }
 hexaqueue-scanner = { workspace = true }
 hexaqueue-server = { workspace = true }
 hexaqueue-worker = { workspace = true }
+hexaqueue-workflow = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -141,10 +145,14 @@ known-first-party = [
     "hexaqueue_collateral",
     "hexaqueue_core",
     "hexaqueue_dashboard",
+    "hexaqueue_github_runner",
+    "hexaqueue_gitlab_runner",
+    "hexaqueue_kueue",
     "hexaqueue_monitor",
     "hexaqueue_scanner",
     "hexaqueue_server",
     "hexaqueue_worker",
+    "hexaqueue_workflow",
 ]
 
 [tool.ruff.lint.pydocstyle]
