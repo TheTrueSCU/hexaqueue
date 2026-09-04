@@ -35,6 +35,28 @@ wheels = [
 ]
 
 [[package]]
+name = "anyio"
+version = "4.15.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "idna" },
+    { name = "typing-extensions", marker = "python_full_version < '3.15'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ea/9a/c15a60547004a3f3cea20296c934f827ddd7bdba225a2e7e9fcb5ec48c80/anyio-4.15.0.tar.gz", hash = "sha256:b5c620ed540725e2579c31b17bb995b3bf02c9281c9cace04c7d186380bab85e", size = 276504, upload-time = "2026-09-02T21:46:36.957Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/21/a6/2b21ce5ebe4d8938a247c9b0dbb7271566ae559b01795c83ea4bb2660ed7/anyio-4.15.0-py3-none-any.whl", hash = "sha256:7ecd9937369ffce8bba0b5ccb9b3a9507b101b0ed50256aecfbab27e6c2acb99", size = 131908, upload-time = "2026-09-02T21:46:35.485Z" },
+]
+
+[[package]]
+name = "certifi"
+version = "2026.7.22"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a3/c2/24167ea9858356b47a87a50d39908bfdb72ceeefe0041586e704e5376b3a/certifi-2026.7.22.tar.gz", hash = "sha256:741e2c3b351ddf169a738da9f2c048608ff7f2c5cc02f1ebc6b118bb090d5d55", size = 138112, upload-time = "2026-07-22T03:35:12.644Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0b/a7/71ac2cff56fec219ed242bb11b8efb69fcc4bec75db06fb7bfe35de520e6/certifi-2026.7.22-py3-none-any.whl", hash = "sha256:62f22742b58a1a33014a2b6b706588a8d7e2a88ae7bd1a6ebe8c992928483775", size = 136983, upload-time = "2026-07-22T03:35:11.276Z" },
+]
+
+[[package]]
 name = "cfgv"
 version = "3.5.0"
 source = { registry = "https://pypi.org/simple" }
@@ -176,6 +198,15 @@ wheels = [
 ]
 
 [[package]]
+name = "h11"
+version = "0.16.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/01/ee/02a2c011bdab74c6fb3c75474d40b3052059d95df7e73351460c8588d963/h11-0.16.0.tar.gz", hash = "sha256:4e35b956cf45792e4caa5885e69fba00bdbc6ffafbfa020300e549b208ee5ff1", size = 101250, upload-time = "2025-04-24T03:35:25.427Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl", hash = "sha256:63cf8bbe7522de3bf65932fda1d9c2772064ffb3dae62d55932da54b31cb6c86", size = 37515, upload-time = "2025-04-24T03:35:24.344Z" },
+]
+
+[[package]]
 name = "hexaqueue"
 version = "0.1.0"
 source = { editable = "packages/hexaqueue" }
@@ -235,11 +266,17 @@ name = "hexaqueue-core"
 version = "0.1.0"
 source = { editable = "packages/hexaqueue_core" }
 dependencies = [
+    { name = "hexastack-core" },
+    { name = "hexastack-cqrs" },
     { name = "pydantic" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pydantic", specifier = ">=2.10.0" }]
+requires-dist = [
+    { name = "hexastack-core", specifier = ">=0.3.0" },
+    { name = "hexastack-cqrs", specifier = ">=0.3.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+]
 
 [[package]]
 name = "hexaqueue-dashboard"
@@ -307,6 +344,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "faker" },
+    { name = "hexastack-tools" },
     { name = "hypothesis" },
     { name = "pre-commit" },
     { name = "pytest" },
@@ -323,6 +361,7 @@ requires-dist = [{ name = "hexaqueue", editable = "packages/hexaqueue" }]
 [package.metadata.requires-dev]
 dev = [
     { name = "faker", specifier = ">=33.0.0" },
+    { name = "hexastack-tools", specifier = ">=0.3.0" },
     { name = "hypothesis", specifier = ">=6.120.0" },
     { name = "pre-commit", specifier = ">=4.0.0" },
     { name = "pytest", specifier = ">=8.3.0" },
@@ -331,6 +370,93 @@ dev = [
     { name = "pytest-xdist", specifier = ">=3.6.0" },
     { name = "ruff", specifier = ">=0.9.0" },
     { name = "ty", specifier = ">=0.0.75" },
+]
+
+[[package]]
+name = "hexastack-cli"
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "hexastack-core" },
+    { name = "hexastack-cqrs" },
+    { name = "rich" },
+    { name = "typer" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/45/e3/a13ba51f659be104a7a216344cc86cfe81fd6c4d8d78778c41340cd9ea3b/hexastack_cli-0.3.0.tar.gz", hash = "sha256:030e3f11e9badf6be3f115cd0dca2ca57764ccbf06c5323fbfc53bb1b0608049", size = 17416, upload-time = "2026-09-04T05:45:53.723Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/42/ec/6bb37e1f2256b46b1b9c0de281f1c84a9bb5f4edbd11ce697756b2141917/hexastack_cli-0.3.0-py3-none-any.whl", hash = "sha256:3ddd75e203bb24d83b8210797bc74e6182bf198354c0bf5084c05b250450fd42", size = 24504, upload-time = "2026-09-04T05:45:36.17Z" },
+]
+
+[[package]]
+name = "hexastack-core"
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "rodi" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c4/81/c724f324561275c2e8a8f8fab23f341c6cc5f32b4a3e10af701007b22be8/hexastack_core-0.3.0.tar.gz", hash = "sha256:ef28c415eddbc434d6a030e925e6f2676c8a981b2766c21f737fa3e46df99261", size = 52944, upload-time = "2026-09-04T05:45:54.68Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fb/fe/02bb6d7bd74839c4ce669fbbcbecd742a15c66a290b476656681b98d3d3a/hexastack_core-0.3.0-py3-none-any.whl", hash = "sha256:14d63d0ebbf494c3c2e067367aa81ec56c77ad9fe758bc8f1ccb9748016961e7", size = 90964, upload-time = "2026-09-04T05:45:37.463Z" },
+]
+
+[[package]]
+name = "hexastack-cqrs"
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "hexastack-core" },
+    { name = "stamina" },
+    { name = "tenacity" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e9/e2/1250c9f2f7a0f2222dbd76a00293b070cd7afac2cd72a1989d36ab6a58bd/hexastack_cqrs-0.3.0.tar.gz", hash = "sha256:0066a9c92278f238bfd37a6d94b43ab300f3e2af151b05e9384ca9f1b90e3245", size = 26916, upload-time = "2026-09-04T05:45:55.398Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f0/dd/d0f9383a186053d30dd76936d965c9cec5c3c5d6856238bc977da60635b8/hexastack_cqrs-0.3.0-py3-none-any.whl", hash = "sha256:cc7a7dd509857ea744feb30fba494943b3597aa9405ce59760012d775be7db67", size = 47369, upload-time = "2026-09-04T05:45:38.709Z" },
+]
+
+[[package]]
+name = "hexastack-tools"
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "hexastack-cli" },
+    { name = "hexastack-core" },
+    { name = "hexastack-cqrs" },
+    { name = "httpx" },
+    { name = "rich" },
+    { name = "typer" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6c/47/c3fbb602bc69dbb6c82941beaff72eae849135db2f1eb1ce09bb27e44322/hexastack_tools-0.3.0.tar.gz", hash = "sha256:63b6cf286b2286b36a98992d74dbcd69c4e1a8a01b8a528ed72890e585049c29", size = 39604, upload-time = "2026-09-04T05:46:02.965Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4b/80/d3daa6e8561b77212305d716d7c982c505df1cc4dc773da60d8a3615b6d7/hexastack_tools-0.3.0-py3-none-any.whl", hash = "sha256:c4484381e91c674447bc817f43bc9472b513234a09f591648aa2332553133481", size = 59944, upload-time = "2026-09-04T05:45:50.531Z" },
+]
+
+[[package]]
+name = "httpcore"
+version = "1.0.9"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "certifi" },
+    { name = "h11" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/06/94/82699a10bca87a5556c9c59b5963f2d039dbd239f25bc2a63907a05a14cb/httpcore-1.0.9.tar.gz", hash = "sha256:6e34463af53fd2ab5d807f399a9b45ea31c3dfa2276f15a2c3f00afff6e176e8", size = 85484, upload-time = "2025-04-24T22:06:22.219Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7e/f5/f66802a942d491edb555dd61e3a9961140fd64c90bce1eafd741609d334d/httpcore-1.0.9-py3-none-any.whl", hash = "sha256:2d400746a40668fc9dec9810239072b40b4484b640a8c38fd654a024c7a1bf55", size = 78784, upload-time = "2025-04-24T22:06:20.566Z" },
+]
+
+[[package]]
+name = "httpx"
+version = "0.28.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "certifi" },
+    { name = "httpcore" },
+    { name = "idna" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b1/df/48c586a5fe32a0f01324ee087459e112ebb7224f646c0b5023f5e79e9956/httpx-0.28.1.tar.gz", hash = "sha256:75e98c5f16b0f35b567856f597f06ff2270a374470a5c2392242528e3e3e42fc", size = 141406, upload-time = "2024-12-06T15:37:23.222Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2a/39/e50c7c3a983047577ee07d2a9e53faf5a69493943ec3f6a384bdc792deb2/httpx-0.28.1-py3-none-any.whl", hash = "sha256:d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad", size = 73517, upload-time = "2024-12-06T15:37:21.509Z" },
 ]
 
 [[package]]
@@ -405,6 +531,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/52/63/51723b5f116cc04b061cb6f5a561790abf249d25931d515cd375e063e0f4/identify-2.6.19.tar.gz", hash = "sha256:6be5020c38fcb07da56c53733538a3081ea5aa70d36a156f83044bfbf9173842", size = 99567, upload-time = "2026-04-17T18:39:50.265Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/94/84/d9273cd09688070a6523c4aee4663a8538721b2b755c4962aafae0011e72/identify-2.6.19-py2.py3-none-any.whl", hash = "sha256:20e6a87f786f768c092a721ad107fc9df0eb89347be9396cadf3f4abbd1fb78a", size = 99397, upload-time = "2026-04-17T18:39:49.221Z" },
+]
+
+[[package]]
+name = "idna"
+version = "3.19"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5f/f7/abb373e5757eaec4b922b92f97ec8d6d7e057cf06778247604fbc4e7c3f3/idna-3.19.tar.gz", hash = "sha256:5e0811a4383b21dc5838069f801c4fb62113b7447663d2530d2bd6e77b49bf15", size = 215237, upload-time = "2026-08-18T05:14:24.27Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/57/b0/0e52c878c53f245edd3a11020f20979b3f490f245af532c7cae3027754b5/idna-3.19-py3-none-any.whl", hash = "sha256:815e7be7a7806d54abb586dc943addc79e8b2ee16915059658cbeff4b1b43bf4", size = 68550, upload-time = "2026-08-18T05:14:22.343Z" },
 ]
 
 [[package]]
@@ -686,6 +821,15 @@ wheels = [
 ]
 
 [[package]]
+name = "rodi"
+version = "2.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/19/e6/72d8fbdaf8e70b5e717a889f7d35f4983173cdcd3a5c1a9e427d064bb4c2/rodi-2.1.0.tar.gz", hash = "sha256:7e1548361dcff5eb5e5228c752ed9a3ac1535cbdc1ba0561deeb63b686f069c5", size = 16780, upload-time = "2026-03-08T19:31:22.467Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/96/34/9565181b12a94139376b49645f2439d57f14d01082e12d28f8d88f1a2b27/rodi-2.1.0-py3-none-any.whl", hash = "sha256:cfca0d9b9f6693850d2ec01c5680aed5f5e356aafe4494671dc8caddd569d654", size = 14734, upload-time = "2026-03-08T19:31:21.374Z" },
+]
+
+[[package]]
 name = "ruff"
 version = "0.16.6"
 source = { registry = "https://pypi.org/simple" }
@@ -726,6 +870,27 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/e8/c4/ba2f8066cceb6f23394729afe52f3bf7adec04bf9ed2c820b39e19299111/sortedcontainers-2.4.0.tar.gz", hash = "sha256:25caa5a06cc30b6b83d11423433f65d1f9d76c4c6a0c90e3379eaa43b9bfdb88", size = 30594, upload-time = "2021-05-16T22:03:42.897Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/32/46/9cb0e58b2deb7f82b84065f37f3bffeb12413f947f9388e4cac22c4621ce/sortedcontainers-2.4.0-py2.py3-none-any.whl", hash = "sha256:a163dcaede0f1c021485e957a39245190e74249897e2ae4b2aa38595db237ee0", size = 29575, upload-time = "2021-05-16T22:03:41.177Z" },
+]
+
+[[package]]
+name = "stamina"
+version = "26.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "tenacity" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/80/bd/b2f71ae14368a066f103d182f25bbc6c3bf4aa695889f3ed3cba026d6f36/stamina-26.1.0.tar.gz", hash = "sha256:0214d05fdf5102c518194a4aac7520ce53cf660550ae3b940701aad88cf50c17", size = 568171, upload-time = "2026-04-13T17:44:31.012Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1d/f0/1ff90a1d1dd02de23feafdf9dffaecef3958348be5c192df56670ccb4f86/stamina-26.1.0-py3-none-any.whl", hash = "sha256:62e06829bec87c06d4cafde520b32a6097d1017c378a9eb63253c5bf5ebbbb88", size = 18508, upload-time = "2026-04-13T17:44:29.545Z" },
+]
+
+[[package]]
+name = "tenacity"
+version = "9.1.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/47/c6/ee486fd809e357697ee8a44d3d69222b344920433d3b6666ccd9b374630c/tenacity-9.1.4.tar.gz", hash = "sha256:adb31d4c263f2bd041081ab33b498309a57c77f9acf2db65aadf0898179cf93a", size = 49413, upload-time = "2026-02-07T10:45:33.841Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d7/c1/eb8f9debc45d3b7918a32ab756658a0904732f75e555402972246b0b8e71/tenacity-9.1.4-py3-none-any.whl", hash = "sha256:6095a360c919085f28c6527de529e76a06ad89b23659fa881ae0649b867a9d55", size = 28926, upload-time = "2026-02-07T10:45:32.24Z" },
 ]
 
 [[package]]

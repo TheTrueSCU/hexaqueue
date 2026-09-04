@@ -34,6 +34,7 @@ hexaqueue-worker = { workspace = true }
 [dependency-groups]
 dev = [
     "faker>=33.0.0",
+    "hexastack-tools>=0.3.0",
     "hypothesis>=6.120.0",
     "pre-commit>=4.0.0",
     "pytest>=8.3.0",
