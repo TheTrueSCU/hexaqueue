@@ -1,0 +1,17 @@
+[project]
+name = "hexaqueue-core"
+version = "0.1.0"
+description = "Hexaqueue Core - Pure domain models, scheduling algorithms, and port interfaces"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [
+    { name = "Richard West", email = "dopplereffect.us@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "pydantic>=2.10.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

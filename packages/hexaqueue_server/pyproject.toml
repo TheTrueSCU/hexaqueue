@@ -1,0 +1,20 @@
+[project]
+name = "hexaqueue-server"
+version = "0.1.0"
+description = "Hexaqueue Server - High-Availability Central Controller and Scheduler Engine"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [
+    { name = "Richard West", email = "dopplereffect.us@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "hexaqueue-core",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+hexaqueue-core = { workspace = true }

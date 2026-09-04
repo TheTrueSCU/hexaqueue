@@ -1,0 +1,48 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Caches and Environments
+.venv/
+env/
+venv/
+.cache/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ty_cache/
+.hypothesis/
+.import_linter_cache/
+.mutmut-cache
+.ropeproject/
+
+# Test & Coverage
+.coverage
+.coverage.*
+htmlcov/
+nosetests.xml
+coverage.xml
+junit.xml
+*.xml
+*.cover
+*.mutmut-cache
+
+# Build & Packaging
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+
+# Database files & Local State
+*.db*
+*.sqlite
+*.sqlite3
+logs/
+*.log
+
+# OS Specific
+.DS_Store
+Thumbs.db
+site/

@@ -1,0 +1,28 @@
+[project]
+name = "hexaqueue"
+version = "0.1.0"
+description = "Hexaqueue - Cloud-Agnostic HPC Batch Scheduler and Distributed Job Orchestrator"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [
+    { name = "Richard West", email = "dopplereffect.us@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "hexaqueue-cli",
+    "hexaqueue-core",
+    "hexaqueue-monitor",
+    "hexaqueue-server",
+    "hexaqueue-worker",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+hexaqueue-cli = { workspace = true }
+hexaqueue-core = { workspace = true }
+hexaqueue-monitor = { workspace = true }
+hexaqueue-server = { workspace = true }
+hexaqueue-worker = { workspace = true }

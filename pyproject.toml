@@ -1,0 +1,133 @@
+[project]
+name = "hexaqueue-workspace"
+version = "0.1.0"
+description = "Hexaqueue - Cloud-Agnostic HPC Batch Scheduler and Distributed Job Orchestrator"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "hexaqueue",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["packages/hexaqueue/src"]
+
+[tool.uv.workspace]
+members = [
+    "packages/*",
+]
+
+[tool.uv.sources]
+hexaqueue = { workspace = true }
+hexaqueue-cli = { workspace = true }
+hexaqueue-core = { workspace = true }
+hexaqueue-monitor = { workspace = true }
+hexaqueue-server = { workspace = true }
+hexaqueue-worker = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "faker>=33.0.0",
+    "hypothesis>=6.120.0",
+    "pre-commit>=4.0.0",
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "pytest-xdist>=3.6.0",
+    "ruff>=0.9.0",
+    "ty>=0.0.75",
+]
+
+[tool.coverage.run]
+branch = false
+source = ["packages/"]
+omit = [
+    "*/__pycache__/*",
+    "*/testing/*",
+    "*/tests/*",
+]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+exclude_lines = [
+    "@abstractmethod",
+    "if TYPE_CHECKING:",
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "return NotImplemented",
+]
+
+[tool.pytest.ini_options]
+addopts = "-n auto --import-mode=importlib --cov=packages --cov-fail-under=90 --cov-report=term-missing:skip-covered"
+markers = [
+    "integration: mark a test as requiring external infrastructure",
+    "slow: mark a test as slow-running",
+]
+asyncio_mode = "auto"
+
+[tool.ruff.lint]
+select = [
+    "ARG",  # flake8-unused-arguments
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "D",    # pydocstyle
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # isort
+    "LOG",  # flake8-logging
+    "PIE",  # flake8-pie
+    "PTH",  # flake8-use-pathlib
+    "RET",  # flake8-return
+    "RSE",  # flake8-raise
+    "S",    # flake8-bandit
+    "SIM",  # flake8-simplify
+    "T20",  # flake8-print
+    "TCH",  # flake8-type-checking
+    "TID",  # flake8-tidy-imports
+    "UP",   # pyupgrade
+    "W",    # pycodestyle warnings
+]
+ignore = [
+    "ARG001", # Unused function argument
+    "ARG002", # Unused method argument
+    "B008",   # Do not perform function call in argument defaults
+    "D100",   # Missing docstring in public module
+    "D102",   # Missing docstring in public method
+    "D103",   # Missing docstring in public function
+    "D104",   # Missing docstring in public package (__init__.py)
+    "D105",   # Missing docstring in magic method
+    "D107",   # Missing docstring in __init__
+    "E501",   # Line too long
+    "E731",   # Do not assign a lambda expression
+    "S104",   # Possible binding to all interfaces
+    "S106",   # Possible hardcoded password argument
+    "S108",   # Probable insecure usage of temp directory
+    "S110",   # try-except-pass detected
+    "S603",   # Subprocess call with dynamic inputs
+    "S607",   # Starting process with partial path
+    "UP040",  # Type alias uses TypeAlias
+    "TC001",  # Move application import into type-checking block
+    "TC002",  # Move third-party import into type-checking block
+    "TC003",  # Move standard library import into type-checking block
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/hexaqueue_cli/**/*.py" = ["T201"]
+"**/tests/**/*.py" = ["ARG", "D", "E501", "S101", "S105"]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "hexaqueue",
+    "hexaqueue_cli",
+    "hexaqueue_core",
+    "hexaqueue_monitor",
+    "hexaqueue_server",
+    "hexaqueue_worker",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
