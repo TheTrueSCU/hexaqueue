@@ -10,6 +10,10 @@ authors = [
 requires-python = ">=3.13"
 dependencies = [
     "hexaqueue-core",
+    "hexastack-cli>=0.3.0",
+    "hexastack-core>=0.3.0",
+    "hexastack-cqrs>=0.3.0",
+    "hexastack-grpc>=0.3.0",
     "rich>=13.8.0",
     "typer>=0.15.0",
 ]
