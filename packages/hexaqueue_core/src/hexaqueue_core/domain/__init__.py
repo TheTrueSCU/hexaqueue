@@ -33,6 +33,13 @@ from hexaqueue_core.domain.exceptions import (
 from hexaqueue_core.domain.exceptions import (
     HexaqueueConfigError as BaseHexaqueueConfigError,
 )
+from hexaqueue_core.domain.group import (
+    GroupExpansionEngine,
+    JobGroupSpec,
+    JobTemplateSpec,
+    ResolvedJobCollection,
+    ResourceOverrideSpec,
+)
 from hexaqueue_core.domain.job import (
     JobSpec,
 )
@@ -70,6 +77,7 @@ __all__ = [
     "ExecutionMode",
     "FreeTierLimitExceededError",
     "FreeTierProfileConfig",
+    "GroupExpansionEngine",
     "HexaqueueConfig",
     "HexaqueueConfigError",
     "HexaqueueCoreConfig",
@@ -77,11 +85,15 @@ __all__ = [
     "is_dependency_blocked",
     "is_dependency_satisfied",
     "JobDagEngine",
+    "JobGroupSpec",
     "JobSpec",
     "JobState",
     "JobStateTransitionError",
     "JobStatus",
+    "JobTemplateSpec",
     "QuotaExceededError",
+    "ResolvedJobCollection",
+    "ResourceOverrideSpec",
     "ResourceRequirements",
     "RunOutcome",
     "RunSpec",
