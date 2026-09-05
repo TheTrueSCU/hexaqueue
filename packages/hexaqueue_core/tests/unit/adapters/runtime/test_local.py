@@ -10,7 +10,7 @@ from hexaqueue_core.domain.resources import ResourceRequirements
 
 
 @pytest.mark.asyncio
-async def test_local_subprocess_execution():
+async def test_local_subprocess_execution() -> None:
     """Verify local subprocess execution, exit code capture, and walltime."""
     log_port = InMemoryLogStreamAdapter()
     runtime = LocalSubprocessExecutionRuntimeAdapter(log_port=log_port)
@@ -23,7 +23,7 @@ async def test_local_subprocess_execution():
         resources=ResourceRequirements(walltime_seconds=10),
     )
 
-    result = await runtime.execute(job)
+    result = await runtime.execute(job, environment={"CUSTOM_VAR": "val"})
     assert result.exit_code == 0
     assert result.outcome == TerminalOutcome.COMPLETED
 
@@ -33,7 +33,7 @@ async def test_local_subprocess_execution():
 
 
 @pytest.mark.asyncio
-async def test_local_subprocess_failure():
+async def test_local_subprocess_failure() -> None:
     """Verify failed subprocess execution exit code capture."""
     log_port = InMemoryLogStreamAdapter()
     runtime = LocalSubprocessExecutionRuntimeAdapter(log_port=log_port)
@@ -54,7 +54,7 @@ async def test_local_subprocess_failure():
 
 
 @pytest.mark.asyncio
-async def test_local_subprocess_timeout():
+async def test_local_subprocess_timeout() -> None:
     """Verify walltime enforcement on slow subprocesses."""
     from unittest.mock import patch
 
@@ -74,7 +74,7 @@ async def test_local_subprocess_timeout():
 
 
 @pytest.mark.asyncio
-async def test_local_subprocess_terminate():
+async def test_local_subprocess_terminate() -> None:
     """Verify termination of active subprocess."""
     runtime = LocalSubprocessExecutionRuntimeAdapter()
     await runtime.terminate("non-existent-job")

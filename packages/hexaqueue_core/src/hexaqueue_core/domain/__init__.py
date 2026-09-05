@@ -54,11 +54,15 @@ from hexaqueue_core.domain.run import (
 
 __all__ = [
     "BaseHexaqueueConfigError",
+    "can_transition_collateral",
+    "can_transition_job",
     "ChecksumMismatchError",
     "CollateralBundle",
     "CollateralKind",
     "CollateralState",
     "CollateralTier",
+    "compute_run_outcome",
+    "compute_run_state",
     "CspProvider",
     "DependencyCycleError",
     "DependencySpec",
@@ -69,6 +73,7 @@ __all__ = [
     "HexaqueueConfigError",
     "HexaqueueCoreConfig",
     "HexaqueueError",
+    "is_dependency_satisfied",
     "JobDagEngine",
     "JobSpec",
     "JobState",
@@ -81,9 +86,4 @@ __all__ = [
     "RunState",
     "TerminalOutcome",
     "TriggerCondition",
-    "can_transition_collateral",
-    "can_transition_job",
-    "compute_run_outcome",
-    "compute_run_state",
-    "is_dependency_satisfied",
 ]

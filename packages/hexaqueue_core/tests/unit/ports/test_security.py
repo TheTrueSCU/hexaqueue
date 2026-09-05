@@ -1,35 +1,29 @@
-"""Unit tests for security port models and contracts."""
+"""Tests for SecurityQuarantinePort and SecurityScanResult."""
 
 import pytest
 
-from hexaqueue_core.ports.security import SecurityScanResult
+from hexaqueue_core.ports.security import SecurityQuarantinePort, SecurityScanResult
 
 
-def test_security_scan_result_valid():
-    """Verify clean SecurityScanResult creation."""
-    res = SecurityScanResult(
-        is_clean=True,
-        scanner_engine="MockScanner-1.0",
+def test_security_quarantine_port_is_abstract() -> None:
+    """Verify SecurityQuarantinePort cannot be instantiated directly."""
+    with pytest.raises(TypeError):
+        SecurityQuarantinePort()  # type: ignore[abstract]
+
+
+def test_security_scan_result_model() -> None:
+    """Verify SecurityScanResult validation."""
+    clean = SecurityScanResult(is_clean=True, scanner_engine="clamav-1.0")
+    assert clean.is_clean is True
+
+    infected = SecurityScanResult(
+        is_clean=False, threat_name="Trojan.Generic", scanner_engine="clamav-1.0"
     )
-    assert res.is_clean is True
-    assert res.threat_name is None
+    assert infected.is_clean is False
+    assert infected.threat_name == "Trojan.Generic"
 
+    with pytest.raises(ValueError, match="threat_name must be provided"):
+        SecurityScanResult(is_clean=False, scanner_engine="clamav-1.0")
 
-def test_security_scan_result_infected():
-    """Verify infected scan result requires threat_name."""
-    res = SecurityScanResult(
-        is_clean=False,
-        threat_name="Eicar-Test-Signature",
-        scanner_engine="ClamAV-1.4.0",
-    )
-    assert res.is_clean is False
-    assert res.threat_name == "Eicar-Test-Signature"
-
-    with pytest.raises(
-        ValueError, match="threat_name must be provided when artifact is not clean"
-    ):
-        SecurityScanResult(
-            is_clean=False,
-            threat_name=None,
-            scanner_engine="ClamAV",
-        )
+    with pytest.raises(ValueError, match="scanner_engine cannot be empty"):
+        SecurityScanResult(is_clean=True, scanner_engine="   ")

@@ -112,3 +112,20 @@ def test_run_spec_projection():
 
     assert run.state == RunState.DONE
     assert run.outcome == RunOutcome.PARTIALLY_FAILED
+
+
+def test_compute_run_state_all_blocked() -> None:
+    """Verify run state when remaining jobs are blocked."""
+    states = [JobState.DONE, JobState.BLOCKED]
+    assert compute_run_state(states) == RunState.BLOCKED
+
+
+def test_can_transition_job_same_state() -> None:
+    """Verify self transitions are permitted."""
+    assert can_transition_job(JobState.RUNNING, JobState.RUNNING) is True
+
+
+def test_compute_run_state_fallback() -> None:
+    """Verify run state fallback to RUNNING."""
+    states = [JobState.DONE, JobState.SUBMITTED]
+    assert compute_run_state(states) == RunState.RUNNING

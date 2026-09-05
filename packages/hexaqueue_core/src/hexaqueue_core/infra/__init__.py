@@ -14,6 +14,7 @@ from hexaqueue_core.infra.registries import (
 )
 
 __all__ = [
+    "bootstrap_hexaqueue",
     "GenericHandlerRegistry",
     "GenericHandlerRegistryError",
     "GenericTypeRegistry",
@@ -21,5 +22,4 @@ __all__ = [
     "HexaqueueBootstrapContext",
     "HexaqueueBootstrapResult",
     "HexaqueueConfigRegistry",
-    "bootstrap_hexaqueue",
 ]

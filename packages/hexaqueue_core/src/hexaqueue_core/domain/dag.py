@@ -210,7 +210,7 @@ class JobDagEngine:
 __all__ = [
     "DependencyCycleError",
     "DependencySpec",
+    "is_dependency_satisfied",
     "JobDagEngine",
     "TriggerCondition",
-    "is_dependency_satisfied",
 ]

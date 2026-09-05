@@ -90,7 +90,7 @@ dev = [
 
 [tool.coverage.run]
 branch = false
-source = ["packages/"]
+source = ["packages/*/src"]
 omit = [
     "*/__pycache__/*",
     "*/testing/*",
@@ -107,6 +107,9 @@ exclude_lines = [
     "raise NotImplementedError",
     "return NotImplemented",
 ]
+
+[tool.inline-snapshot]
+format-command = "uv run ruff format --stdin-filename {filename} -"
 
 [tool.pytest.ini_options]
 addopts = "-n auto --import-mode=importlib --cov=packages --cov-fail-under=90 --cov-report=term-missing:skip-covered"

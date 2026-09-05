@@ -1,28 +1,26 @@
-"""Unit tests for storage volume port models and contracts."""
+"""Tests for StorageVolumePort and VolumeAllocation."""
 
 import pytest
 
-from hexaqueue_core.ports.storage import VolumeAllocation
+from hexaqueue_core.ports.storage import StorageVolumePort, VolumeAllocation
 
 
-def test_volume_allocation_valid():
-    """Verify VolumeAllocation creates valid model with constraints."""
-    vol = VolumeAllocation(
-        volume_id="vol-123",
-        mount_path="/tmp/scratch/job-1",
-        size_mb=1024,
-        is_ephemeral=True,
-    )
-    assert vol.volume_id == "vol-123"
-    assert vol.mount_path == "/tmp/scratch/job-1"
+def test_storage_volume_port_is_abstract() -> None:
+    """Verify StorageVolumePort cannot be instantiated directly."""
+    with pytest.raises(TypeError):
+        StorageVolumePort()  # type: ignore[abstract]
+
+
+def test_volume_allocation_model() -> None:
+    """Verify VolumeAllocation model and validation."""
+    vol = VolumeAllocation(volume_id="vol-1", mount_path="/mnt/scratch", size_mb=1024)
+    assert vol.volume_id == "vol-1"
+    assert vol.mount_path == "/mnt/scratch"
     assert vol.size_mb == 1024
     assert vol.is_ephemeral is True
 
-
-def test_volume_allocation_invalid_invariants():
-    """Verify VolumeAllocation rejects empty strings."""
     with pytest.raises(ValueError, match="volume_id cannot be empty"):
-        VolumeAllocation(volume_id="   ", mount_path="/tmp", size_mb=100)
+        VolumeAllocation(volume_id="  ", mount_path="/mnt/scratch", size_mb=1024)
 
     with pytest.raises(ValueError, match="mount_path cannot be empty"):
-        VolumeAllocation(volume_id="v1", mount_path="", size_mb=100)
+        VolumeAllocation(volume_id="vol-1", mount_path="  ", size_mb=1024)

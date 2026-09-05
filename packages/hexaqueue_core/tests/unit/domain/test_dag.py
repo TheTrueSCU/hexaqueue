@@ -143,3 +143,13 @@ def test_dag_is_job_ready():
 
     # Independent job with no dependencies is always ready
     assert dag.is_job_ready("independent", {})
+
+
+def test_dag_topological_sort_with_unregistered_deps() -> None:
+    """Verify topological sort handles unregistered nodes in dependency map."""
+    dag = JobDagEngine()
+    dag.add_dependency(
+        child_job_id="c1", parent_job_id="p1", condition=TriggerCondition.AFTER_OK
+    )
+    order = dag.validate_and_topological_sort(all_job_ids={"c1", "p1"})
+    assert order == ["p1", "c1"]

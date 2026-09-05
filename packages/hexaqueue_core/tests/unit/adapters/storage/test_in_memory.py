@@ -15,3 +15,10 @@ async def test_in_memory_storage_lifecycle():
     assert "hq-scratch-job-123" in vol.mount_path
 
     await storage.cleanup_scratch(vol.volume_id)
+
+
+@pytest.mark.asyncio
+async def test_in_memory_storage_cleanup_nonexistent():
+    """Verify cleanup of nonexistent volume is a safe no-op."""
+    storage = InMemoryStorageVolumeAdapter()
+    await storage.cleanup_scratch("nonexistent-vol")

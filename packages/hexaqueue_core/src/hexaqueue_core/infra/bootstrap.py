@@ -115,7 +115,7 @@ def bootstrap_hexaqueue(
 
 
 __all__ = [
+    "bootstrap_hexaqueue",
     "HexaqueueBootstrapContext",
     "HexaqueueBootstrapResult",
-    "bootstrap_hexaqueue",
 ]

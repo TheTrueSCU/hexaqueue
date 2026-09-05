@@ -25,3 +25,11 @@ async def test_in_memory_log_stream():
     tail_chunks = [c async for c in log_port.stream_logs("job-1", tail=1)]
     assert len(tail_chunks) == 1
     assert tail_chunks[0].content == "line 2\n"
+
+
+@pytest.mark.asyncio
+async def test_in_memory_log_stream_empty():
+    """Verify stream_logs on job with no logs returns empty generator."""
+    log_port = InMemoryLogStreamAdapter()
+    chunks = [c async for c in log_port.stream_logs("no-logs-job")]
+    assert chunks == []

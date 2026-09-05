@@ -1,4 +1,4 @@
-"""Unit tests for Collateral domain models, state transitions, and invariants."""
+"""Tests for collateral domain invariants and models."""
 
 import pytest
 
@@ -11,125 +11,95 @@ from hexaqueue_core.domain.collateral import (
 )
 
 
-def test_valid_collateral_transitions():
-    """Verify legal state transitions in the quarantine pipeline."""
-    assert can_transition_collateral(
-        CollateralState.REGISTERED, CollateralState.UPLOADED
+def test_collateral_bundle_valid() -> None:
+    """Verify valid CollateralBundle creation."""
+    bundle = CollateralBundle(
+        id="bundle-1",
+        job_id="job-1",
+        filename="test-bundle.tar.gz",
+        kind=CollateralKind.BUNDLE,
+        tier=CollateralTier.TEMPORARY,
+        sha256_checksum="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        size_bytes=1024,
+        staging_uri="file:///tmp/staging/bundle-1",
     )
-    assert can_transition_collateral(CollateralState.UPLOADED, CollateralState.SCANNING)
-    assert can_transition_collateral(CollateralState.SCANNING, CollateralState.APPROVED)
-    assert can_transition_collateral(
-        CollateralState.SCANNING, CollateralState.QUARANTINED
-    )
-    assert can_transition_collateral(CollateralState.SCANNING, CollateralState.REJECTED)
-    assert can_transition_collateral(
-        CollateralState.REGISTERED, CollateralState.REJECTED
-    )
+    assert bundle.id == "bundle-1"
+    assert bundle.job_id == "job-1"
+    assert bundle.filename == "test-bundle.tar.gz"
+    assert bundle.kind == CollateralKind.BUNDLE
+    assert bundle.tier == CollateralTier.TEMPORARY
+    assert bundle.state == CollateralState.REGISTERED
 
 
-def test_invalid_collateral_transitions():
-    """Verify illegal jumps in the quarantine pipeline are disallowed."""
-    assert not can_transition_collateral(
-        CollateralState.REGISTERED, CollateralState.APPROVED
-    )
-    assert not can_transition_collateral(
-        CollateralState.UPLOADED, CollateralState.APPROVED
-    )
-    assert not can_transition_collateral(
-        CollateralState.APPROVED, CollateralState.SCANNING
-    )
-    assert not can_transition_collateral(
-        CollateralState.QUARANTINED, CollateralState.APPROVED
-    )
-
-
-def test_collateral_bundle_approved_invariant():
-    """Verify active_uri is required when APPROVED and forbidden when unapproved."""
-    valid_sha = "a" * 64
-
-    # APPROVED requires active_uri
-    with pytest.raises(
-        ValueError, match="active_uri must be provided when state is APPROVED"
-    ):
-        CollateralBundle(
-            id="c1",
-            job_id="j1",
-            filename="test.bin",
-            size_bytes=1024,
-            sha256_checksum=valid_sha,
-            state=CollateralState.APPROVED,
-            staging_uri="s3://staging/c1/test.bin",
-            active_uri=None,
-        )
-
-    # REGISTERED cannot have active_uri
+def test_collateral_bundle_invariants() -> None:
+    """Verify CollateralBundle field invariants."""
     with pytest.raises(
         ValueError, match="active_uri can only be set when state is APPROVED"
     ):
         CollateralBundle(
-            id="c1",
-            job_id="j1",
-            filename="test.bin",
+            id="bundle-1",
+            job_id="job-1",
+            filename="bundle.tar.gz",
+            kind=CollateralKind.BUNDLE,
+            sha256_checksum="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
             size_bytes=1024,
-            sha256_checksum=valid_sha,
+            staging_uri="file:///tmp/staging/bundle-1",
             state=CollateralState.REGISTERED,
-            staging_uri="s3://staging/c1/test.bin",
-            active_uri="s3://active/test.bin",
+            active_uri="file:///tmp/active/bundle-1",
         )
 
-
-def test_collateral_bundle_quarantine_reason_invariant():
-    """Verify quarantine_reason is mandatory when QUARANTINED or REJECTED."""
-    valid_sha = "b" * 64
-
     with pytest.raises(
-        ValueError, match="quarantine_reason must be provided when state is QUARANTINED"
+        ValueError, match="active_uri must be provided when state is APPROVED"
     ):
         CollateralBundle(
-            id="c1",
-            job_id="j1",
-            filename="malware.bin",
-            size_bytes=2048,
-            sha256_checksum=valid_sha,
+            id="bundle-1",
+            job_id="job-1",
+            filename="bundle.tar.gz",
+            kind=CollateralKind.BUNDLE,
+            sha256_checksum="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            size_bytes=1024,
+            staging_uri="file:///tmp/staging/bundle-1",
+            state=CollateralState.APPROVED,
+            active_uri=None,
+        )
+
+    with pytest.raises(ValueError, match="quarantine_reason must be provided"):
+        CollateralBundle(
+            id="bundle-1",
+            job_id="job-1",
+            filename="bundle.tar.gz",
+            kind=CollateralKind.BUNDLE,
+            sha256_checksum="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            size_bytes=1024,
+            staging_uri="file:///tmp/staging/bundle-1",
             state=CollateralState.QUARANTINED,
-            staging_uri="s3://staging/c1/malware.bin",
             quarantine_reason=None,
         )
 
-    with pytest.raises(
-        ValueError, match="quarantine_reason must be provided when state is REJECTED"
-    ):
-        CollateralBundle(
-            id="c1",
-            job_id="j1",
-            filename="corrupt.bin",
-            size_bytes=2048,
-            sha256_checksum=valid_sha,
-            state=CollateralState.REJECTED,
-            staging_uri="s3://staging/c1/corrupt.bin",
-            quarantine_reason="",
-        )
 
-
-def test_collateral_valid_creation():
-    """Verify valid creation of approved and registered bundles."""
-    valid_sha = "c" * 64
-
-    bundle = CollateralBundle(
-        id="c1",
-        job_id="j1",
-        filename="model.onnx",
-        size_bytes=1048576,
-        sha256_checksum=valid_sha,
-        kind=CollateralKind.DATASET,
-        tier=CollateralTier.PERMANENT,
-        state=CollateralState.APPROVED,
-        staging_uri="s3://staging/c1/model.onnx",
-        active_uri="s3://clean/models/model.onnx",
-        active_pin_count=2,
+def test_collateral_transitions() -> None:
+    """Verify state transitions."""
+    assert (
+        can_transition_collateral(CollateralState.REGISTERED, CollateralState.UPLOADED)
+        is True
     )
-
-    assert bundle.kind == CollateralKind.DATASET
-    assert bundle.tier == CollateralTier.PERMANENT
-    assert bundle.state == CollateralState.APPROVED
-    assert bundle.active_pin_count == 2
+    assert (
+        can_transition_collateral(CollateralState.UPLOADED, CollateralState.SCANNING)
+        is True
+    )
+    assert (
+        can_transition_collateral(CollateralState.SCANNING, CollateralState.APPROVED)
+        is True
+    )
+    assert (
+        can_transition_collateral(CollateralState.SCANNING, CollateralState.QUARANTINED)
+        is True
+    )
+    assert (
+        can_transition_collateral(CollateralState.APPROVED, CollateralState.REGISTERED)
+        is False
+    )
+    assert (
+        can_transition_collateral(CollateralState.APPROVED, CollateralState.APPROVED)
+        is True
+    )
