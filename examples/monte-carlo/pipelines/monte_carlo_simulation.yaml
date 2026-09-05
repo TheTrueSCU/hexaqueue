@@ -1,0 +1,48 @@
+run:
+  id: "monte-carlo-stochastic-sim"
+  name: "Multi-Regime Monte-Carlo Simulation & Surface Smoothing"
+  tags:
+    - "simulation"
+    - "monte-carlo"
+    - "smoothing"
+
+jobs:
+  - id: "sim-regime-low-vol"
+    name: "Simulate Low Volatility Trajectories"
+    command: "python -c \"import json, os, random, math; os.makedirs('/tmp/mc_sim', exist_ok=True); rng = random.Random(101); paths = [[100.0] for _ in range(50)]; [p.append(p[-1] * math.exp((0.03 - 0.5*0.08**2)*0.01 + 0.08*math.sqrt(0.01)*rng.gauss(0,1))) for p in paths for _ in range(99)]; json.dump({'regime': 'low_vol', 'paths': paths}, open('/tmp/mc_sim/low_vol.json', 'w')); print('Low-vol regime simulated: 50 paths, 100 steps')\""
+    resources:
+      cpus: 1
+      ram_mb: 512
+      scratch_mb: 100
+      walltime_seconds: 15
+
+  - id: "sim-regime-mid-vol"
+    name: "Simulate Medium Volatility Trajectories"
+    command: "python -c \"import json, os, random, math; os.makedirs('/tmp/mc_sim', exist_ok=True); rng = random.Random(202); paths = [[100.0] for _ in range(50)]; [p.append(p[-1] * math.exp((0.05 - 0.5*0.18**2)*0.01 + 0.18*math.sqrt(0.01)*rng.gauss(0,1))) for p in paths for _ in range(99)]; json.dump({'regime': 'mid_vol', 'paths': paths}, open('/tmp/mc_sim/mid_vol.json', 'w')); print('Mid-vol regime simulated: 50 paths, 100 steps')\""
+    resources:
+      cpus: 1
+      ram_mb: 512
+      scratch_mb: 100
+      walltime_seconds: 15
+
+  - id: "sim-regime-high-vol"
+    name: "Simulate High Volatility & Stress Trajectories"
+    command: "python -c \"import json, os, random, math; os.makedirs('/tmp/mc_sim', exist_ok=True); rng = random.Random(303); paths = [[100.0] for _ in range(50)]; [p.append(p[-1] * math.exp((0.08 - 0.5*0.35**2)*0.01 + 0.35*math.sqrt(0.01)*rng.gauss(0,1))) for p in paths for _ in range(99)]; json.dump({'regime': 'high_vol', 'paths': paths}, open('/tmp/mc_sim/high_vol.json', 'w')); print('High-vol regime simulated: 50 paths, 100 steps')\""
+    resources:
+      cpus: 1
+      ram_mb: 512
+      scratch_mb: 100
+      walltime_seconds: 15
+
+  - id: "smooth-and-aggregate"
+    name: "Multi-Variable Smoothing & Statistical Aggregation"
+    command: "python -c \"import json; low = json.load(open('/tmp/mc_sim/low_vol.json'))['paths']; mid = json.load(open('/tmp/mc_sim/mid_vol.json'))['paths']; high = json.load(open('/tmp/mc_sim/high_vol.json'))['paths']; all_paths = low + mid + high; steps = len(all_paths[0]); mean_traj = [sum(p[s] for p in all_paths)/len(all_paths) for s in range(steps)]; smoothed = [sum(mean_traj[max(0, i-2):min(steps, i+3)])/len(mean_traj[max(0, i-2):min(steps, i+3)]) for i in range(steps)]; term = [p[-1] for p in all_paths]; print(f'Monte-Carlo Aggregation Complete! Total Paths: {len(all_paths)}, Terminal Mean: {sum(term)/len(term):.2f}, Smoothed T=100: {smoothed[-1]:.2f}')\""
+    depends_on:
+      - "sim-regime-low-vol"
+      - "sim-regime-mid-vol"
+      - "sim-regime-high-vol"
+    resources:
+      cpus: 1
+      ram_mb: 512
+      scratch_mb: 100
+      walltime_seconds: 15

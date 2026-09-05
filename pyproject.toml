@@ -17,6 +17,7 @@ codeql-scan = "hexastack_tools.commands.codeql_scan:main"
 deps-audit = "hexastack_tools.commands.deps_audit:main"
 deptry-run = "hexastack_tools.commands.deptry:main"
 fix-all-statements = "hexastack_tools.commands.all_statements:fix_main"
+generate-usage-docs = "hexastack_tools.commands.usage_docs:main"
 gh-checks = "hexastack_tools.commands.checks:main"
 gh-code-scanning = "hexastack_tools.commands.code_scanning:main"
 gh-pr-examine = "hexastack_tools.commands.pr_examine:main"
@@ -31,6 +32,9 @@ pypi-build = "hexastack_tools.commands.pypi:build_main"
 pypi-check = "hexastack_tools.commands.pypi:check_main"
 pypi-publish = "hexastack_tools.commands.pypi:publish_main"
 pytest-archon-generate = "hexastack_tools.commands.pytest_runner:archon_generate_main"
+pytest-boundary-audit = "hexastack_tools.commands.coverage:boundary_audit_main"
+pytest-impact = "hexastack_tools.commands.coverage:impact_main"
+pytest-redundancy-audit = "hexastack_tools.commands.coverage:redundancy_audit_main"
 pytest-run = "hexastack_tools.commands.pytest_runner:run_main"
 rope-alphabetizer = "hexastack_tools.commands.rope:alphabetize_main"
 rope-run = "hexastack_tools.commands.rope:run_main"
@@ -68,7 +72,7 @@ dev = [
     "deptry>=0.23.0",
     "detect-secrets>=1.5.0",
     "faker>=33.0.0",
-    "hexastack-tools>=0.3.0",
+    "hexastack-tools>=0.3.1",
     "hypothesis>=6.120.0",
     "import-linter>=2.13",
     "inline-snapshot>=0.35.0",
@@ -86,6 +90,7 @@ dev = [
     "ruff>=0.9.0",
     "ty>=0.0.75",
     "vulture>=2.14",
+    "zensical>=0.0.57",
 ]
 
 [tool.coverage.run]

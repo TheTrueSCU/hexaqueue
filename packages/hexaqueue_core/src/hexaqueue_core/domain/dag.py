@@ -88,6 +88,34 @@ def is_dependency_satisfied(
             return parent_outcome == TerminalOutcome.COMPLETED
 
 
+def is_dependency_blocked(
+    condition: TriggerCondition,
+    parent_outcome: TerminalOutcome | None,
+) -> bool:
+    """Evaluate whether a parent's terminal outcome permanently prevents condition satisfaction.
+
+    Args:
+        condition: The TriggerCondition required by the child.
+        parent_outcome: The parent's TerminalOutcome (or None if parent is not yet DONE).
+
+    Returns:
+        True if the parent outcome permanently invalidates the trigger condition, False otherwise.
+    """
+    if parent_outcome is None:
+        return False
+
+    match condition:
+        case TriggerCondition.AFTER_OK | TriggerCondition.AFTER_CORR:
+            return parent_outcome != TerminalOutcome.COMPLETED
+        case TriggerCondition.AFTER_NOT_OK:
+            return parent_outcome not in (
+                TerminalOutcome.FAILED,
+                TerminalOutcome.TIMED_OUT,
+            )
+        case TriggerCondition.AFTER_ANY:
+            return False
+
+
 class JobDagEngine:
     """Engine for validating, sorting, and evaluating job dependency graphs.
 
@@ -206,10 +234,32 @@ class JobDagEngine:
 
         return True
 
+    def is_job_blocked(
+        self,
+        child_job_id: str,
+        parent_outcomes: dict[str, TerminalOutcome | None],
+    ) -> bool:
+        """Check if any parent prerequisite permanently failed or blocked this job from ever running.
+
+        Args:
+            child_job_id: The job ID to evaluate.
+            parent_outcomes: Dictionary mapping parent_job_id -> TerminalOutcome (or None if not done).
+
+        Returns:
+            True if at least one prerequisite is permanently blocked, False otherwise.
+        """
+        deps = self._dependencies.get(child_job_id, [])
+        for dep in deps:
+            outcome = parent_outcomes.get(dep.parent_job_id)
+            if is_dependency_blocked(dep.condition, outcome):
+                return True
+        return False
+
 
 __all__ = [
     "DependencyCycleError",
     "DependencySpec",
+    "is_dependency_blocked",
     "is_dependency_satisfied",
     "JobDagEngine",
     "TriggerCondition",

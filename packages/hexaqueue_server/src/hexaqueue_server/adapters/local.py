@@ -103,7 +103,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             job_outcomes = [j.outcome for j in run_jobs if j.outcome is not None]
             run_outcome = (
                 compute_run_outcome(job_outcomes)
-                if run_state == RunState.DONE
+                if run_state in (RunState.DONE, RunState.BLOCKED)
                 else None
             )
 
@@ -194,23 +194,39 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                 for job_spec in submission.jobs:
                     j_id = job_spec.id
                     stored = self._jobs[j_id]
-                    if stored.state == JobState.SUBMITTED and dag.is_job_ready(
-                        j_id, outcomes
-                    ):
-                        ready_job = JobSpec(
-                            id=stored.id,
-                            run_id=stored.run_id,
-                            name=stored.name,
-                            command=stored.command,
-                            args=stored.args,
-                            env=stored.env,
-                            resources=stored.resources,
-                            collateral_ids=stored.collateral_ids,
-                            tags=stored.tags,
-                            status=JobStatus(state=JobState.PENDING),
-                        )
-                        self._jobs[j_id] = ready_job
-                        await self._queue.enqueue(ready_job)
+                    if stored.state == JobState.SUBMITTED:
+                        if dag.is_job_ready(j_id, outcomes):
+                            ready_job = JobSpec(
+                                id=stored.id,
+                                run_id=stored.run_id,
+                                name=stored.name,
+                                command=stored.command,
+                                args=stored.args,
+                                env=stored.env,
+                                resources=stored.resources,
+                                collateral_ids=stored.collateral_ids,
+                                tags=stored.tags,
+                                status=JobStatus(state=JobState.PENDING),
+                            )
+                            self._jobs[j_id] = ready_job
+                            await self._queue.enqueue(ready_job)
+                        elif dag.is_job_blocked(j_id, outcomes):
+                            blocked_job = JobSpec(
+                                id=stored.id,
+                                run_id=stored.run_id,
+                                name=stored.name,
+                                command=stored.command,
+                                args=stored.args,
+                                env=stored.env,
+                                resources=stored.resources,
+                                collateral_ids=stored.collateral_ids,
+                                tags=stored.tags,
+                                status=JobStatus(
+                                    state=JobState.BLOCKED,
+                                    reason="Upstream prerequisite task failed",
+                                ),
+                            )
+                            self._jobs[j_id] = blocked_job
 
     async def cancel_run(self, run_id: str) -> RunStatusReport:
         """Cancel run and all active / pending jobs."""

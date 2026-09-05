@@ -20,6 +20,7 @@ from hexaqueue_core.domain.dag import (
     DependencySpec,
     JobDagEngine,
     TriggerCondition,
+    is_dependency_blocked,
     is_dependency_satisfied,
 )
 from hexaqueue_core.domain.exceptions import (
@@ -73,6 +74,7 @@ __all__ = [
     "HexaqueueConfigError",
     "HexaqueueCoreConfig",
     "HexaqueueError",
+    "is_dependency_blocked",
     "is_dependency_satisfied",
     "JobDagEngine",
     "JobSpec",

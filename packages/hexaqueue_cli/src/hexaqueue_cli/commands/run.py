@@ -47,7 +47,7 @@ def submit_cmd(
 
         if watch:
             with console.status(f"[bold blue]Executing run {report.run_id}...[/]"):
-                while report.state != RunState.DONE:
+                while report.state not in (RunState.DONE, RunState.BLOCKED):
                     await asyncio.sleep(0.1)
                     report = await client.get_run_status(report.run_id)
 

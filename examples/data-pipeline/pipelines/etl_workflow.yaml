@@ -1,0 +1,48 @@
+run:
+  id: "demo-etl-run"
+  name: "Batch ETL & Data Analysis Pipeline"
+  tags:
+    - "tutorial"
+    - "etl"
+
+jobs:
+  - id: "stage1-extract"
+    name: "Extract Source Records"
+    command: "python -c \"import json, os; os.makedirs('/tmp/demo_etl', exist_ok=True); json.dump([{'id': i, 'val': i * 10} for i in range(1, 6)], open('/tmp/demo_etl/raw.json', 'w')); print('Extracted 5 records')\""
+    resources:
+      cpus: 1
+      ram_mb: 512
+      scratch_mb: 100
+      walltime_seconds: 15
+
+  - id: "stage2-transform-a"
+    name: "Calculate Summary Metrics"
+    command: "python -c \"import json; records = json.load(open('/tmp/demo_etl/raw.json')); total = sum(r['val'] for r in records); json.dump({'total': total, 'count': len(records)}, open('/tmp/demo_etl/summary.json', 'w')); print(f'Transformed metrics: Total={total}')\""
+    depends_on: "stage1-extract"
+    resources:
+      cpus: 1
+      ram_mb: 512
+      scratch_mb: 100
+      walltime_seconds: 15
+
+  - id: "stage2-transform-b"
+    name: "Generate Squared Features"
+    command: "python -c \"import json; records = json.load(open('/tmp/demo_etl/raw.json')); squares = [r['val']**2 for r in records]; json.dump({'squares': squares}, open('/tmp/demo_etl/squares.json', 'w')); print(f'Calculated {len(squares)} squared features')\""
+    depends_on: "stage1-extract"
+    resources:
+      cpus: 1
+      ram_mb: 512
+      scratch_mb: 100
+      walltime_seconds: 15
+
+  - id: "stage3-load-report"
+    name: "Aggregate Final Report"
+    command: "python -c \"import json; s = json.load(open('/tmp/demo_etl/summary.json')); sq = json.load(open('/tmp/demo_etl/squares.json')); print(f'ETL Completed! Total: {s[\\\"total\\\"]}, Mean: {s[\\\"total\\\"]/s[\\\"count\\\"]}, Squares: {sq[\\\"squares\\\"]}')\""
+    depends_on:
+      - "stage2-transform-a"
+      - "stage2-transform-b"
+    resources:
+      cpus: 1
+      ram_mb: 512
+      scratch_mb: 100
+      walltime_seconds: 15

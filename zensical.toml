@@ -1,0 +1,25 @@
+[project]
+site_name = "Hexaqueue"
+site_description = "Cloud-Agnostic HPC Batch Scheduler and Distributed Job Orchestrator"
+site_url = "https://hexaqueue.dev"
+
+nav = [
+    { "Overview" = "index.md" },
+    { "Architecture" = "architecture.md" },
+    { "Tutorials" = [
+        "tutorials/01-building-a-batch-data-pipeline.md",
+        "tutorials/02-monte-carlo-simulation-and-smoothing.md"
+    ]},
+    { "Packages" = "packages.md" }
+]
+
+[project.markdown_extensions]
+admonition = {}
+tables = {}
+toc = { permalink = true }
+"pymdownx.highlight" = { anchor_linenums = true, line_spans = "__span", pygments_lang_class = true }
+"pymdownx.inlinehilite" = {}
+"pymdownx.snippets" = {}
+"pymdownx.superfences" = { custom_fences = [
+    { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" }
+] }
