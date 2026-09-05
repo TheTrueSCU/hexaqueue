@@ -1,6 +1,7 @@
 """Unit tests for no-op security quarantine adapter."""
 
 import pytest
+
 from hexaqueue_core.adapters.security.noop import NoOpSecurityQuarantineAdapter
 from hexaqueue_core.domain.collateral import (
     CollateralBundle,

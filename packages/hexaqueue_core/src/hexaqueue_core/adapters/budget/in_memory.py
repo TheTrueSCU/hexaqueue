@@ -42,7 +42,9 @@ class ZeroCostRateModelAdapter(CostRateModelPort):
     """Cost rate model adapter returning 0.0 credits for free-tier / local testing."""
 
     def calculate_estimated_cost(
-        self, requirements: ResourceRequirements, provider: CspProvider = CspProvider.LOCAL
+        self,
+        requirements: ResourceRequirements,
+        provider: CspProvider = CspProvider.LOCAL,
     ) -> float:
         """Always return 0.0 credits for local zero-cost profile."""
         return 0.0

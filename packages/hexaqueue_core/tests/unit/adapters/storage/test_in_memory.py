@@ -1,6 +1,7 @@
 """Unit tests for in-memory storage volume adapter."""
 
 import pytest
+
 from hexaqueue_core.adapters.storage.in_memory import InMemoryStorageVolumeAdapter
 
 

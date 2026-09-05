@@ -1,6 +1,7 @@
 """Unit tests for local disk storage volume adapter."""
 
 import pytest
+
 from hexaqueue_core.adapters.storage.local import LocalDiskStorageVolumeAdapter
 
 

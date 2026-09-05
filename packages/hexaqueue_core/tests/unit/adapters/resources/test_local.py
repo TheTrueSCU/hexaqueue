@@ -1,6 +1,7 @@
 """Unit tests for local compute resource adapter."""
 
 import pytest
+
 from hexaqueue_core.adapters.resources.local import LocalComputeResourceAdapter
 
 

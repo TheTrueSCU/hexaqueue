@@ -1,6 +1,7 @@
 """In-memory priority and FIFO job queue adapter."""
 
 import asyncio
+
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.ports.queue import JobQueuePort
 

@@ -1,6 +1,7 @@
 """Local compute resource discovery adapter."""
 
 import os
+
 from hexaqueue_core.ports.resources import ComputeResourcePort, NodeCapacity
 
 

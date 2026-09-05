@@ -2,6 +2,7 @@
 
 from collections import defaultdict
 from collections.abc import AsyncIterator
+
 from hexaqueue_core.ports.logging import LogChunk, LogStreamPort
 
 

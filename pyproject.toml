@@ -8,6 +8,33 @@ dependencies = [
     "hexaqueue",
 ]
 
+[project.scripts]
+alphabetizer = "hexastack_tools.commands.rope:alphabetize_main"
+check-all-statements = "hexastack_tools.commands.all_statements:check_main"
+check-extras-parity = "hexastack_tools.commands.extras_parity:main"
+check-test-parity = "hexastack_tools.commands.test_parity:main"
+codeql-scan = "hexastack_tools.commands.codeql_scan:main"
+deps-audit = "hexastack_tools.commands.deps_audit:main"
+deptry-run = "hexastack_tools.commands.deptry:main"
+fix-all-statements = "hexastack_tools.commands.all_statements:fix_main"
+gh-checks = "hexastack_tools.commands.checks:main"
+gh-code-scanning = "hexastack_tools.commands.code_scanning:main"
+gh-pr-examine = "hexastack_tools.commands.pr_examine:main"
+gh-security = "hexastack_tools.commands.security:main"
+import-linter-generate = "hexastack_tools.commands.import_linter:generate_main"
+import-linter-run = "hexastack_tools.commands.import_linter:run_main"
+inline-snapshot-update = "hexastack_tools.commands.inline_snapshot:main"
+mutmut-inspect = "hexastack_tools.commands.mutmut:inspect_main"
+mutmut-run = "hexastack_tools.commands.mutmut:run_main"
+pydeps-generate = "hexastack_tools.commands.pydeps:generate_main"
+pypi-build = "hexastack_tools.commands.pypi:build_main"
+pypi-check = "hexastack_tools.commands.pypi:check_main"
+pypi-publish = "hexastack_tools.commands.pypi:publish_main"
+pytest-archon-generate = "hexastack_tools.commands.pytest_runner:archon_generate_main"
+pytest-run = "hexastack_tools.commands.pytest_runner:run_main"
+rope-alphabetizer = "hexastack_tools.commands.rope:alphabetize_main"
+rope-run = "hexastack_tools.commands.rope:run_main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

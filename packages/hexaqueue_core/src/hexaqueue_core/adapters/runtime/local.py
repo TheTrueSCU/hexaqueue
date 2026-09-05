@@ -3,6 +3,7 @@
 import asyncio
 import os
 from datetime import UTC, datetime
+
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import TerminalOutcome
 from hexaqueue_core.ports.logging import LogChunk, LogStreamPort
@@ -68,9 +69,7 @@ class LocalSubprocessExecutionRuntimeAdapter(ExecutionRuntimePort):
                     )
 
             outcome = (
-                TerminalOutcome.COMPLETED
-                if exit_code == 0
-                else TerminalOutcome.FAILED
+                TerminalOutcome.COMPLETED if exit_code == 0 else TerminalOutcome.FAILED
             )
             error_msg = (
                 stderr_data.decode("utf-8", errors="replace")

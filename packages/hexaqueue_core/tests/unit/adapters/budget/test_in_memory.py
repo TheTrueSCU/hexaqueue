@@ -1,6 +1,7 @@
 """Unit tests for in-memory budget accounting and rate model adapters."""
 
 import pytest
+
 from hexaqueue_core.adapters.budget.in_memory import (
     InMemoryBudgetAccountingAdapter,
     ZeroCostRateModelAdapter,

@@ -1,6 +1,7 @@
 """Unit tests for in-memory job queue adapter."""
 
 import pytest
+
 from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
 from hexaqueue_core.domain.job import JobSpec
 

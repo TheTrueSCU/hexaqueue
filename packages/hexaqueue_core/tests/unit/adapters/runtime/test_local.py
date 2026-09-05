@@ -1,6 +1,7 @@
 """Unit tests for local subprocess runtime adapter."""
 
 import pytest
+
 from hexaqueue_core.adapters.logging.in_memory import InMemoryLogStreamAdapter
 from hexaqueue_core.adapters.runtime.local import LocalSubprocessExecutionRuntimeAdapter
 from hexaqueue_core.domain.job import JobSpec
