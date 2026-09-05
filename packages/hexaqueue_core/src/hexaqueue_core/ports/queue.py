@@ -6,6 +6,7 @@ Notes/Architectural Intent:
 """
 
 from abc import ABC, abstractmethod
+
 from hexaqueue_core.domain.job import JobSpec
 
 

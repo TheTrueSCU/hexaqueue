@@ -1,6 +1,7 @@
 """Unit tests for execution runtime port models and contracts."""
 
 import pytest
+
 from hexaqueue_core.domain.lifecycle import TerminalOutcome
 from hexaqueue_core.ports.runtime import ProcessExecutionResult
 
@@ -19,7 +20,9 @@ def test_process_execution_result_valid():
 
 def test_process_execution_result_invalid_invariants():
     """Verify exit_code 0 must map to TerminalOutcome.COMPLETED."""
-    with pytest.raises(ValueError, match="exit_code 0 must map to TerminalOutcome.COMPLETED"):
+    with pytest.raises(
+        ValueError, match="exit_code 0 must map to TerminalOutcome.COMPLETED"
+    ):
         ProcessExecutionResult(
             exit_code=0,
             outcome=TerminalOutcome.FAILED,

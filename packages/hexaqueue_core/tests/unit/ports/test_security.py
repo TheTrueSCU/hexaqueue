@@ -1,6 +1,7 @@
 """Unit tests for security port models and contracts."""
 
 import pytest
+
 from hexaqueue_core.ports.security import SecurityScanResult
 
 
@@ -24,7 +25,9 @@ def test_security_scan_result_infected():
     assert res.is_clean is False
     assert res.threat_name == "Eicar-Test-Signature"
 
-    with pytest.raises(ValueError, match="threat_name must be provided when artifact is not clean"):
+    with pytest.raises(
+        ValueError, match="threat_name must be provided when artifact is not clean"
+    ):
         SecurityScanResult(
             is_clean=False,
             threat_name=None,

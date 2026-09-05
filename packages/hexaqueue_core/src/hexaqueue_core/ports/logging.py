@@ -9,6 +9,7 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Self
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -28,7 +29,9 @@ class LogChunk(BaseModel):
     content: str = Field(description="Log line or chunk text payload")
     job_id: str = Field(description="Job identifier")
     offset: int = Field(ge=0, description="Chunk byte or sequence offset")
-    stream: str = Field(default="stdout", description="Stream identifier ('stdout'/'stderr')")
+    stream: str = Field(
+        default="stdout", description="Stream identifier ('stdout'/'stderr')"
+    )
     timestamp: datetime = Field(
         default_factory=lambda: datetime.now(UTC), description="Chunk emit timestamp"
     )

@@ -1,6 +1,7 @@
 """Unit tests for logging port models and contracts."""
 
 import pytest
+
 from hexaqueue_core.ports.logging import LogChunk
 
 
@@ -22,5 +23,7 @@ def test_log_chunk_invalid_invariants():
     with pytest.raises(ValueError, match="job_id cannot be empty"):
         LogChunk(job_id="", stream="stdout", content="test", offset=0)
 
-    with pytest.raises(ValueError, match="stream must be 'stdout', 'stderr', or 'system'"):
+    with pytest.raises(
+        ValueError, match="stream must be 'stdout', 'stderr', or 'system'"
+    ):
         LogChunk(job_id="job-1", stream="invalid_stream", content="test", offset=0)

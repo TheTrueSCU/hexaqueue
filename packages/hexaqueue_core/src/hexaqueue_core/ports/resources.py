@@ -7,6 +7,7 @@ Notes/Architectural Intent:
 
 from abc import ABC, abstractmethod
 from typing import Self
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 

@@ -8,6 +8,7 @@ Notes/Architectural Intent:
 
 from abc import ABC, abstractmethod
 from typing import Self
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from hexaqueue_core.domain.job import JobSpec
@@ -40,7 +41,9 @@ class ProcessExecutionResult(BaseModel):
     def validate_invariants(self) -> Self:
         """Validate result invariants."""
         if self.exit_code == 0 and self.outcome != TerminalOutcome.COMPLETED:
-            msg = f"exit_code 0 must map to TerminalOutcome.COMPLETED, got {self.outcome}"
+            msg = (
+                f"exit_code 0 must map to TerminalOutcome.COMPLETED, got {self.outcome}"
+            )
             raise ValueError(msg)
         return self
 

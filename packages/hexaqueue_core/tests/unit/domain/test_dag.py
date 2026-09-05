@@ -30,9 +30,7 @@ def test_is_dependency_satisfied():
     assert not is_dependency_satisfied(TriggerCondition.AFTER_ANY, None)
 
     # AFTER_OK
-    assert is_dependency_satisfied(
-        TriggerCondition.AFTER_OK, TerminalOutcome.COMPLETED
-    )
+    assert is_dependency_satisfied(TriggerCondition.AFTER_OK, TerminalOutcome.COMPLETED)
     assert not is_dependency_satisfied(
         TriggerCondition.AFTER_OK, TerminalOutcome.FAILED
     )

@@ -1,8 +1,5 @@
 """Property-based invariant fuzzing tests for Job, Run, and Collateral domain models."""
 
-from hypothesis import given
-from hypothesis import strategies as st
-
 from hexaqueue_core.domain.collateral import CollateralBundle, CollateralState
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import JobState, RunState, compute_run_state
@@ -11,6 +8,8 @@ from hexaqueue_core.testing.synthetic import (
     job_spec_strategy,
     resource_requirements_strategy,
 )
+from hypothesis import given
+from hypothesis import strategies as st
 
 
 @given(resource_requirements_strategy())

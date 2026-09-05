@@ -1,6 +1,7 @@
 """Unit tests for compute resource port models and contracts."""
 
 import pytest
+
 from hexaqueue_core.ports.resources import NodeCapacity
 
 

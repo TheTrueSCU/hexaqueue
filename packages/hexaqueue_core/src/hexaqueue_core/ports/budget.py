@@ -7,8 +7,8 @@ Notes/Architectural Intent:
 """
 
 from abc import ABC, abstractmethod
-from typing import Self
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from hexaqueue_core.domain.config import CspProvider
 from hexaqueue_core.domain.resources import ResourceRequirements
@@ -37,7 +37,9 @@ class CostRateModelPort(ABC):
 
     @abstractmethod
     def calculate_estimated_cost(
-        self, requirements: ResourceRequirements, provider: CspProvider = CspProvider.LOCAL
+        self,
+        requirements: ResourceRequirements,
+        provider: CspProvider = CspProvider.LOCAL,
     ) -> float:
         """Estimate the maximum credits required for a given resource request.
 
