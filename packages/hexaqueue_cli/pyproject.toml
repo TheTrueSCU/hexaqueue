@@ -10,10 +10,13 @@ authors = [
 requires-python = ">=3.13"
 dependencies = [
     "hexaqueue-core",
+    "hexaqueue-server",
+    "hexaqueue-worker",
     "hexastack-cli>=0.3.0",
     "hexastack-core>=0.3.0",
     "hexastack-cqrs>=0.3.0",
     "hexastack-grpc>=0.3.0",
+    "pyyaml>=6.0.2",
     "rich>=13.8.0",
     "typer>=0.15.0",
 ]
@@ -27,3 +30,5 @@ build-backend = "uv_build"
 
 [tool.uv.sources]
 hexaqueue-core = { workspace = true }
+hexaqueue-server = { workspace = true }
+hexaqueue-worker = { workspace = true }

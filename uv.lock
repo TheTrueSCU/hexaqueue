@@ -729,10 +729,13 @@ version = "0.0.0"
 source = { editable = "packages/hexaqueue_cli" }
 dependencies = [
     { name = "hexaqueue-core" },
+    { name = "hexaqueue-server" },
+    { name = "hexaqueue-worker" },
     { name = "hexastack-cli" },
     { name = "hexastack-core" },
     { name = "hexastack-cqrs" },
     { name = "hexastack-grpc" },
+    { name = "pyyaml" },
     { name = "rich" },
     { name = "typer" },
 ]
@@ -740,10 +743,13 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "hexaqueue-core", editable = "packages/hexaqueue_core" },
+    { name = "hexaqueue-server", editable = "packages/hexaqueue_server" },
+    { name = "hexaqueue-worker", editable = "packages/hexaqueue_worker" },
     { name = "hexastack-cli", specifier = ">=0.3.0" },
     { name = "hexastack-core", specifier = ">=0.3.0" },
     { name = "hexastack-cqrs", specifier = ">=0.3.0" },
     { name = "hexastack-grpc", specifier = ">=0.3.0" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "rich", specifier = ">=13.8.0" },
     { name = "typer", specifier = ">=0.15.0" },
 ]
