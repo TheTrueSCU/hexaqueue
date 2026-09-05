@@ -2,7 +2,28 @@
 
 from hexaqueue_core.domain.collateral import (
     CollateralBundle,
+    CollateralKind,
     CollateralState,
+    CollateralTier,
+    can_transition_collateral,
+)
+from hexaqueue_core.domain.config import (
+    CspProvider,
+    ExecutionMode,
+    FreeTierProfileConfig,
+    HexaqueueConfig,
+    HexaqueueConfigError,
+    HexaqueueCoreConfig,
+)
+from hexaqueue_core.domain.exceptions import (
+    ChecksumMismatchError,
+    FreeTierLimitExceededError,
+    HexaqueueError,
+    JobStateTransitionError,
+    QuotaExceededError,
+)
+from hexaqueue_core.domain.exceptions import (
+    HexaqueueConfigError as BaseHexaqueueConfigError,
 )
 from hexaqueue_core.domain.job import (
     JobSpec,
@@ -25,16 +46,31 @@ from hexaqueue_core.domain.run import (
 )
 
 __all__ = [
+    "BaseHexaqueueConfigError",
+    "ChecksumMismatchError",
     "CollateralBundle",
+    "CollateralKind",
     "CollateralState",
+    "CollateralTier",
+    "CspProvider",
+    "ExecutionMode",
+    "FreeTierLimitExceededError",
+    "FreeTierProfileConfig",
+    "HexaqueueConfig",
+    "HexaqueueConfigError",
+    "HexaqueueCoreConfig",
+    "HexaqueueError",
     "JobSpec",
     "JobState",
+    "JobStateTransitionError",
     "JobStatus",
+    "QuotaExceededError",
     "ResourceRequirements",
     "RunOutcome",
     "RunSpec",
     "RunState",
     "TerminalOutcome",
+    "can_transition_collateral",
     "can_transition_job",
     "compute_run_outcome",
     "compute_run_state",

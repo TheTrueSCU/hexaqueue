@@ -1,11 +1,13 @@
-"""Property-based invariant fuzzing tests for Job and Run domain models."""
+"""Property-based invariant fuzzing tests for Job, Run, and Collateral domain models."""
 
 from hypothesis import given
 from hypothesis import strategies as st
 
+from hexaqueue_core.domain.collateral import CollateralBundle, CollateralState
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import JobState, RunState, compute_run_state
 from hexaqueue_core.testing.synthetic import (
+    collateral_bundle_strategy,
     job_spec_strategy,
     resource_requirements_strategy,
 )
@@ -46,3 +48,21 @@ def test_run_roll_up_fuzz(job_states: list[JobState]):
         for s in job_states
     ):
         assert run_state == RunState.RUNNING
+
+
+@given(collateral_bundle_strategy())
+def test_collateral_bundle_invariants(bundle: CollateralBundle):
+    """CollateralBundle strictly satisfies security & quarantine invariants."""
+    assert len(bundle.sha256_checksum) == 64
+    assert bundle.size_bytes >= 0
+    assert bundle.active_pin_count >= 0
+
+    if bundle.state == CollateralState.APPROVED:
+        assert bundle.active_uri is not None
+    else:
+        assert bundle.active_uri is None
+
+    if bundle.state in (CollateralState.QUARANTINED, CollateralState.REJECTED):
+        assert (
+            bundle.quarantine_reason is not None and len(bundle.quarantine_reason) > 0
+        )

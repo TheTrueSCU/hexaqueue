@@ -7,6 +7,12 @@ Notes/Architectural Intent:
 
 from hypothesis import strategies as st
 
+from hexaqueue_core.domain.collateral import (
+    CollateralBundle,
+    CollateralKind,
+    CollateralState,
+    CollateralTier,
+)
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import JobState, JobStatus, TerminalOutcome
 from hexaqueue_core.domain.resources import ResourceRequirements
@@ -66,4 +72,45 @@ def job_spec_strategy(draw: st.DrawFn) -> JobSpec:
         command=command,
         resources=resources,
         status=status,
+    )
+
+
+@st.composite
+def collateral_bundle_strategy(draw: st.DrawFn) -> CollateralBundle:
+    """Hypothesis strategy for generating valid CollateralBundle instances."""
+    id_val = draw(st.text(min_size=1, max_size=20).filter(lambda s: bool(s.strip())))
+    job_id = draw(st.text(min_size=1, max_size=20).filter(lambda s: bool(s.strip())))
+    filename = draw(st.text(min_size=1, max_size=30).filter(lambda s: bool(s.strip())))
+    size_bytes = draw(st.integers(min_value=0, max_value=10_000_000_000))
+    sha256 = draw(st.text(alphabet="0123456789abcdef", min_size=64, max_size=64))
+    kind = draw(st.sampled_from(list(CollateralKind)))
+    tier = draw(st.sampled_from(list(CollateralTier)))
+    state = draw(st.sampled_from(list(CollateralState)))
+    staging_uri = f"s3://quarantine/{id_val}/{filename}"
+
+    if state == CollateralState.APPROVED:
+        active_uri = f"s3://clean/{sha256}/{filename}"
+        quarantine_reason = None
+    elif state in (CollateralState.QUARANTINED, CollateralState.REJECTED):
+        active_uri = None
+        quarantine_reason = draw(st.text(min_size=1, max_size=40))
+    else:
+        active_uri = None
+        quarantine_reason = None
+
+    pin_count = draw(st.integers(min_value=0, max_value=100))
+
+    return CollateralBundle(
+        id=id_val,
+        job_id=job_id,
+        filename=filename,
+        size_bytes=size_bytes,
+        sha256_checksum=sha256,
+        kind=kind,
+        tier=tier,
+        state=state,
+        staging_uri=staging_uri,
+        active_uri=active_uri,
+        quarantine_reason=quarantine_reason,
+        active_pin_count=pin_count,
     )
