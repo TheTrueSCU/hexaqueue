@@ -73,7 +73,7 @@ def test_generic_handler_registry():
     assert reg.handle(42) == "number_42"
 
     with pytest.raises(GenericHandlerRegistryError):
-        reg.handle("invalid_type")
+        reg.handle("invalid_type")  # ty: ignore
 
 
 def test_config_registry_toml_parsing():

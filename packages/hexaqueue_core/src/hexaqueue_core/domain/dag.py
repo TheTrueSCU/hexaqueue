@@ -96,7 +96,9 @@ class JobDagEngine:
         cycle detection and dependency readiness evaluation.
     """
 
-    def __init__(self, dependencies: dict[str, list[DependencySpec]] | None = None) -> None:
+    def __init__(
+        self, dependencies: dict[str, list[DependencySpec]] | None = None
+    ) -> None:
         """Initialize DAG engine with dependency mappings.
 
         Args:
@@ -107,7 +109,12 @@ class JobDagEngine:
             for child_id, deps in dependencies.items():
                 self._dependencies[child_id].extend(deps)
 
-    def add_dependency(self, child_job_id: str, parent_job_id: str, condition: TriggerCondition = TriggerCondition.AFTER_OK) -> None:
+    def add_dependency(
+        self,
+        child_job_id: str,
+        parent_job_id: str,
+        condition: TriggerCondition = TriggerCondition.AFTER_OK,
+    ) -> None:
         """Add a dependency link between child and parent.
 
         Args:
@@ -140,7 +147,7 @@ class JobDagEngine:
         Raises:
             DependencyCycleError: If a cyclic dependency is detected.
         """
-        in_degree: dict[str, int] = {job_id: 0 for job_id in all_job_ids}
+        in_degree: dict[str, int] = dict.fromkeys(all_job_ids, 0)
         adjacency: dict[str, list[str]] = defaultdict(list)
 
         # Build forward adjacency list: parent -> list of children

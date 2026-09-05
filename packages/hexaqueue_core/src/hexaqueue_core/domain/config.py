@@ -32,8 +32,9 @@ class CspProvider(StrEnum):
     """Target Cloud Service Provider or infrastructure environment."""
 
     AWS = "AWS"
-    GCP = "GCP"
     AZURE = "AZURE"
+    GCP = "GCP"
+    LOCAL = "LOCAL"
     OCI = "OCI"
     ONPREM = "ONPREM"
 

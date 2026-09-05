@@ -37,3 +37,17 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
+
+      - id: check-all-statements
+        name: check __all__ statements
+        entry: uv run python -m hexastack_tools.commands.all_statements
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: check-test-parity
+        name: check test parity and symmetry
+        entry: uv run python -m hexastack_tools.commands.test_parity
+        language: system
+        types: [python]
+        pass_filenames: false
