@@ -1,12 +1,12 @@
 """Domain models and operations for collateral staging and promotion."""
 
 from typing import Self
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from hexaqueue_core.domain.collateral import (
     CollateralBundle,
     CollateralKind,
-    CollateralState,
     CollateralTier,
 )
 

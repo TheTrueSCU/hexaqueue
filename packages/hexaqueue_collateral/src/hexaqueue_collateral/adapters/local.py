@@ -7,7 +7,6 @@ Notes/Architectural Intent:
 """
 
 import hashlib
-import os
 import shutil
 from pathlib import Path
 from typing import BinaryIO
@@ -41,7 +40,9 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
             base_dir: Base directory for collateral storage (defaults to ~/.hexaqueue/collateral).
             security_port: Optional security scanner port (defaults to NoOp if None).
         """
-        self._base_dir = Path(base_dir) if base_dir else Path.home() / ".hexaqueue" / "collateral"
+        self._base_dir = (
+            Path(base_dir) if base_dir else Path.home() / ".hexaqueue" / "collateral"
+        )
         self._staging_dir = self._base_dir / "staging"
         self._active_dir = self._base_dir / "active"
         self._quarantine_dir = self._base_dir / "quarantine"
@@ -106,12 +107,18 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
                     hasher.update(chunk)
                     actual_size += len(chunk)
                     f_out.write(chunk)
-        elif hasattr(source, "read") and callable(getattr(source, "read")):
+        elif hasattr(source, "read"):
+            reader = source.read
             with dest_path.open("wb") as f_out:
-                reader = getattr(source, "read")
-                while chunk := reader(65536):
-                    if isinstance(chunk, str):
-                        chunk = chunk.encode("utf-8")
+                while True:
+                    raw_chunk = reader(65536)  # ty: ignore
+                    if not raw_chunk:
+                        break
+                    chunk = (
+                        raw_chunk.encode("utf-8")
+                        if isinstance(raw_chunk, str)
+                        else bytes(raw_chunk)
+                    )
                     hasher.update(chunk)
                     actual_size += len(chunk)
                     f_out.write(chunk)
@@ -175,7 +182,9 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
         self._bundles[collateral_id] = scanning_bundle
 
         if self._security_port:
-            next_state, reason = await self._security_port.scan_collateral(scanning_bundle)
+            next_state, reason = await self._security_port.scan_collateral(
+                scanning_bundle
+            )
         else:
             next_state, reason = CollateralState.APPROVED, None
 

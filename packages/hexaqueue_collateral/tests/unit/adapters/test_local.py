@@ -118,7 +118,9 @@ async def test_local_collateral_quarantined_threat():
         scanner = ThreatDetectingScanner()
         service = LocalCollateralServiceAdapter(base_dir=tmpdir, security_port=scanner)
 
-        content = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
+        content = (
+            b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
+        )
         sha256 = hashlib.sha256(content).hexdigest()
 
         request = IngestionRequest(
@@ -199,6 +201,7 @@ async def test_local_collateral_not_found():
     """Verify HexaqueueError on unknown collateral ID."""
     with tempfile.TemporaryDirectory() as tmpdir:
         service = LocalCollateralServiceAdapter(base_dir=tmpdir)
-        with pytest.raises(HexaqueueError, match="Collateral with id 'non-existent' not found"):
+        with pytest.raises(
+            HexaqueueError, match="Collateral with id 'non-existent' not found"
+        ):
             await service.get_bundle("non-existent")
-

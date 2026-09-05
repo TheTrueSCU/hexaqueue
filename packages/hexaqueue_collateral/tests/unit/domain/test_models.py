@@ -1,6 +1,7 @@
 """Unit tests for collateral domain models."""
 
 import pytest
+
 from hexaqueue_collateral.domain.models import IngestionRequest, StagedUploadDescriptor
 from hexaqueue_core.domain.collateral import CollateralBundle
 
