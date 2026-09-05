@@ -15,6 +15,13 @@ from hexaqueue_core.domain.config import (
     HexaqueueConfigError,
     HexaqueueCoreConfig,
 )
+from hexaqueue_core.domain.dag import (
+    DependencyCycleError,
+    DependencySpec,
+    JobDagEngine,
+    TriggerCondition,
+    is_dependency_satisfied,
+)
 from hexaqueue_core.domain.exceptions import (
     ChecksumMismatchError,
     FreeTierLimitExceededError,
@@ -53,6 +60,8 @@ __all__ = [
     "CollateralState",
     "CollateralTier",
     "CspProvider",
+    "DependencyCycleError",
+    "DependencySpec",
     "ExecutionMode",
     "FreeTierLimitExceededError",
     "FreeTierProfileConfig",
@@ -60,6 +69,7 @@ __all__ = [
     "HexaqueueConfigError",
     "HexaqueueCoreConfig",
     "HexaqueueError",
+    "JobDagEngine",
     "JobSpec",
     "JobState",
     "JobStateTransitionError",
@@ -70,8 +80,10 @@ __all__ = [
     "RunSpec",
     "RunState",
     "TerminalOutcome",
+    "TriggerCondition",
     "can_transition_collateral",
     "can_transition_job",
     "compute_run_outcome",
     "compute_run_state",
+    "is_dependency_satisfied",
 ]
