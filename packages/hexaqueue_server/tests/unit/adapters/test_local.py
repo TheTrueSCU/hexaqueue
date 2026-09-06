@@ -170,3 +170,19 @@ async def test_local_scheduler_controller_failed_job() -> None:
     assert report.state == RunState.DONE
     assert report.outcome == RunOutcome.FAILED
     assert report.failed_jobs == 1
+
+
+@pytest.mark.asyncio
+async def test_controller_error_handling() -> None:
+    """Verify controller raises errors on unknown job or run IDs."""
+    queue = InMemoryJobQueueAdapter()
+    controller = LocalSchedulerControllerAdapter(queue=queue)
+
+    with pytest.raises(HexaqueueError, match="Run with ID 'unknown' not found"):
+        await controller.get_run_status("unknown")
+
+    with pytest.raises(HexaqueueError, match="Job with ID 'unknown' not found"):
+        await controller.get_job("unknown")
+
+    with pytest.raises(HexaqueueError, match="Job with ID 'unknown' not found"):
+        await controller.update_job_outcome("unknown", TerminalOutcome.COMPLETED)

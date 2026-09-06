@@ -41,3 +41,17 @@ def test_run_spec_outcome_computation() -> None:
     run = RunSpec(id="run-1", name="pipeline-1", jobs=[j1])
     assert run.state == RunState.DONE
     assert run.outcome == RunOutcome.SUCCEEDED
+
+
+def test_run_spec_outcome_when_not_done() -> None:
+    """Verify outcome is None when run is still running or pending."""
+    j1 = JobSpec(
+        id="j1",
+        run_id="run-1",
+        name="job-1",
+        command="echo",
+        status=JobStatus(state=JobState.RUNNING),
+    )
+    run = RunSpec(id="run-1", name="pipeline-1", jobs=[j1])
+    assert run.state == RunState.RUNNING
+    assert run.outcome is None

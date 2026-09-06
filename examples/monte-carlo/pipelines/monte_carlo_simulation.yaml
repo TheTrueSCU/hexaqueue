@@ -5,8 +5,10 @@ run:
   - simulation
   - monte-carlo
   - smoothing
+  - collateral
   env:
     SIM_DIR: /tmp/mc_sim
+    SIM_SCRIPT: ../src/monte_carlo/cli.py
   resources:
     cpus: 1
     ram_mb: 512
@@ -34,22 +36,13 @@ groups:
   jobs:
   - id: sim-regime-{{ regime }}
     name: Simulate {{ label }} Trajectories
-    command: 'python -c "import json, os, random, math; os.makedirs(''{{ SIM_DIR }}'',
-      exist_ok=True); rng = random.Random({{ seed }}); paths = [[100.0] for _ in range(50)];
-      [p.append(p[-1] * math.exp(({{ drift }} - 0.5*{{ vol }}**2)*0.01 + {{ vol }}*math.sqrt(0.01)*rng.gauss(0,1)))
-      for p in paths for _ in range(99)]; json.dump({''regime'': ''{{ regime }}'',
-      ''paths'': paths}, open(''{{ SIM_DIR }}/{{ regime }}.json'', ''w'')); print(''{{
-      label }} simulated: 50 paths, 100 steps'')"'
+    command: python {{ SIM_SCRIPT }} simulate --regime {{ regime }} --seed {{ seed
+      }} --drift {{ drift }} --vol {{ vol }} --paths 50 --steps 100 --output-dir {{
+      SIM_DIR }}
 jobs:
 - id: smooth-and-aggregate
   name: Multi-Variable Smoothing & Statistical Aggregation
-  command: 'python -c "import json; low = json.load(open(''{{ SIM_DIR }}/low_vol.json''))[''paths''];
-    mid = json.load(open(''{{ SIM_DIR }}/mid_vol.json''))[''paths'']; high = json.load(open(''{{
-    SIM_DIR }}/high_vol.json''))[''paths'']; all_paths = low + mid + high; steps =
-    len(all_paths[0]); mean_traj = [sum(p[s] for p in all_paths)/len(all_paths) for
-    s in range(steps)]; smoothed = [sum(mean_traj[max(0, i-2):min(steps, i+3)])/len(mean_traj[max(0,
-    i-2):min(steps, i+3)]) for i in range(steps)]; term = [p[-1] for p in all_paths];
-    print(f''Monte-Carlo Aggregation Complete! Total Paths: {len(all_paths)}, Terminal
-    Mean: {sum(term)/len(term):.2f}, Smoothed T=100: {smoothed[-1]:.2f}'')"'
+  command: python {{ SIM_SCRIPT }} aggregate --input-dir {{ SIM_DIR }} --regimes low_vol
+    mid_vol high_vol --window 5
   depends_on:
   - sim-regimes

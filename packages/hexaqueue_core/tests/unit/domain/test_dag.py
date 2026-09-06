@@ -7,6 +7,7 @@ from hexaqueue_core.domain.dag import (
     DependencySpec,
     JobDagEngine,
     TriggerCondition,
+    is_dependency_blocked,
     is_dependency_satisfied,
 )
 from hexaqueue_core.domain.lifecycle import TerminalOutcome
@@ -153,3 +154,39 @@ def test_dag_topological_sort_with_unregistered_deps() -> None:
     )
     order = dag.validate_and_topological_sort(all_job_ids={"c1", "p1"})
     assert order == ["p1", "c1"]
+
+
+def test_is_dependency_blocked():
+    """Verify blocked dependency evaluation."""
+    assert not is_dependency_blocked(TriggerCondition.AFTER_OK, None)
+    assert not is_dependency_blocked(TriggerCondition.AFTER_OK, TerminalOutcome.COMPLETED)
+    assert is_dependency_blocked(TriggerCondition.AFTER_OK, TerminalOutcome.FAILED)
+    assert is_dependency_blocked(TriggerCondition.AFTER_OK, TerminalOutcome.TIMED_OUT)
+
+    assert not is_dependency_blocked(TriggerCondition.AFTER_NOT_OK, None)
+    assert is_dependency_blocked(TriggerCondition.AFTER_NOT_OK, TerminalOutcome.COMPLETED)
+    assert not is_dependency_blocked(TriggerCondition.AFTER_NOT_OK, TerminalOutcome.FAILED)
+
+    assert not is_dependency_blocked(TriggerCondition.AFTER_ANY, None)
+    assert not is_dependency_blocked(TriggerCondition.AFTER_ANY, TerminalOutcome.COMPLETED)
+    assert not is_dependency_blocked(TriggerCondition.AFTER_ANY, TerminalOutcome.FAILED)
+
+
+def test_is_job_blocked():
+    """Verify is_job_blocked identifies permanently failed prerequisites."""
+    dag = JobDagEngine()
+    dag.add_dependency("c1", "p1", TriggerCondition.AFTER_OK)
+    assert not dag.is_job_blocked("c1", {})
+    assert not dag.is_job_blocked("c1", {"p1": TerminalOutcome.COMPLETED})
+    assert dag.is_job_blocked("c1", {"p1": TerminalOutcome.FAILED})
+
+
+def test_dag_engine_init_with_dependencies():
+    """Verify JobDagEngine initialization with pre-populated dictionary."""
+    engine = JobDagEngine(
+        dependencies={
+            "c1": [DependencySpec(parent_job_id="p1", condition=TriggerCondition.AFTER_OK)]
+        }
+    )
+    assert not engine.is_job_ready("c1", {})
+    assert engine.is_job_ready("c1", {"p1": TerminalOutcome.COMPLETED})

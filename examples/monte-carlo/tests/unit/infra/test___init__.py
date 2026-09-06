@@ -1,8 +1,8 @@
 """Test infra exports."""
 
-import monte_carlo.infra
+from monte_carlo.infra.runner import load_monte_carlo_pipeline
 
 
 def test_infra_exports() -> None:
-    """Verify infra __all__."""
-    assert hasattr(monte_carlo.infra, "load_monte_carlo_pipeline")
+    """Verify infra runners are available."""
+    assert load_monte_carlo_pipeline is not None

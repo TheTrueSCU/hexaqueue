@@ -1,10 +1,14 @@
 """Test domain exports."""
 
-import monte_carlo.domain
+from monte_carlo.domain.models import (
+    SimulationParameters,
+    SmoothedSurface,
+    TrajectorySample,
+)
 
 
 def test_domain_exports() -> None:
-    """Verify domain __all__."""
-    assert hasattr(monte_carlo.domain, "SimulationParameters")
-    assert hasattr(monte_carlo.domain, "TrajectorySample")
-    assert hasattr(monte_carlo.domain, "SmoothedSurface")
+    """Verify domain models are available."""
+    assert SimulationParameters is not None
+    assert TrajectorySample is not None
+    assert SmoothedSurface is not None

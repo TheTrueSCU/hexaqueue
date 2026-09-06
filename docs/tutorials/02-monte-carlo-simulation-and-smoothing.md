@@ -18,7 +18,7 @@ By the end of this tutorial, you will have:
 ```text
 examples/monte-carlo/
 ├── pipelines/
-│   └── monte_carlo_simulation.yaml # Parallel Multi-Regime Simulation DAG
+│   └── monte_carlo_simulation.yaml # Parameter sweep DAG pipeline with groups & collateral
 ├── src/monte_carlo/
 │   ├── domain/                     # 1. Pure Domain Entities & Invariants
 │   │   ├── __init__.py
@@ -29,9 +29,12 @@ examples/monte-carlo/
 │   ├── adapters/                   # 3. Geometric Brownian Motion & Moving Average Smoother
 │   │   ├── __init__.py
 │   │   └── local.py
-│   └── infra/                      # 4. Pipeline Loader
-│       ├── __init__.py
-│       └── runner.py
+│   ├── infra/                      # 4. Pipeline Loader & Collateral Resolvers
+│   │   ├── __init__.py
+│   │   ├── runner.py
+│   │   └── scripts.py
+│   ├── __init__.py
+│   └── cli.py                      # 5. Common Executable Collateral Runner Script
 └── tests/
     └── unit/                       # 1:1 Parity Unit Tests
 ```
@@ -244,9 +247,195 @@ __all__ = [
 
 ---
 
-## 4. Multi-Regime Simulation DAG Specification
+## 4. Executable Collateral CLI (`src/monte_carlo/cli.py`)
 
-Define three parallel parameter regimes (low, mid, high volatility) feeding into a single smoothing and aggregation step in `pipelines/monte_carlo_simulation.yaml`:
+Create `src/monte_carlo/cli.py` as an executable collateral script invoked by batch jobs for both simulation regimes and aggregation:
+
+```python
+"""Command-line entrypoint for Monte-Carlo simulation and smoothing collateral script."""
+
+import argparse
+import json
+import math
+from pathlib import Path
+import random
+import sys
+
+
+def run_simulate(
+    regime: str,
+    seed: int,
+    drift: float,
+    vol: float,
+    num_paths: int,
+    steps: int,
+    dt: float,
+    initial_value: float,
+    output_dir: Path,
+) -> None:
+    """Simulate geometric Brownian motion paths and save to output JSON file."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    rng = random.Random(seed)  # noqa: S311
+
+    drift_term = (drift - 0.5 * vol**2) * dt
+    vol_term = vol * math.sqrt(dt)
+
+    paths: list[list[float]] = []
+    for _ in range(num_paths):
+        path = [initial_value]
+        current = initial_value
+        for _ in range(steps - 1):
+            u1 = rng.random()
+            u2 = rng.random()
+            z = math.sqrt(-2.0 * math.log(max(u1, 1e-12))) * math.cos(
+                2.0 * math.pi * u2
+            )
+            current = current * math.exp(drift_term + vol_term * z)
+            path.append(current)
+        paths.append(path)
+
+    out_file = output_dir / f"{regime}.json"
+    with out_file.open("w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "regime": regime,
+                "seed": seed,
+                "drift": drift,
+                "vol": vol,
+                "paths": paths,
+            },
+            f,
+        )
+
+    print(
+        f"[Monte-Carlo Worker] Simulated {regime}: "
+        f"{len(paths)} paths, {steps} steps -> {out_file}"
+    )
+
+
+def run_aggregate(
+    input_dir: Path,
+    regimes: list[str],
+    window_size: int,
+) -> None:
+    """Aggregate multiple simulated regimes, compute pointwise mean, and apply smoothing."""
+    all_paths: list[list[float]] = []
+    for reg in regimes:
+        reg_file = input_dir / f"{reg}.json"
+        if not reg_file.is_file():
+            msg = f"Missing expected regime simulation output file: {reg_file}"
+            raise FileNotFoundError(msg)
+
+        with reg_file.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+            all_paths.extend(data["paths"])
+
+    if not all_paths:
+        msg = "No paths found for aggregation"
+        raise ValueError(msg)
+
+    total_paths = len(all_paths)
+    steps = len(all_paths[0])
+
+    mean_trajectory: list[float] = []
+    for step_idx in range(steps):
+        step_sum = sum(p[step_idx] for p in all_paths)
+        mean_trajectory.append(step_sum / total_paths)
+
+    smoothed: list[float] = []
+    half_w = window_size // 2
+    for i in range(steps):
+        start = max(0, i - half_w)
+        end = min(steps, i + half_w + 1)
+        win = mean_trajectory[start:end]
+        smoothed.append(sum(win) / len(win))
+
+    terminals = [p[-1] for p in all_paths]
+    term_mean = sum(terminals) / total_paths
+    term_var = sum((v - term_mean) ** 2 for v in terminals) / total_paths
+    std_err = math.sqrt(term_var) / math.sqrt(total_paths) if total_paths > 1 else 0.0
+
+    print(
+        f"[Monte-Carlo Aggregation Complete] Total Paths: {total_paths}, "
+        f"Terminal Mean: {term_mean:.2f} (95% CI: [{term_mean - 1.96 * std_err:.2f}, {term_mean + 1.96 * std_err:.2f}]), "
+        f"Smoothed T={steps}: {smoothed[-1]:.2f}"
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Main CLI parser entrypoint for monte carlo collateral script."""
+    parser = argparse.ArgumentParser(
+        description="Monte-Carlo simulation and smoothing worker script."
+    )
+    subparsers = parser.add_subparsers(dest="subcommand", required=True)
+
+    sim_p = subparsers.add_parser("simulate", help="Run a single simulation regime.")
+    sim_p.add_argument("--regime", type=str, required=True, help="Regime identifier")
+    sim_p.add_argument("--seed", type=int, default=101, help="Random seed")
+    sim_p.add_argument("--drift", type=float, default=0.05, help="Drift mu")
+    sim_p.add_argument("--vol", type=float, default=0.20, help="Volatility sigma")
+    sim_p.add_argument("--paths", type=int, default=50, help="Number of paths")
+    sim_p.add_argument("--steps", type=int, default=100, help="Steps per path")
+    sim_p.add_argument("--dt", type=float, default=0.01, help="Delta time increment")
+    sim_p.add_argument(
+        "--initial-value", type=float, default=100.0, help="Starting price/value"
+    )
+    sim_p.add_argument(
+        "--output-dir",
+        type=Path,
+        required=True,
+        help="Output directory for JSON results",
+    )
+
+    agg_p = subparsers.add_parser(
+        "aggregate", help="Aggregate and smooth simulated regime outputs."
+    )
+    agg_p.add_argument(
+        "--input-dir",
+        type=Path,
+        required=True,
+        help="Input directory containing regime JSONs",
+    )
+    agg_p.add_argument(
+        "--regimes", nargs="+", required=True, help="List of regime names"
+    )
+    agg_p.add_argument(
+        "--window", type=int, default=5, help="Smoothing window size"
+    )
+
+    args = parser.parse_args(argv)
+
+    if args.subcommand == "simulate":
+        run_simulate(
+            regime=args.regime,
+            seed=args.seed,
+            drift=args.drift,
+            vol=args.vol,
+            num_paths=args.paths,
+            steps=args.steps,
+            dt=args.dt,
+            initial_value=args.initial_value,
+            output_dir=args.output_dir,
+        )
+    elif args.subcommand == "aggregate":
+        run_aggregate(
+            input_dir=args.input_dir,
+            regimes=args.regimes,
+            window_size=args.window,
+        )
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+---
+
+## 5. Multi-Regime Job Group DAG Specification
+
+Define three parallel parameter regimes in a nested `groups` block referencing the collateral script in `pipelines/monte_carlo_simulation.yaml`:
 
 ```yaml
 run:
@@ -256,52 +445,39 @@ run:
     - "simulation"
     - "monte-carlo"
     - "smoothing"
+    - "collateral"
+  env:
+    SIM_DIR: "/tmp/mc_sim"
+    SIM_SCRIPT: "../src/monte_carlo/cli.py"
+  resources:
+    cpus: 1
+    ram_mb: 512
+    scratch_mb: 100
+    walltime_seconds: 15
+
+groups:
+  - id: "sim-regimes"
+    name: "Stochastic Trajectory Simulation Regimes"
+    params:
+      - { regime: "low_vol", seed: 101, drift: 0.03, vol: 0.08, label: "Low Volatility" }
+      - { regime: "mid_vol", seed: 202, drift: 0.05, vol: 0.18, label: "Medium Volatility" }
+      - { regime: "high_vol", seed: 303, drift: 0.08, vol: 0.35, label: "High Volatility & Stress" }
+    jobs:
+      - id: "sim-regime-{{ regime }}"
+        name: "Simulate {{ label }} Trajectories"
+        command: "python {{ SIM_SCRIPT }} simulate --regime {{ regime }} --seed {{ seed }} --drift {{ drift }} --vol {{ vol }} --paths 50 --steps 100 --output-dir {{ SIM_DIR }}"
 
 jobs:
-  - id: "sim-regime-low-vol"
-    name: "Simulate Low Volatility Trajectories"
-    command: "python -c \"import json, os, random, math; os.makedirs('/tmp/mc_sim', exist_ok=True); rng = random.Random(101); paths = [[100.0] for _ in range(50)]; [p.append(p[-1] * math.exp((0.03 - 0.5*0.08**2)*0.01 + 0.08*math.sqrt(0.01)*rng.gauss(0,1))) for p in paths for _ in range(99)]; json.dump({'regime': 'low_vol', 'paths': paths}, open('/tmp/mc_sim/low_vol.json', 'w')); print('Low-vol regime simulated: 50 paths, 100 steps')\""
-    resources:
-      cpus: 1
-      ram_mb: 512
-      scratch_mb: 100
-      walltime_seconds: 15
-
-  - id: "sim-regime-mid-vol"
-    name: "Simulate Medium Volatility Trajectories"
-    command: "python -c \"import json, os, random, math; os.makedirs('/tmp/mc_sim', exist_ok=True); rng = random.Random(202); paths = [[100.0] for _ in range(50)]; [p.append(p[-1] * math.exp((0.05 - 0.5*0.18**2)*0.01 + 0.18*math.sqrt(0.01)*rng.gauss(0,1))) for p in paths for _ in range(99)]; json.dump({'regime': 'mid_vol', 'paths': paths}, open('/tmp/mc_sim/mid_vol.json', 'w')); print('Mid-vol regime simulated: 50 paths, 100 steps')\""
-    resources:
-      cpus: 1
-      ram_mb: 512
-      scratch_mb: 100
-      walltime_seconds: 15
-
-  - id: "sim-regime-high-vol"
-    name: "Simulate High Volatility & Stress Trajectories"
-    command: "python -c \"import json, os, random, math; os.makedirs('/tmp/mc_sim', exist_ok=True); rng = random.Random(303); paths = [[100.0] for _ in range(50)]; [p.append(p[-1] * math.exp((0.08 - 0.5*0.35**2)*0.01 + 0.35*math.sqrt(0.01)*rng.gauss(0,1))) for p in paths for _ in range(99)]; json.dump({'regime': 'high_vol', 'paths': paths}, open('/tmp/mc_sim/high_vol.json', 'w')); print('High-vol regime simulated: 50 paths, 100 steps')\""
-    resources:
-      cpus: 1
-      ram_mb: 512
-      scratch_mb: 100
-      walltime_seconds: 15
-
   - id: "smooth-and-aggregate"
     name: "Multi-Variable Smoothing & Statistical Aggregation"
-    command: "python -c \"import json; low = json.load(open('/tmp/mc_sim/low_vol.json'))['paths']; mid = json.load(open('/tmp/mc_sim/mid_vol.json'))['paths']; high = json.load(open('/tmp/mc_sim/high_vol.json'))['paths']; all_paths = low + mid + high; steps = len(all_paths[0]); mean_traj = [sum(p[s] for p in all_paths)/len(all_paths) for s in range(steps)]; smoothed = [sum(mean_traj[max(0, i-2):min(steps, i+3)])/len(mean_traj[max(0, i-2):min(steps, i+3)]) for i in range(steps)]; term = [p[-1] for p in all_paths]; print(f'Monte-Carlo Aggregation Complete! Total Paths: {len(all_paths)}, Terminal Mean: {sum(term)/len(term):.2f}, Smoothed T=100: {smoothed[-1]:.2f}')\""
+    command: "python {{ SIM_SCRIPT }} aggregate --input-dir {{ SIM_DIR }} --regimes low_vol mid_vol high_vol --window 5"
     depends_on:
-      - "sim-regime-low-vol"
-      - "sim-regime-mid-vol"
-      - "sim-regime-high-vol"
-    resources:
-      cpus: 1
-      ram_mb: 512
-      scratch_mb: 100
-      walltime_seconds: 15
+      - "sim-regimes"
 ```
 
 ---
 
-## 5. Running the Simulation
+## 6. Running the Simulation
 
 ```bash
 uv run hq run submit examples/monte-carlo/pipelines/monte_carlo_simulation.yaml --watch

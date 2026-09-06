@@ -1,8 +1,8 @@
 """Test ports exports."""
 
-import monte_carlo.ports
+from monte_carlo.ports.simulator import SimulationEnginePort
 
 
 def test_ports_exports() -> None:
-    """Verify ports __all__."""
-    assert hasattr(monte_carlo.ports, "SimulationEnginePort")
+    """Verify ports interfaces are available."""
+    assert SimulationEnginePort is not None

@@ -116,13 +116,16 @@ def _parse_group_spec(data: dict[str, Any]) -> JobGroupSpec:
     )
 
 
-def parse_run_spec_from_dict(data: dict[str, Any]) -> RunSubmission:
+def parse_run_spec_from_dict(
+    data: dict[str, Any], base_dir: Path | None = None
+) -> RunSubmission:
     """Parse RunSubmission from a dictionary representation.
 
     Supports top-level 'jobs', hierarchical 'groups', matrix sweeps, and parameter inheritance.
 
     Args:
         data: Dictionary conforming to pipeline run spec schema.
+        base_dir: Optional base directory for resolving relative script and artifact paths.
 
     Returns:
         RunSubmission instance.
@@ -167,7 +170,14 @@ def parse_run_spec_from_dict(data: dict[str, Any]) -> RunSubmission:
         for g_data in groups_data:
             parsed_groups.append(_parse_group_spec(g_data))
 
-    global_env = run_dict.get("env", {})
+    global_env = dict(run_dict.get("env", {}))
+    if base_dir:
+        # Resolve relative script paths and directory contexts against base_dir
+        for k, v in list(global_env.items()):
+            if isinstance(v, str) and not v.startswith("/") and not v.startswith("{{"):
+                potential_path = base_dir / v
+                if potential_path.exists():
+                    global_env[k] = str(potential_path.resolve())
     global_resources = _parse_resource_override(run_dict.get("resources"))
 
     expansion_engine = GroupExpansionEngine(run_id=run_id)
@@ -215,7 +225,7 @@ def parse_run_spec_from_file(file_path: str | Path) -> RunSubmission:
         msg = "Pipeline file must contain a top-level YAML mapping"
         raise ValueError(msg)
 
-    return parse_run_spec_from_dict(data)
+    return parse_run_spec_from_dict(data, base_dir=path.parent)
 
 
 __all__ = [

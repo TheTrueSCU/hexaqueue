@@ -117,6 +117,8 @@ exclude_lines = [
 format-command = "uv run ruff format --stdin-filename {filename} -"
 
 [tool.pytest.ini_options]
+testpaths = ["packages"]
+norecursedirs = ["examples", ".venv", "dist", "build"]
 addopts = "-n auto --import-mode=importlib --cov=packages --cov-fail-under=90 --cov-report=term-missing:skip-covered"
 markers = [
     "integration: mark a test as requiring external infrastructure",

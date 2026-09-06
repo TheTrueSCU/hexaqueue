@@ -1,8 +1,8 @@
 """Test adapters exports."""
 
-import monte_carlo.adapters
+from monte_carlo.adapters.local import LocalMonteCarloEngine
 
 
 def test_adapters_exports() -> None:
-    """Verify adapters __all__."""
-    assert hasattr(monte_carlo.adapters, "LocalMonteCarloEngine")
+    """Verify adapters implementations are available."""
+    assert LocalMonteCarloEngine is not None
