@@ -77,7 +77,7 @@ dev = [
     "import-linter>=2.13",
     "inline-snapshot>=0.35.0",
     "libcst>=1.0.0",
-    "mutmut<3",
+    "mutmut<4",
     "pip-audit>=2.10.0",
     "pre-commit>=4.0.0",
     "pydeps>=3.0.0",
