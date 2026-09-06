@@ -9,55 +9,177 @@ on:
 permissions: read-all
 
 jobs:
-  check:
-    name: Pre-Commit Quality Gate & Static Analysis
+  # =========================================================================
+  # Stage 1: Fast Quality Gate & Schema Governance (Fail-Fast Static Checks)
+  # =========================================================================
+  quality-gate:
+    name: Pre-Commit Quality Gate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
         with:
           enable-cache: true
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
 
       - name: Install dependencies
         run: uv sync --all-packages --all-extras --all-groups
+
+      - name: Install Copy-Paste Detection
+        run: cargo install jscpd --locked
 
       - name: Run Pre-Commit Quality Checks
         run: uv run pre-commit run --all-files
 
-      - name: Run Unit & Integration Tests
-        run: uv run pytest tests/unit tests/integration --cov=packages --cov-report=xml --junitxml=junit.xml
-
-  hypothesis:
-    name: Property-Based Fuzzing
-    needs: check
-    if: github.event_name == 'pull_request'
+  # =========================================================================
+  # Stage 2: Unit / Integration Tests & Architecture Verification
+  # Only executes if Stage 1 static quality checks succeed
+  # =========================================================================
+  test-suite:
+    name: Unit & Integration Tests
+    needs: [quality-gate]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
         with:
           enable-cache: true
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
 
       - name: Install dependencies
         run: uv sync --all-packages --all-extras --all-groups
 
-      - name: Run Hypothesis Fuzzing
-        run: uv run pytest tests/hypothesis --no-cov
+      - name: Run Unit & Integration Tests (Push to Main)
+        if: github.event_name == 'push'
+        run: uv run pytest-run -U --cov-report=xml --junitxml=junit.xml -o junit_family=legacy
+
+      - name: Run Affected Unit & Integration Tests (Pull Request)
+        if: github.event_name == 'pull_request'
+        run: uv run pytest-run -A -U --cov-report=xml --junitxml=junit.xml -o junit_family=legacy
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.xml
+          fail_ci_if_error: false
+
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3 # v1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          file: junit.xml
+
+  architecture-diagrams:
+    name: Architecture Diagram Verification
+    needs: [quality-gate]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --all-packages --all-extras --all-groups
+
+      - name: Install Graphviz
+        run: sudo apt-get install -y graphviz
+
+      - name: Check pydeps diagrams are up to date
+        run: |
+          uv run pydeps-generate
+          git diff --exit-code docs/assets/pydeps/ || \
+            (echo "::error::Architecture diagrams are stale. Run 'pydeps-generate' locally and commit the updated SVGs." && exit 1)
+
+  # =========================================================================
+  # Stage 3: Invariant & Security Fuzzing (Deep Verification)
+  # Only executes on PRs if Unit & Integration test suite passed cleanly
+  # =========================================================================
+  hypothesis-fuzzing:
+    name: Property-Based State Machine Fuzzing
+    needs: [test-suite]
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --all-packages --all-extras --all-groups
+
+      - name: Run Affected Property-Based Fuzzing
+        run: uv run pytest-run -A -P --no-cov
+
+  # =========================================================================
+  # Stage 4: Unified CI Success Status Check (Branch Protection Gate)
+  # Aggregates results of all upstream stages, handling skipped conditional jobs
+  # =========================================================================
+  ci-success:
+    name: CI Success (All Required Checks)
+    needs:
+      - quality-gate
+      - test-suite
+      - architecture-diagrams
+      - hypothesis-fuzzing
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify All Upstream Jobs Succeeded or Skipped
+        run: |
+          echo "Evaluating CI pipeline status:"
+          echo "  Pre-Commit Quality Gate:      ${{ needs.quality-gate.result }}"
+          echo "  Unit & Integration Tests:     ${{ needs.test-suite.result }}"
+          echo "  Architecture Diagrams:        ${{ needs.architecture-diagrams.result }}"
+          echo "  Property-Based Fuzzing:       ${{ needs.hypothesis-fuzzing.result }}"
+
+          results=(
+            "${{ needs.quality-gate.result }}"
+            "${{ needs.test-suite.result }}"
+            "${{ needs.architecture-diagrams.result }}"
+            "${{ needs.hypothesis-fuzzing.result }}"
+          )
+
+          for res in "${results[@]}"; do
+            if [ "$res" = "failure" ] || [ "$res" = "cancelled" ]; then
+              echo "::error::One or more upstream CI jobs failed or were cancelled."
+              exit 1
+            fi
+          done
+
+          echo "🎉 All required CI jobs completed successfully (or were cleanly skipped)."

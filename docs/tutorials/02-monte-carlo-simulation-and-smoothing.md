@@ -487,7 +487,7 @@ Output:
 ```text
 ✓ Run 'monte-carlo-stochastic-sim' submitted (4 jobs)
 Run completed with status: SUCCEEDED
-Run Summary: monte-carlo-stochastic-sim 
+Run Summary: monte-carlo-stochastic-sim
 ┏━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━┓
 ┃ Total ┃ Completed ┃ Failed ┃ Pending ┃
 ┡━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━┩

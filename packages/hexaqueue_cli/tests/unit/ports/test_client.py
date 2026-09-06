@@ -15,7 +15,7 @@ class DummyClient(ClientPort):
     async def submit_run(self, submission: RunSubmission) -> RunStatusReport:
         return RunStatusReport(
             run_id=submission.run_spec.id,
-            state=RunState.PENDING,
+            state=RunState.SUBMITTED,
             total_jobs=1,
             completed_jobs=0,
             failed_jobs=0,

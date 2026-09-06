@@ -998,7 +998,7 @@ dev = [
     { name = "deptry", specifier = ">=0.23.0" },
     { name = "detect-secrets", specifier = ">=1.5.0" },
     { name = "faker", specifier = ">=33.0.0" },
-    { name = "hexastack-tools", specifier = ">=0.3.1" },
+    { name = "hexastack-tools", specifier = ">=0.3.4" },
     { name = "hypothesis", specifier = ">=6.120.0" },
     { name = "import-linter", specifier = ">=2.13" },
     { name = "inline-snapshot", specifier = ">=0.35.0" },
@@ -1166,7 +1166,7 @@ wheels = [
 
 [[package]]
 name = "hexastack-tools"
-version = "0.3.1"
+version = "0.3.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "coverage" },
@@ -1182,9 +1182,9 @@ dependencies = [
     { name = "rich" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/88/06/eb231cefcf59fe2f0e72cb5880a19a6f329a75c81159ed2ea158126c9313/hexastack_tools-0.3.1.tar.gz", hash = "sha256:3aa102900063392be36737c3b4442bd036320563e574525477a5e1df3363c636", size = 51956, upload-time = "2026-09-05T20:38:56.589Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7b/4a/f2e58d34125bea9791aece0f883487bd9e4a18b19995774b43e017915a71/hexastack_tools-0.3.4.tar.gz", hash = "sha256:4a324257f8a503c142ba0dc7faa95104627dc1eb9386d184c5d53be8d8b2aa7a", size = 52374, upload-time = "2026-09-06T16:42:38.702Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4a/e4/dcdfbd32ef3efce0efde8d2190b558fd552325bb92384a23a69076e02b9d/hexastack_tools-0.3.1-py3-none-any.whl", hash = "sha256:1be09c42d0c7bcc835d8f0429c2cb2a677b0ab98cabc52f2384f7c5f6aa61e24", size = 73042, upload-time = "2026-09-05T20:38:54.624Z" },
+    { url = "https://files.pythonhosted.org/packages/39/75/f16ee8963840adf93d09af18f956fc840d9f2c15d2390e05786339a7f61a/hexastack_tools-0.3.4-py3-none-any.whl", hash = "sha256:2c8826f92e9e207fca5c378f546740ffe012f7e9b5c7c7752ab57d1b9b4669e5", size = 73456, upload-time = "2026-09-06T16:42:37.136Z" },
 ]
 
 [[package]]

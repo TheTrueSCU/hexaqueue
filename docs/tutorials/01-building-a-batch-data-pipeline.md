@@ -237,7 +237,7 @@ Output:
 ```text
 ✓ Run 'demo-etl-run' submitted (4 jobs)
 Run completed with status: SUCCEEDED
-       Run Summary: demo-etl-run        
+       Run Summary: demo-etl-run
 ┏━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━┓
 ┃ Total ┃ Completed ┃ Failed ┃ Pending ┃
 ┡━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━┩
