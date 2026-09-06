@@ -159,16 +159,24 @@ def test_dag_topological_sort_with_unregistered_deps() -> None:
 def test_is_dependency_blocked():
     """Verify blocked dependency evaluation."""
     assert not is_dependency_blocked(TriggerCondition.AFTER_OK, None)
-    assert not is_dependency_blocked(TriggerCondition.AFTER_OK, TerminalOutcome.COMPLETED)
+    assert not is_dependency_blocked(
+        TriggerCondition.AFTER_OK, TerminalOutcome.COMPLETED
+    )
     assert is_dependency_blocked(TriggerCondition.AFTER_OK, TerminalOutcome.FAILED)
     assert is_dependency_blocked(TriggerCondition.AFTER_OK, TerminalOutcome.TIMED_OUT)
 
     assert not is_dependency_blocked(TriggerCondition.AFTER_NOT_OK, None)
-    assert is_dependency_blocked(TriggerCondition.AFTER_NOT_OK, TerminalOutcome.COMPLETED)
-    assert not is_dependency_blocked(TriggerCondition.AFTER_NOT_OK, TerminalOutcome.FAILED)
+    assert is_dependency_blocked(
+        TriggerCondition.AFTER_NOT_OK, TerminalOutcome.COMPLETED
+    )
+    assert not is_dependency_blocked(
+        TriggerCondition.AFTER_NOT_OK, TerminalOutcome.FAILED
+    )
 
     assert not is_dependency_blocked(TriggerCondition.AFTER_ANY, None)
-    assert not is_dependency_blocked(TriggerCondition.AFTER_ANY, TerminalOutcome.COMPLETED)
+    assert not is_dependency_blocked(
+        TriggerCondition.AFTER_ANY, TerminalOutcome.COMPLETED
+    )
     assert not is_dependency_blocked(TriggerCondition.AFTER_ANY, TerminalOutcome.FAILED)
 
 
@@ -185,7 +193,9 @@ def test_dag_engine_init_with_dependencies():
     """Verify JobDagEngine initialization with pre-populated dictionary."""
     engine = JobDagEngine(
         dependencies={
-            "c1": [DependencySpec(parent_job_id="p1", condition=TriggerCondition.AFTER_OK)]
+            "c1": [
+                DependencySpec(parent_job_id="p1", condition=TriggerCondition.AFTER_OK)
+            ]
         }
     )
     assert not engine.is_job_ready("c1", {})
