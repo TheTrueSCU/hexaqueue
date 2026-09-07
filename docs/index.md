@@ -4,12 +4,13 @@
 
 [![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
 [![Architecture](https://img.shields.io/badge/architecture-hexagonal-emerald.svg)](architecture.md)
+[![Built with Hexastack](https://img.shields.io/badge/built%20with-hexastack-blueviolet.svg)](https://github.com/TheTrueSCU/hexastack)
 
 ---
 
 ## 🌟 Why Hexaqueue?
 
-Modern HPC batch scheduling and distributed ML pipeline orchestration require high performance, zero cross-job contamination, multi-cloud flexibility, and a seamless developer loop. **Hexaqueue** solves this by establishing strict hexagonal architectural boundaries, native cloud-deference, and a $0 cloud spend developer experience:
+Modern HPC batch scheduling and distributed ML pipeline orchestration require high performance, zero cross-job contamination, multi-cloud flexibility, and a seamless developer loop. Built on [**Hexastack**](https://github.com/TheTrueSCU/hexastack) (Hexagonal Architecture & CQRS for Python), **Hexaqueue** solves this by establishing strict hexagonal architectural boundaries, native cloud-deference, and a $0 cloud spend developer experience:
 
 ```mermaid
 graph TD
