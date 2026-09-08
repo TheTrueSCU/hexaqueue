@@ -14,9 +14,10 @@ The goal of `v0.1.0` is to deliver an end-to-end working batch scheduler loop on
 - [x] **Hexagonal Port Contracts**: Abstract interfaces for `StorageVolumePort`, `ExecutionRuntimePort`, `JobQueuePort`, `LogStreamPort`, `SecurityQuarantinePort`, `BudgetAccountingPort`, and `ComputeResourcePort` (`hexaqueue-core` - Issue #4).
 - [x] **Standardized In-Memory & Local Adapters**: Zero-dependency mock & local adapters in dedicated subdirectories (`adapters/storage`, `adapters/queue`, `adapters/runtime`, `adapters/logging`, `adapters/budget`, `adapters/resources`, `adapters/security`) (`hexaqueue-core` - Issue #25).
 - [x] **Direct-to-Disk Collateral Staging & Ingestion**: Local filesystem CAS staging at `~/.hexaqueue/collateral` with streaming SHA256 integrity verification (`hexaqueue-collateral` - Issue #26).
-- [ ] **Standalone In-Process Scheduler Controller**: Central dispatcher loop coordinating in-memory priority queues and DAG prerequisites (`hexaqueue-server` - Issue #27).
-- [ ] **Local Subprocess Worker Execution Daemon**: Compute worker managing scratch directory lifecycles and POSIX process isolation (`hexaqueue-worker` - Issue #28).
-- [ ] **Developer Experience CLI (`hq`)**: Local developer commands (`hq run submit`, `hq status`, `hq list`, `hq logs -f`, `hq cancel`) (`hexaqueue-cli` - Issue #29).
+- [x] **Standalone In-Process Scheduler Controller**: Central dispatcher loop coordinating in-memory priority queues and DAG prerequisites (`hexaqueue-server` - Issue #27).
+- [x] **Local Subprocess Worker Execution Daemon**: Compute worker managing scratch directory lifecycles and POSIX process isolation (`hexaqueue-worker` - Issue #28).
+- [x] **Developer Experience CLI (`hq`)**: Local developer commands (`hq run submit`, `hq status`, `hq list`, `hq logs -f`, `hq cancel`) (`hexaqueue-cli` - Issue #29).
+- [x] **Hierarchical Suite & Parameter Matrix Compiler**: Cartesian product parameter sweeps with recursive variable interpolation (`hexaqueue-core` - Issue #13).
 
 ---
 
