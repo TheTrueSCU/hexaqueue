@@ -11,6 +11,8 @@
 [![Type checker: ty](https://img.shields.io/badge/type%20checker-ty-blueviolet.svg)](https://github.com/astral-sh/ty)
 [![Built with Hexastack](https://img.shields.io/badge/built%20with-hexastack-blueviolet.svg)](https://github.com/TheTrueSCU/hexastack)
 [![OpenSSF Scorecard](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.scorecard.dev%2Fprojects%2Fgithub.com%2FTheTrueSCU%2Fhexaqueue&query=%24.score&label=OpenSSF%20Scorecard&color=blue)](https://securityscorecards.dev/viewer/?uri=github.com/TheTrueSCU/hexaqueue)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14535/badge)](https://www.bestpractices.dev/projects/14535)
+[![OpenSSF Best Practices: Progress](https://img.shields.io/cii/percentage/14535?label=OpenSSF%20Best%20Practices%3A%20Progress)](https://www.bestpractices.dev/projects/14535)
 
 Built 100% on top of **Hexastack** (Hexagonal Architecture & CQRS for Python).
 
