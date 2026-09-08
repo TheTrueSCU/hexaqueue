@@ -1,6 +1,6 @@
 [project]
 name = "hexaqueue-github-runner"
-version = "0.0.0"
+version = "0.1.0"
 description = "Hexaqueue GitHub Runner - Dynamic Self-Hosted GitHub Actions Autoscaler"
 readme = "README.md"
 license = "Apache-2.0"

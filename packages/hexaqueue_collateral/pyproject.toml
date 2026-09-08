@@ -1,6 +1,6 @@
 [project]
 name = "hexaqueue-collateral"
-version = "0.0.0"
+version = "0.1.0"
 description = "Hexaqueue Collateral - Ingestion, upload handling, and staging storage service"
 readme = "README.md"
 license = "Apache-2.0"

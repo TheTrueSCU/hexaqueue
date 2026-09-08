@@ -2,6 +2,16 @@
 
 > **Cloud-Agnostic HPC Batch Scheduler and Distributed Job Orchestrator**
 
+[![CI](https://github.com/TheTrueSCU/hexaqueue/actions/workflows/ci.yml/badge.svg)](https://github.com/TheTrueSCU/hexaqueue/actions/workflows/ci.yml)
+[![Coverage](https://codecov.io/github/TheTrueSCU/hexaqueue/graph/badge.svg)](https://codecov.io/github/TheTrueSCU/hexaqueue)
+[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![PyPI: hexaqueue](https://img.shields.io/pypi/v/hexaqueue.svg)](https://pypi.org/project/hexaqueue/)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
+[![Type checker: ty](https://img.shields.io/badge/type%20checker-ty-blueviolet.svg)](https://github.com/astral-sh/ty)
+[![Built with Hexastack](https://img.shields.io/badge/built%20with-hexastack-blueviolet.svg)](https://github.com/TheTrueSCU/hexastack)
+[![OpenSSF Scorecard](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.scorecard.dev%2Fprojects%2Fgithub.com%2FTheTrueSCU%2Fhexaqueue&query=%24.score&label=OpenSSF%20Scorecard&color=blue)](https://securityscorecards.dev/viewer/?uri=github.com/TheTrueSCU/hexaqueue)
+
 Built 100% on top of **Hexastack** (Hexagonal Architecture & CQRS for Python).
 
 ---
@@ -134,16 +144,16 @@ graph TD
 
 | Package | Version | Description |
 |---|---|---|
-| [`hexaqueue`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue/README.md) | `0.0.0` | Umbrella metapackage (`pip install hexaqueue[all]`) |
-| [`hexaqueue-core`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_core/README.md) | `0.0.0` | Pure domain models, lifecycle state machines, port interfaces |
-| [`hexaqueue-cli`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_cli/README.md) | `0.0.0` | `hq` interactive terminal CLI |
-| [`hexaqueue-server`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_server/README.md) | `0.0.0` | HA central controller & scheduler engine |
-| [`hexaqueue-worker`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_worker/README.md) | `0.0.0` | Compute node execution daemon (cgroups v2, GPU isolation) |
-| [`hexaqueue-collateral`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_collateral/README.md) | `0.0.0` | Direct presigned multi-part upload & staging storage service |
-| [`hexaqueue-scanner`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_scanner/README.md) | `0.0.0` | Malware scanning, AV (ClamAV/YARA) & quarantine daemon |
-| [`hexaqueue-monitor`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_monitor/README.md) | `0.0.0` | Health, heartbeat telemetry & budget tracking daemon |
-| [`hexaqueue-dashboard`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_dashboard/README.md) | `0.0.0` | Web interface, cluster visualizer & operator console |
-| [`hexaqueue-github-runner`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_github_runner/README.md) | `0.0.0` | GitHub Actions JIT autoscaler & webhook bridge |
-| [`hexaqueue-gitlab-runner`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_gitlab_runner/README.md) | `0.0.0` | GitLab CI/CD Custom Executor driver |
-| [`hexaqueue-kueue`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_kueue/README.md) | `0.0.0` | Kubernetes Batch v1 & Kueue controller bridge |
-| [`hexaqueue-workflow`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_workflow/README.md) | `0.0.0` | Temporal Activity worker & Argo workflow driver |
+| [`hexaqueue`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue/README.md) | `0.1.0` | Umbrella metapackage (`pip install hexaqueue[all]`) |
+| [`hexaqueue-core`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_core/README.md) | `0.1.0` | Pure domain models, lifecycle state machines, port interfaces |
+| [`hexaqueue-cli`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_cli/README.md) | `0.1.0` | `hq` interactive terminal CLI |
+| [`hexaqueue-server`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_server/README.md) | `0.1.0` | HA central controller & scheduler engine |
+| [`hexaqueue-worker`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_worker/README.md) | `0.1.0` | Compute node execution daemon (cgroups v2, GPU isolation) |
+| [`hexaqueue-collateral`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_collateral/README.md) | `0.1.0` | Direct presigned multi-part upload & staging storage service |
+| [`hexaqueue-scanner`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_scanner/README.md) | `0.1.0` | Malware scanning, AV (ClamAV/YARA) & quarantine daemon |
+| [`hexaqueue-monitor`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_monitor/README.md) | `0.1.0` | Health, heartbeat telemetry & budget tracking daemon |
+| [`hexaqueue-dashboard`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_dashboard/README.md) | `0.1.0` | Web interface, cluster visualizer & operator console |
+| [`hexaqueue-github-runner`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_github_runner/README.md) | `0.1.0` | GitHub Actions JIT autoscaler & webhook bridge |
+| [`hexaqueue-gitlab-runner`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_gitlab_runner/README.md) | `0.1.0` | GitLab CI/CD Custom Executor driver |
+| [`hexaqueue-kueue`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_kueue/README.md) | `0.1.0` | Kubernetes Batch v1 & Kueue controller bridge |
+| [`hexaqueue-workflow`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_workflow/README.md) | `0.1.0` | Temporal Activity worker & Argo workflow driver |

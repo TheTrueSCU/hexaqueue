@@ -1,6 +1,6 @@
 [project]
 name = "hexaqueue-kueue"
-version = "0.0.0"
+version = "0.1.0"
 description = "Hexaqueue Kueue - Kubernetes Batch v1 & Kueue Scheduler Controller Bridge"
 readme = "README.md"
 license = "Apache-2.0"

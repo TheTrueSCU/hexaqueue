@@ -2,6 +2,11 @@
 
 > Lightweight compute node execution daemon with GPU isolation and real-time streaming.
 
+[![PyPI: hexaqueue-worker](https://img.shields.io/pypi/v/hexaqueue-worker.svg)](https://pypi.org/project/hexaqueue-worker/)
+[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![Coverage](https://codecov.io/github/TheTrueSCU/hexaqueue/graph/badge.svg?component=hexaqueue_worker)](https://codecov.io/github/TheTrueSCU/hexaqueue)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](../../LICENSE)
+
 ---
 
 ## 🏗️ Architecture & Dependencies
