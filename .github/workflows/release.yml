@@ -79,7 +79,10 @@ jobs:
         run: uv sync --all-packages --all-extras --all-groups
 
       - name: Build All Monorepo Distribution Packages
-        run: uv run pypi-build --out-dir dist/
+        run: uv run hexaqual release build --dist-dir dist/
+
+      - name: Verify Reproducible Distribution Builds
+        run: uv run hexaqual release reproducible
 
       - name: Publish Distribution Packages to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1

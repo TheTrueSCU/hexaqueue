@@ -67,11 +67,11 @@ jobs:
 
       - name: Run Unit & Integration Tests (Push to Main)
         if: github.event_name == 'push'
-        run: uv run pytest-run -U --cov-report=xml --junitxml=junit.xml -o junit_family=legacy
+        run: uv run hexaqual test run -U --cov-report=xml --junitxml=junit.xml -o junit_family=legacy
 
       - name: Run Affected Unit & Integration Tests (Pull Request)
         if: github.event_name == 'pull_request'
-        run: uv run pytest-run -A -U --cov-report=xml --junitxml=junit.xml -o junit_family=legacy
+        run: uv run hexaqual test run -A -U --cov-report=xml --junitxml=junit.xml -o junit_family=legacy
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
@@ -112,7 +112,7 @@ jobs:
 
       - name: Check pydeps diagrams are up to date
         run: |
-          uv run pydeps-generate
+          uv run hexaqual deps pydeps
           git diff --exit-code docs/assets/pydeps/ || \
             (echo "::error::Architecture diagrams are stale. Run 'pydeps-generate' locally and commit the updated SVGs." && exit 1)
 
@@ -144,7 +144,7 @@ jobs:
         run: uv sync --all-packages --all-extras --all-groups
 
       - name: Run Affected Property-Based Fuzzing
-        run: uv run pytest-run -A -P --no-cov
+        run: uv run hexaqual test run -A -P --no-cov
 
   # =========================================================================
   # Stage 4: Unified CI Success Status Check (Branch Protection Gate)

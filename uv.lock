@@ -602,6 +602,8 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/69/f5/7af1dd74b9608a85274414fc423a7162844492b198ece3fe31f4e1f88237/grimp-3.17-cp313-cp313-win32.whl", hash = "sha256:34369739ed293accbb674494ae932351516b316e8e85d1d333d4c51796af846a", size = 1874244, upload-time = "2026-09-04T11:29:21.693Z" },
     { url = "https://files.pythonhosted.org/packages/8b/d4/af497adddfcf11f9bd4ab273625a49022bf5ba4f5fc389589f4e6edc67b9/grimp-3.17-cp313-cp313-win_amd64.whl", hash = "sha256:d21b859c50418bdb48b403a84450650fa7aab3102f3212d00d3c21c76a982167", size = 1998225, upload-time = "2026-09-04T11:29:10.5Z" },
     { url = "https://files.pythonhosted.org/packages/e2/2a/07fd537997281049af2390fc8641de5ae063ae4972cb6fcec85873674595/grimp-3.17-cp313-cp313-win_arm64.whl", hash = "sha256:206cd9f7c757b97934f48ba2b8ec6d649725fd6314d6b182dd327b19b4f35707", size = 1922071, upload-time = "2026-09-04T11:28:58.34Z" },
+    { url = "https://files.pythonhosted.org/packages/39/e0/e11ea5aeb62534c9706e17952d142aa844ce5659e2d66b4b8ba9377407d6/grimp-3.17-cp314-cp314-macosx_10_12_x86_64.whl", hash = "sha256:0100ff6f08067c8eb8a77dd1433af5e173aea8dbf6a6b76f5372a3b49f2e0a43", size = 2161696, upload-time = "2026-09-11T10:36:49.104Z" },
+    { url = "https://files.pythonhosted.org/packages/4b/d6/ddf82f4428d8bdc54ced0db244cbf5d8e5638490c3ed6a8b9f5db55dfa51/grimp-3.17-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:67ada40a5c1cf4321183c0b0cd0393658ccd04b845caed002ac81dc2fdef828e", size = 2107301, upload-time = "2026-09-11T10:36:46.459Z" },
     { url = "https://files.pythonhosted.org/packages/86/1a/1dd0d9d2751e8078547e1cb7131e13d9624a2ea60700d926b3d624c15825/grimp-3.17-cp314-cp314-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:baa385915a4c17948bfb25f77509cbbfb33795f321d1c5ca7cc602e34ed58e99", size = 2278433, upload-time = "2026-09-04T11:27:03.075Z" },
     { url = "https://files.pythonhosted.org/packages/58/71/3768fd253e7455a83d668193055691c82d3a4d434047116c572a27d2bd39/grimp-3.17-cp314-cp314-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:8322a435b5ee97ff3db823df36cbefea569faec505cc0ca66223c27b4b44cca6", size = 2221152, upload-time = "2026-09-04T11:27:12.642Z" },
     { url = "https://files.pythonhosted.org/packages/b4/4f/907a130e87554d57be14c2a7cedeb818d0ef519064877297d19636735f6b/grimp-3.17-cp314-cp314-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:cb953c21beb6ac85a59b5b54128be7fdddd89396d34b3c5705cf59829a85b431", size = 2371546, upload-time = "2026-09-04T11:27:41.195Z" },
@@ -698,6 +700,51 @@ wheels = [
 ]
 
 [[package]]
+name = "hexaflow"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "rich" },
+    { name = "typer" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3d/45/d0fac45408d72d7f008154a5f7013783cee33ec22fe78095bd94e2e68023/hexaflow-0.2.0.tar.gz", hash = "sha256:a9f970f4a522f5a2ac0bdc408b42f61d086c34922b26406e14c3c67c7dfbce83", size = 103637, upload-time = "2026-09-14T14:38:50.234Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/20/46/3934436eca566c2cdad93c1c30faa3df93d92fdd2c069f3ad9b79f51d5e8/hexaflow-0.2.0-py3-none-any.whl", hash = "sha256:56fca7e1edb94d5d4e01ce45780a5cec279ee9b0977f8e916d8929552f0c9a4d", size = 39100, upload-time = "2026-09-14T14:38:49.175Z" },
+]
+
+[[package]]
+name = "hexaqual"
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "complexipy" },
+    { name = "coverage" },
+    { name = "deptry" },
+    { name = "hexaflow" },
+    { name = "httpx" },
+    { name = "import-linter" },
+    { name = "inline-snapshot" },
+    { name = "libcst" },
+    { name = "pydantic" },
+    { name = "pytest-archon" },
+    { name = "pyyaml" },
+    { name = "rich" },
+    { name = "typer" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d3/6c/123ca32f1a18d6bc3a4727af8edcfc9e57f29cdad686ef51e4db6a54cd18/hexaqual-0.3.0.tar.gz", hash = "sha256:34c98a0ac9476ad6686a1a0e064bcbb3936c6a8976ed60b881bed54a2234bc5a", size = 281524, upload-time = "2026-09-14T15:31:43.182Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/93/c5/0f77455d8f41ff566520b49f6b715131a0c1bba6b5429137535e59e8193e/hexaqual-0.3.0-py3-none-any.whl", hash = "sha256:27cdec265c4a856b6cb3f0b8f0738bd02113aa1e596ebf0972b2284bb85cab7c", size = 210320, upload-time = "2026-09-14T15:31:41.697Z" },
+]
+
+[package.optional-dependencies]
+all = [
+    { name = "mutmut" },
+    { name = "pydeps" },
+    { name = "rope" },
+]
+
+[[package]]
 name = "hexaqueue"
 version = "0.1.0"
 source = { editable = "packages/hexaqueue" }
@@ -754,10 +801,10 @@ requires-dist = [
     { name = "hexaqueue-core", editable = "packages/hexaqueue_core" },
     { name = "hexaqueue-server", editable = "packages/hexaqueue_server" },
     { name = "hexaqueue-worker", editable = "packages/hexaqueue_worker" },
-    { name = "hexastack-cli", specifier = ">=0.3.0" },
-    { name = "hexastack-core", specifier = ">=0.3.0" },
-    { name = "hexastack-cqrs", specifier = ">=0.3.0" },
-    { name = "hexastack-grpc", specifier = ">=0.3.0" },
+    { name = "hexastack-cli", specifier = ">=0.5.0" },
+    { name = "hexastack-core", specifier = ">=0.5.0" },
+    { name = "hexastack-cqrs", specifier = ">=0.5.0" },
+    { name = "hexastack-grpc", specifier = ">=0.5.0" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "rich", specifier = ">=13.8.0" },
     { name = "typer", specifier = ">=0.15.0" },
@@ -778,10 +825,10 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "hexaqueue-core", editable = "packages/hexaqueue_core" },
-    { name = "hexastack-auth", specifier = ">=0.3.0" },
-    { name = "hexastack-core", specifier = ">=0.3.0" },
-    { name = "hexastack-events", specifier = ">=0.3.0" },
-    { name = "hexastack-fastapi", specifier = ">=0.3.0" },
+    { name = "hexastack-auth", specifier = ">=0.5.0" },
+    { name = "hexastack-core", specifier = ">=0.5.0" },
+    { name = "hexastack-events", specifier = ">=0.5.0" },
+    { name = "hexastack-fastapi", specifier = ">=0.5.0" },
 ]
 
 [[package]]
@@ -796,8 +843,8 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "hexastack-core", specifier = ">=0.3.0" },
-    { name = "hexastack-cqrs", specifier = ">=0.3.0" },
+    { name = "hexastack-core", specifier = ">=0.5.0" },
+    { name = "hexastack-cqrs", specifier = ">=0.5.0" },
     { name = "pydantic", specifier = ">=2.10.0" },
 ]
 
@@ -815,9 +862,9 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "hexaqueue-core", editable = "packages/hexaqueue_core" },
-    { name = "hexastack-auth", specifier = ">=0.3.0" },
-    { name = "hexastack-fastapi", specifier = ">=0.3.0" },
-    { name = "hexastack-grpc", specifier = ">=0.3.0" },
+    { name = "hexastack-auth", specifier = ">=0.5.0" },
+    { name = "hexastack-fastapi", specifier = ">=0.5.0" },
+    { name = "hexastack-grpc", specifier = ">=0.5.0" },
 ]
 
 [[package]]
@@ -867,9 +914,9 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "hexaqueue-core", editable = "packages/hexaqueue_core" },
-    { name = "hexastack-core", specifier = ">=0.3.0" },
-    { name = "hexastack-events", specifier = ">=0.3.0" },
-    { name = "hexastack-otel", specifier = ">=0.3.0" },
+    { name = "hexastack-core", specifier = ">=0.5.0" },
+    { name = "hexastack-events", specifier = ">=0.5.0" },
+    { name = "hexastack-otel", specifier = ">=0.5.0" },
 ]
 
 [[package]]
@@ -887,10 +934,10 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "hexaqueue-core", editable = "packages/hexaqueue_core" },
-    { name = "hexastack-auth", specifier = ">=0.3.0" },
-    { name = "hexastack-core", specifier = ">=0.3.0" },
-    { name = "hexastack-events", specifier = ">=0.3.0" },
-    { name = "hexastack-logging", specifier = ">=0.3.0" },
+    { name = "hexastack-auth", specifier = ">=0.5.0" },
+    { name = "hexastack-core", specifier = ">=0.5.0" },
+    { name = "hexastack-events", specifier = ">=0.5.0" },
+    { name = "hexastack-logging", specifier = ">=0.5.0" },
 ]
 
 [[package]]
@@ -912,14 +959,14 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "hexaqueue-core", editable = "packages/hexaqueue_core" },
-    { name = "hexastack-auth", specifier = ">=0.3.0" },
-    { name = "hexastack-core", specifier = ">=0.3.0" },
-    { name = "hexastack-cqrs", specifier = ">=0.3.0" },
-    { name = "hexastack-db", specifier = ">=0.3.0" },
-    { name = "hexastack-events", specifier = ">=0.3.0" },
-    { name = "hexastack-fastapi", specifier = ">=0.3.0" },
-    { name = "hexastack-grpc", specifier = ">=0.3.0" },
-    { name = "hexastack-otel", specifier = ">=0.3.0" },
+    { name = "hexastack-auth", specifier = ">=0.5.0" },
+    { name = "hexastack-core", specifier = ">=0.5.0" },
+    { name = "hexastack-cqrs", specifier = ">=0.5.0" },
+    { name = "hexastack-db", specifier = ">=0.5.0" },
+    { name = "hexastack-events", specifier = ">=0.5.0" },
+    { name = "hexastack-fastapi", specifier = ">=0.5.0" },
+    { name = "hexastack-grpc", specifier = ">=0.5.0" },
+    { name = "hexastack-otel", specifier = ">=0.5.0" },
 ]
 
 [[package]]
@@ -937,10 +984,10 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "hexaqueue-core", editable = "packages/hexaqueue_core" },
-    { name = "hexastack-auth", specifier = ">=0.3.0" },
-    { name = "hexastack-core", specifier = ">=0.3.0" },
-    { name = "hexastack-grpc", specifier = ">=0.3.0" },
-    { name = "hexastack-logging", specifier = ">=0.3.0" },
+    { name = "hexastack-auth", specifier = ">=0.5.0" },
+    { name = "hexastack-core", specifier = ">=0.5.0" },
+    { name = "hexastack-grpc", specifier = ">=0.5.0" },
+    { name = "hexastack-logging", specifier = ">=0.5.0" },
 ]
 
 [[package]]
@@ -957,7 +1004,7 @@ requires-dist = [{ name = "hexaqueue-core", editable = "packages/hexaqueue_core"
 [[package]]
 name = "hexaqueue-workspace"
 version = "0.1.0"
-source = { editable = "." }
+source = { virtual = "." }
 dependencies = [
     { name = "hexaqueue" },
 ]
@@ -968,7 +1015,7 @@ dev = [
     { name = "deptry" },
     { name = "detect-secrets" },
     { name = "faker" },
-    { name = "hexastack-tools" },
+    { name = "hexaqual", extra = ["all"] },
     { name = "hypothesis" },
     { name = "import-linter" },
     { name = "inline-snapshot" },
@@ -998,7 +1045,7 @@ dev = [
     { name = "deptry", specifier = ">=0.23.0" },
     { name = "detect-secrets", specifier = ">=1.5.0" },
     { name = "faker", specifier = ">=33.0.0" },
-    { name = "hexastack-tools", specifier = ">=0.3.5" },
+    { name = "hexaqual", extras = ["all"], specifier = ">=0.3.0" },
     { name = "hypothesis", specifier = ">=6.120.0" },
     { name = "import-linter", specifier = ">=2.13" },
     { name = "inline-snapshot", specifier = ">=0.35.0" },
@@ -1021,7 +1068,7 @@ dev = [
 
 [[package]]
 name = "hexastack-auth"
-version = "0.3.0"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "hexastack-core" },
@@ -1029,14 +1076,14 @@ dependencies = [
     { name = "pydantic" },
     { name = "pyjwt" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2d/04/5ee8b74cac7375c65482eeec3c839d90e4f01db72590b4a011c43c293593/hexastack_auth-0.3.0.tar.gz", hash = "sha256:9125558e9e682194029bd7f08c5baff81f1e76fa87d6d2d3b9468aba69e4c8cc", size = 18544, upload-time = "2026-09-04T05:45:52.925Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b0/e4/634a785bedc8a0a0ae2da285746fc302dc8f62a7c45686541b6fd5f0076d/hexastack_auth-0.5.0.tar.gz", hash = "sha256:078f692417c03d8392a0090d6e92e67b5eee323402aa184d6df331be6690cce0", size = 18535, upload-time = "2026-09-14T20:19:16.366Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/51/31/e86c44d935169111542a0152178c0a2847b772012b72012579a54802c098/hexastack_auth-0.3.0-py3-none-any.whl", hash = "sha256:5416574d17547237bec2a8e2ba645818c3688397c4d33a99bf4df5cfe22078ea", size = 30576, upload-time = "2026-09-04T05:45:35.149Z" },
+    { url = "https://files.pythonhosted.org/packages/5f/80/0faf3400b3ba641dcd1502e02eb0d1dd6ddfef0a06def1d23c0faa86ec69/hexastack_auth-0.5.0-py3-none-any.whl", hash = "sha256:f2ce95aee51b0ecea413b864bd734527b2f0071841d33e0c7d46188a322ec1f0", size = 30469, upload-time = "2026-09-14T20:18:57.904Z" },
 ]
 
 [[package]]
 name = "hexastack-cli"
-version = "0.3.0"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "hexastack-core" },
@@ -1044,54 +1091,54 @@ dependencies = [
     { name = "rich" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/45/e3/a13ba51f659be104a7a216344cc86cfe81fd6c4d8d78778c41340cd9ea3b/hexastack_cli-0.3.0.tar.gz", hash = "sha256:030e3f11e9badf6be3f115cd0dca2ca57764ccbf06c5323fbfc53bb1b0608049", size = 17416, upload-time = "2026-09-04T05:45:53.723Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/53/e1/cf7387051126afbbded0c004f84b41afbed324121c506a27a022470cdd33/hexastack_cli-0.5.0.tar.gz", hash = "sha256:4d7c822288d8c530017f71f7eaacf3a7e83283a10a1ed7e146214c40b482428d", size = 17446, upload-time = "2026-09-14T20:19:17.037Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/42/ec/6bb37e1f2256b46b1b9c0de281f1c84a9bb5f4edbd11ce697756b2141917/hexastack_cli-0.3.0-py3-none-any.whl", hash = "sha256:3ddd75e203bb24d83b8210797bc74e6182bf198354c0bf5084c05b250450fd42", size = 24504, upload-time = "2026-09-04T05:45:36.17Z" },
+    { url = "https://files.pythonhosted.org/packages/e1/ea/f8e999d3ac4a57aaaf955161e67cb94672badbfd701a697b1c83d64ec0e1/hexastack_cli-0.5.0-py3-none-any.whl", hash = "sha256:2cf7348dd8973d4ac7da7468a9b5adc0fdece8bcb3576624a5b01c18e474c2bb", size = 24506, upload-time = "2026-09-14T20:18:59.066Z" },
 ]
 
 [[package]]
 name = "hexastack-core"
-version = "0.3.0"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
     { name = "rodi" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c4/81/c724f324561275c2e8a8f8fab23f341c6cc5f32b4a3e10af701007b22be8/hexastack_core-0.3.0.tar.gz", hash = "sha256:ef28c415eddbc434d6a030e925e6f2676c8a981b2766c21f737fa3e46df99261", size = 52944, upload-time = "2026-09-04T05:45:54.68Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bb/c8/71cbbd966ac8b7b4e707cd9798ce8ddccb2e5bea89ee38da5d89b8b2a10b/hexastack_core-0.5.0.tar.gz", hash = "sha256:291bbd3093b1641a0051dfbbe1a09f8a1508daa1687037648cda28d9322e5a2e", size = 54056, upload-time = "2026-09-14T20:19:18.01Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fb/fe/02bb6d7bd74839c4ce669fbbcbecd742a15c66a290b476656681b98d3d3a/hexastack_core-0.3.0-py3-none-any.whl", hash = "sha256:14d63d0ebbf494c3c2e067367aa81ec56c77ad9fe758bc8f1ccb9748016961e7", size = 90964, upload-time = "2026-09-04T05:45:37.463Z" },
+    { url = "https://files.pythonhosted.org/packages/67/3c/7128ffa640b5d884cab4ee9c898c26a64f43202b4c67a3f9dee22dc1a155/hexastack_core-0.5.0-py3-none-any.whl", hash = "sha256:e0911b207f1b9683718f9d462bc8214ce949daf9b14db1e697b48f5f4aa0890f", size = 92526, upload-time = "2026-09-14T20:19:00.27Z" },
 ]
 
 [[package]]
 name = "hexastack-cqrs"
-version = "0.3.0"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "hexastack-core" },
     { name = "stamina" },
     { name = "tenacity" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e9/e2/1250c9f2f7a0f2222dbd76a00293b070cd7afac2cd72a1989d36ab6a58bd/hexastack_cqrs-0.3.0.tar.gz", hash = "sha256:0066a9c92278f238bfd37a6d94b43ab300f3e2af151b05e9384ca9f1b90e3245", size = 26916, upload-time = "2026-09-04T05:45:55.398Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8b/5d/25bef91e84b0f04652372568c600ff237023107a096b8d3e3c2400d7dd70/hexastack_cqrs-0.5.0.tar.gz", hash = "sha256:284b88c01dd911585ebff09699ea9ed717382a191632ad887dd608ceb941a2aa", size = 26884, upload-time = "2026-09-14T20:19:18.682Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f0/dd/d0f9383a186053d30dd76936d965c9cec5c3c5d6856238bc977da60635b8/hexastack_cqrs-0.3.0-py3-none-any.whl", hash = "sha256:cc7a7dd509857ea744feb30fba494943b3597aa9405ce59760012d775be7db67", size = 47369, upload-time = "2026-09-04T05:45:38.709Z" },
+    { url = "https://files.pythonhosted.org/packages/cc/7d/4775a48ede35ac38d92d2857e2e03ed6085da59184aa31b288620a960a9b/hexastack_cqrs-0.5.0-py3-none-any.whl", hash = "sha256:d74139d9be91676b79d86ab3a428f03fba08d6506bcf77bb6b9f09c4406cb549", size = 47369, upload-time = "2026-09-14T20:19:01.399Z" },
 ]
 
 [[package]]
 name = "hexastack-db"
-version = "0.3.0"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "hexastack-core" },
     { name = "sqlalchemy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ff/6e/744ae019ca7f362c3c80c4a18b0a0e6ccb5468f89cc765d9216f8881a6e9/hexastack_db-0.3.0.tar.gz", hash = "sha256:2407c157efb28dd76b271262cc40084ef5f712b45b71c83045d4f751c130e5a8", size = 17389, upload-time = "2026-09-04T05:45:56.404Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/51/92/4e19f13b8cc95a8a6796a7f1577a429ca8aea5a6c83273378038a7ed73ee/hexastack_db-0.5.0.tar.gz", hash = "sha256:2ddc907ab00eb34b6f101ed2af4ef01530b64ff39efdf2628f10b0aba707d1e5", size = 22803, upload-time = "2026-09-14T20:19:19.307Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0c/22/7129845433c1df9b8b51051ade287bae2791b993fca7285e351c3605996a/hexastack_db-0.3.0-py3-none-any.whl", hash = "sha256:e81f2a4df8cd87b92b4123a61b702d41c8ee24241900dcfc0abd0e66e65532d1", size = 24122, upload-time = "2026-09-04T05:45:39.832Z" },
+    { url = "https://files.pythonhosted.org/packages/be/62/9076394539f87ab666bfc61b2c3e1e91358e3e7e72cb95f139bbaddefab5/hexastack_db-0.5.0-py3-none-any.whl", hash = "sha256:5170415e98d67bdd80deba6882337451fe3daecd70645917924c2f542e0b6a01", size = 30294, upload-time = "2026-09-14T20:19:02.402Z" },
 ]
 
 [[package]]
 name = "hexastack-events"
-version = "0.3.0"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cloudevents" },
@@ -1100,28 +1147,28 @@ dependencies = [
     { name = "msgspec" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/59/b4/39b944dae66d715b2c773c04467b34d5d45f4bb0ae444879683139e5b995/hexastack_events-0.3.0.tar.gz", hash = "sha256:5a2f284496fdecea56dab31d52ce511f879349159c478ffbb89f61633d21f558", size = 29089, upload-time = "2026-09-04T05:45:57.194Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/91/97/9eb02c1597f589c1724d2df74a91ef59ff8345a141801838df94106eed08/hexastack_events-0.5.0.tar.gz", hash = "sha256:6b971bd793770d9296c9202f4a6ab55d587d531f3969981c87253325583353ca", size = 36198, upload-time = "2026-09-14T20:19:20.29Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/27/4b/a101a3b723a88f70ac8f26a7adc3af6da6e5b7b3500d8fda7814294a7f00/hexastack_events-0.3.0-py3-none-any.whl", hash = "sha256:eb0124b5ae5a26847d4d938335d285e4acb1e20851b46ac9556c6c2d11ced3ce", size = 46116, upload-time = "2026-09-04T05:45:41.001Z" },
+    { url = "https://files.pythonhosted.org/packages/ee/18/dd612b7c8ab2c33f6706358668469e32df43735c1cdae2dbfe66be91576f/hexastack_events-0.5.0-py3-none-any.whl", hash = "sha256:30feb666d7ec5f4f866de26da4b818248bdf45b734ef97ba2e867a559f5a82df", size = 55953, upload-time = "2026-09-14T20:19:03.517Z" },
 ]
 
 [[package]]
 name = "hexastack-fastapi"
-version = "0.3.0"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastapi" },
     { name = "hexastack-core" },
     { name = "hexastack-cqrs" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c7/e3/354b470aa4abbda7c588c9817a55e21eb0fdd5e1504f007f4e9ae79f259c/hexastack_fastapi-0.3.0.tar.gz", hash = "sha256:823a5251eb2139816ffb7084b8760191bcd725aad978b779e759fd35c336bb89", size = 33645, upload-time = "2026-09-04T05:45:57.9Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/34/98/6c621100f9fa7ed19e4b67b4cc48dc18bb0e731fd8fbe74bc4963a9e9d3a/hexastack_fastapi-0.5.0.tar.gz", hash = "sha256:04983df0738549fe283cea835cfa9df777a096ba08b709adfba40db6f48c6083", size = 29458, upload-time = "2026-09-14T20:19:21.04Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c2/d4/fba8b6d18bb64d7845615332bc3f69d180e0bfaa83137aea05e74889af41/hexastack_fastapi-0.3.0-py3-none-any.whl", hash = "sha256:412a8685ac91e3313adef261c86fbfba049e19b1c7818983d0de2ba411f59543", size = 48331, upload-time = "2026-09-04T05:45:42.371Z" },
+    { url = "https://files.pythonhosted.org/packages/50/fc/addfef187433d7fa6f89f4010baef4562954ab9df4483f799fddbbe7c3e3/hexastack_fastapi-0.5.0-py3-none-any.whl", hash = "sha256:dbc27bda44739a06ff577ac18da226d5791729191998760dfff35f189da68581", size = 43432, upload-time = "2026-09-14T20:19:05.304Z" },
 ]
 
 [[package]]
 name = "hexastack-grpc"
-version = "0.3.0"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "grpcio" },
@@ -1130,26 +1177,26 @@ dependencies = [
     { name = "hexastack-cqrs" },
     { name = "protobuf" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/69/f2/e4daf32ceb217975cc1e7afd40c5828eebab84bb049b25947603855a853d/hexastack_grpc-0.3.0.tar.gz", hash = "sha256:cff8c036e85a9bd554b2cae1340855ce7337647e80ec66faa27d61ab0a255923", size = 14582, upload-time = "2026-09-04T05:45:59.868Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/76/30/ab3256e56a066ff00613082828d4c688eb67c8c7062d2f4661bb7b178f92/hexastack_grpc-0.5.0.tar.gz", hash = "sha256:f2bee13ca1b9e34c36557ceee92892c54405470cf7a02b923ab7f73fd0b31819", size = 14589, upload-time = "2026-09-14T20:19:23.607Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/db/f0/ca0ced199b0eb6b91b5f1bcf0fffdd7d12388a5bf95f4ef204a281150609/hexastack_grpc-0.3.0-py3-none-any.whl", hash = "sha256:9a66066ceeff93adb54370aeba5933216724bfc64953fb43e69bb932aa81fcc1", size = 24223, upload-time = "2026-09-04T05:45:45.536Z" },
+    { url = "https://files.pythonhosted.org/packages/7a/48/d10f04964ac6504ee1f77e8a82ec92ce77a9d6ae390b037157b4ec4f12de/hexastack_grpc-0.5.0-py3-none-any.whl", hash = "sha256:e80b6db2e6e56e6d91f9ce6463f8dac396818c2c4098bd2395ea789b1d6f881b", size = 24223, upload-time = "2026-09-14T20:19:09.868Z" },
 ]
 
 [[package]]
 name = "hexastack-logging"
-version = "0.3.0"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "hexastack-core" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/99/d2/a36f8c6550d28cde544c42e0ce5156eca40c8aa25950231ca6bee3e454f1/hexastack_logging-0.3.0.tar.gz", hash = "sha256:621094c255b23b953dc82ec8915c9cc808be975abb8041ba0b05fc63cfe4b552", size = 12126, upload-time = "2026-09-04T05:46:00.718Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f8/85/5665e439acf357bb0f72d1cad6642662a9ecb09aa6f77cb9329b120925ca/hexastack_logging-0.5.0.tar.gz", hash = "sha256:c9af75bcaefc9256ba8e833b2ce539744d0c5f49e98110f727b27682f86aae18", size = 12141, upload-time = "2026-09-14T20:19:24.234Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f3/ff/3abbd734d600fc8611173cf31f749ad1c0689cb2ea4c40a9a9449ba02d64/hexastack_logging-0.3.0-py3-none-any.whl", hash = "sha256:cd694bdf16efbeae269c9a4ed5ada3a8042840b986e8c41ad38b666bc020e47a", size = 20851, upload-time = "2026-09-04T05:45:46.936Z" },
+    { url = "https://files.pythonhosted.org/packages/66/da/f94d09aea3992f33e4c61d850e02829709090eed7668434fb9c22ce1c42a/hexastack_logging-0.5.0-py3-none-any.whl", hash = "sha256:3f7c60e1190c7c3404206287289e7b7eeca54831fc811d104662aeaccb00b0ef", size = 20889, upload-time = "2026-09-14T20:19:10.91Z" },
 ]
 
 [[package]]
 name = "hexastack-otel"
-version = "0.3.0"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "hexastack-core" },
@@ -1159,32 +1206,9 @@ dependencies = [
     { name = "prometheus-client" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/31/9c/6a4df7cc537d9f610b32ae7a5fe6642e6ed6e0b076db6bd7cb2c2f766fb8/hexastack_otel-0.3.0.tar.gz", hash = "sha256:5c2ffd2a9007c58c3ff6089718a851b0fb3020f623d2ba4c23e0a0ef6e19144e", size = 10304, upload-time = "2026-09-04T05:46:02.087Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/83/4b/47c8f6ffc8e97a3b07914056219236a118945e46542166d86ac4cebf0621/hexastack_otel-0.5.0.tar.gz", hash = "sha256:dabc76ac0f2b413440c78993637357580c49d0a97385fdd74d152505f6a68ea6", size = 10305, upload-time = "2026-09-14T20:19:25.338Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ab/72/82ae9d5ffed989cb9d5f80be9a0ce865b68564fc62587911b32cbf7c3b9c/hexastack_otel-0.3.0-py3-none-any.whl", hash = "sha256:2123cdc5fa50a9e5d802859e39f7bf9bbf93cd1c7f1fb62f61f4b846c4c5fab7", size = 17971, upload-time = "2026-09-04T05:45:49.37Z" },
-]
-
-[[package]]
-name = "hexastack-tools"
-version = "0.3.5"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "coverage" },
-    { name = "deptry" },
-    { name = "hexastack-cli" },
-    { name = "hexastack-core" },
-    { name = "hexastack-cqrs" },
-    { name = "httpx" },
-    { name = "import-linter" },
-    { name = "inline-snapshot" },
-    { name = "libcst" },
-    { name = "pytest-archon" },
-    { name = "rich" },
-    { name = "typer" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/d9/8c/7f92d3345803630b8cabd622afd376097384b2bf760694c0420a0fccad5f/hexastack_tools-0.3.5.tar.gz", hash = "sha256:4019fc673d96486bb66e6a0e0ffd306eef6d249282d37d0eaf94a5eace4e4cd4", size = 55365, upload-time = "2026-09-07T04:13:52.709Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/80/33/0634f3c109c8cbdca83e2b2a3403bdda881449537344e066bf119326fae4/hexastack_tools-0.3.5-py3-none-any.whl", hash = "sha256:f887dc4ef9a60dc4159608b04e26b68e3d7e9f7cf63f73ab7f03b1bb2a83fca8", size = 77951, upload-time = "2026-09-07T04:13:50.274Z" },
+    { url = "https://files.pythonhosted.org/packages/4f/ce/c274febf96afc09fba80a5ccc20cc955d9aed595a5fb0f704a4e60153310/hexastack_otel-0.5.0-py3-none-any.whl", hash = "sha256:4f857658fdb2fc317275479f3262accae90ae047befed8746871892dfcdeb8cf", size = 17972, upload-time = "2026-09-14T20:19:13.089Z" },
 ]
 
 [[package]]
