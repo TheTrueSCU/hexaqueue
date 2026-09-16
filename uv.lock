@@ -787,6 +787,7 @@ dependencies = [
     { name = "hexaqueue-core" },
     { name = "hexaqueue-server" },
     { name = "hexaqueue-worker" },
+    { name = "hexaqueue-workflow" },
     { name = "hexastack-cli" },
     { name = "hexastack-core" },
     { name = "hexastack-cqrs" },
@@ -801,6 +802,7 @@ requires-dist = [
     { name = "hexaqueue-core", editable = "packages/hexaqueue_core" },
     { name = "hexaqueue-server", editable = "packages/hexaqueue_server" },
     { name = "hexaqueue-worker", editable = "packages/hexaqueue_worker" },
+    { name = "hexaqueue-workflow", editable = "packages/hexaqueue_workflow" },
     { name = "hexastack-cli", specifier = ">=0.5.0" },
     { name = "hexastack-core", specifier = ">=0.5.0" },
     { name = "hexastack-cqrs", specifier = ">=0.5.0" },
@@ -995,11 +997,23 @@ name = "hexaqueue-workflow"
 version = "0.1.0"
 source = { editable = "packages/hexaqueue_workflow" }
 dependencies = [
+    { name = "hexaflow" },
     { name = "hexaqueue-core" },
+    { name = "hexaqueue-server" },
+    { name = "hexaqueue-worker" },
+    { name = "hexastack-core" },
+    { name = "pydantic" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "hexaqueue-core", editable = "packages/hexaqueue_core" }]
+requires-dist = [
+    { name = "hexaflow", specifier = ">=0.2.0" },
+    { name = "hexaqueue-core", editable = "packages/hexaqueue_core" },
+    { name = "hexaqueue-server", editable = "packages/hexaqueue_server" },
+    { name = "hexaqueue-worker", editable = "packages/hexaqueue_worker" },
+    { name = "hexastack-core", specifier = ">=0.5.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+]
 
 [[package]]
 name = "hexaqueue-workspace"

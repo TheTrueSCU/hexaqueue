@@ -1,7 +1,7 @@
 [project]
 name = "hexaqueue-workflow"
 version = "0.1.0"
-description = "Hexaqueue Workflow - Temporal Activity Worker & Argo Workflow Task Driver"
+description = "Hexaqueue Workflow - Distributed Cluster Engine & Artifact Staging for Hexaflow"
 readme = "README.md"
 license = "Apache-2.0"
 authors = [
@@ -9,7 +9,12 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "hexaflow>=0.2.0",
     "hexaqueue-core",
+    "hexaqueue-server",
+    "hexaqueue-worker",
+    "hexastack-core>=0.5.0",
+    "pydantic>=2.10.0",
 ]
 
 [build-system]
@@ -18,3 +23,5 @@ build-backend = "uv_build"
 
 [tool.uv.sources]
 hexaqueue-core = { workspace = true }
+hexaqueue-server = { workspace = true }
+hexaqueue-worker = { workspace = true }

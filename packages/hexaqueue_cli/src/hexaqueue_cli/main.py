@@ -12,6 +12,7 @@ from rich.table import Table
 
 from hexaqueue_cli.adapters.local import LocalClientAdapter
 from hexaqueue_cli.commands.run import app as run_app
+from hexaqueue_cli.commands.workflow import app as workflow_app
 
 app = typer.Typer(
     name="hq",
@@ -19,6 +20,7 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(run_app, name="run")
+app.add_typer(workflow_app, name="workflow")
 
 console = Console()
 
