@@ -29,32 +29,8 @@ repos:
     hooks:
       - id: validate-pyproject
 
-  - repo: local
+  - repo: https://github.com/TheTrueSCU/hexaqual
+    rev: 506ebff
     hooks:
-      - id: ty-check
-        name: ty check
-        entry: uv run ty check packages
-        language: system
-        types: [python]
-        pass_filenames: false
-
-      - id: check-all-statements
-        name: check __all__ statements
-        entry: uv run hexaqual statements check
-        language: system
-        types: [python]
-        pass_filenames: false
-
-      - id: check-test-parity
-        name: check test parity and symmetry
-        entry: uv run hexaqual parity test
-        language: system
-        types: [python]
-        pass_filenames: false
-
-      - id: check-architecture-parity
-        name: check architecture test parity
-        entry: uv run hexaqual parity architecture
-        language: system
-        types: [python]
-        pass_filenames: false
+      - id: hexaqual-sanity
+      - id: hexaqual-architecture
