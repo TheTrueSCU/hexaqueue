@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## v0.2.0 (2026-09-16)
+
+### Highlights & Features
+* **Native Hexaflow Cluster Scheduler Adapter (`hexaqueue-workflow`)**:
+  * Implemented `HexaqueueDistributedEngine` conforming to `hexaflow.ports.WorkflowEnginePort` for executing workflows across distributed Hexaqueue worker clusters.
+  * Supports lifecycle controls: `run`, `run_async`, `resume`, `resume_async`, `restart`, `restart_async`, `abort`, and `abort_async`.
+  * Support for DAG split stage concurrent job dispatches (`CONCURRENT_ALL`, `CONCURRENT_FAIL_FAST`), checkpoint persistence, and automatic reverse compensation unwinding.
+* **Distributed Artifact Staging via StoragePort**:
+  * Added `StoragePortArtifactStagingAdapter` implementing `ArtifactStagingPort` using `hexastack_core.ports.storage.StoragePort`.
+  * Configurable payload offloading (>64KB threshold) with SHA256 integrity digest verification, JSON serialization, and pickle fallback.
+  * Preserves `ArtifactReference` envelopes inside `CheckpointRecord.output_payload` for transparent restoration across distributed worker nodes.
+* **CLI Workflow Management Subcommands (`hq workflow`)**:
+  * Added `hq workflow submit` for declarative workflow YAML submission with custom parameters and execution monitoring.
+  * Added `hq workflow status` for run inspection, phase tracking, and step duration diagnostics.
+  * Added `hq workflow resume` and `hq workflow abort` for interactive distributed workflow lifecycle control.
+* **Governance & Quality Gates**:
+  * Upgraded workspace to consume standardized `hexaqual` pre-commit hooks (`hexaqual-sanity`, `hexaqual-architecture`).
+  * Full hexagonal boundary isolation with zero leaks from `infra/` to `adapters/`.
+  * Maintained >90% test coverage across all workflow and CLI components with 100% unit test parity.
+
 ## v0.1.0 (2026-09-07)
 
 ### Highlights & Features
