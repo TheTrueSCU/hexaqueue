@@ -33,6 +33,10 @@ from hexaqueue_core.domain.exceptions import (
 from hexaqueue_core.domain.exceptions import (
     HexaqueueConfigError as BaseHexaqueueConfigError,
 )
+from hexaqueue_core.domain.fairshare import (
+    FairShareNode,
+    FairShareTree,
+)
 from hexaqueue_core.domain.group import (
     GroupExpansionEngine,
     JobGroupSpec,
@@ -58,15 +62,29 @@ from hexaqueue_core.domain.notification import (
     NotificationTrigger,
     map_lifecycle_to_trigger,
 )
+from hexaqueue_core.domain.priority import (
+    JobPriorityCalculator,
+    PriorityWeights,
+    RankedJob,
+)
 from hexaqueue_core.domain.resources import (
     ResourceRequirements,
 )
 from hexaqueue_core.domain.run import (
     RunSpec,
 )
+from hexaqueue_core.domain.scheduling import (
+    BatchSchedulerEngine,
+    ConservativeBackfillScheduler,
+    ControlledPreemptionEngine,
+    PreemptionPolicy,
+    ResourceSlotPool,
+    SchedulingDecision,
+)
 
 __all__ = [
     "BaseHexaqueueConfigError",
+    "BatchSchedulerEngine",
     "can_transition_collateral",
     "can_transition_job",
     "ChecksumMismatchError",
@@ -76,10 +94,14 @@ __all__ = [
     "CollateralTier",
     "compute_run_outcome",
     "compute_run_state",
+    "ConservativeBackfillScheduler",
+    "ControlledPreemptionEngine",
     "CspProvider",
     "DependencyCycleError",
     "DependencySpec",
     "ExecutionMode",
+    "FairShareNode",
+    "FairShareTree",
     "FreeTierLimitExceededError",
     "FreeTierProfileConfig",
     "GroupExpansionEngine",
@@ -91,6 +113,7 @@ __all__ = [
     "is_dependency_satisfied",
     "JobDagEngine",
     "JobGroupSpec",
+    "JobPriorityCalculator",
     "JobSpec",
     "JobState",
     "JobStateTransitionError",
@@ -99,13 +122,18 @@ __all__ = [
     "map_lifecycle_to_trigger",
     "NotificationPolicy",
     "NotificationTrigger",
+    "PreemptionPolicy",
+    "PriorityWeights",
     "QuotaExceededError",
+    "RankedJob",
     "ResolvedJobCollection",
     "ResourceOverrideSpec",
     "ResourceRequirements",
+    "ResourceSlotPool",
     "RunOutcome",
     "RunSpec",
     "RunState",
+    "SchedulingDecision",
     "TerminalOutcome",
     "TriggerCondition",
 ]

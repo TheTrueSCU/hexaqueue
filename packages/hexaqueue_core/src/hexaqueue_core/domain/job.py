@@ -57,6 +57,17 @@ class JobSpec(BaseModel):
     notifications: list[NotificationPolicy] = Field(
         default_factory=list, description="Notification policies"
     )
+    user: str = Field(default="default", description="User identifier or account")
+    priority: int = Field(
+        default=100, description="Base priority level (higher runs sooner)"
+    )
+    checkpointable: bool = Field(
+        default=False,
+        description="Whether job can be safely checkpointed upon preemption",
+    )
+    priority_bonus: float = Field(
+        default=0.0, description="Compensatory priority boost granted upon preemption"
+    )
     status: JobStatus = Field(default_factory=JobStatus, description="Lifecycle status")
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
