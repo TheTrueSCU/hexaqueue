@@ -54,8 +54,67 @@ class DummyClient(ClientPort):
     async def get_logs(self, job_id: str) -> list[LogChunk]:
         return [LogChunk(job_id=job_id, content="hello", offset=0)]
 
+    async def explain_job(
+        self,
+        job_id: str,
+        requesting_user: str = "default",
+        is_admin: bool = False,
+    ):
+        from hexaqueue_core.domain.explainability import (
+            PriorityBreakdown,
+            SchedulingDecisionReport,
+        )
+        from hexaqueue_core.domain.lifecycle import JobState
+
+        bd = PriorityBreakdown(
+            base_score=10.0,
+            age_score=10.0,
+            fairshare_score=10.0,
+            preemption_bonus=0.0,
+            total_priority=30.0,
+            age_seconds=10.0,
+            fairshare_factor=1.0,
+            target_share=1.0,
+            actual_usage=0.0,
+        )
+        return SchedulingDecisionReport(
+            job_id=job_id,
+            user=requesting_user,
+            state=JobState.PENDING,
+            queue_position=1,
+            queue_total=1,
+            priority_breakdown=bd,
+            summary="Dummy ready",
+        )
+
+    async def get_fairshare_tree(
+        self,
+        requesting_user: str = "default",
+        is_admin: bool = False,
+    ):
+        from hexaqueue_core.domain.explainability import (
+            FairShareNodeReport,
+            FairShareTreeReport,
+        )
+
+        node = FairShareNodeReport(
+            id="root",
+            shares=1.0,
+            target_share=1.0,
+            raw_usage=0.0,
+            decayed_usage=0.0,
+            fairshare_factor=1.0,
+            children=[],
+        )
+        return FairShareTreeReport(
+            root=node,
+            half_life_seconds=86400.0,
+            total_decayed_usage=0.0,
+        )
+
 
 def test_client_port_instantiation() -> None:
     """Verify concrete subclass can be instantiated."""
     client = DummyClient()
-    assert isinstance(client, ClientPort)
+    res = isinstance(client, ClientPort)
+    assert res is True

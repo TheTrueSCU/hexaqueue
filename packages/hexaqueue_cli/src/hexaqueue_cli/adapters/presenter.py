@@ -17,8 +17,14 @@ from pydantic import BaseModel
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.tree import Tree
 
 from hexaqueue_cli.domain.options import OutputFormat
+from hexaqueue_core.domain.explainability import (
+    FairShareNodeReport,
+    FairShareTreeReport,
+    SchedulingDecisionReport,
+)
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_server.domain.models import RunStatusReport
 
@@ -369,3 +375,133 @@ class CliPresenter:
             self._render_workflow_plain(data)
         else:
             self._render_workflow_table(data)
+
+    def render_why_summary(self, report: SchedulingDecisionReport) -> None:
+        """Render concise one-liner explanation of why a job is pending or running.
+
+        Args:
+            report: SchedulingDecisionReport instance.
+        """
+        prefix = (
+            "[bold yellow]Why Pending:[/] "
+            if report.queue_position > 0
+            else "[bold green]Status:[/] "
+        )
+        self._console.print(f"{prefix}{report.summary}")
+
+    def render_explain_report(
+        self,
+        report: SchedulingDecisionReport,
+        format_type: str | OutputFormat = OutputFormat.TABLE,
+    ) -> None:
+        """Render granular scheduling decision and priority breakdown report.
+
+        Args:
+            report: SchedulingDecisionReport instance.
+            format_type: Chosen output format string or OutputFormat enum.
+        """
+        fmt = (
+            format_type.value
+            if isinstance(format_type, OutputFormat)
+            else str(format_type).lower().strip()
+        )
+        if fmt == OutputFormat.JSON.value:
+            self._console.print(report.model_dump_json(indent=2))
+        elif fmt == OutputFormat.PLAIN.value:
+            self._render_explain_plain(report)
+        else:
+            self._render_explain_table(report)
+
+    def _render_explain_plain(self, report: SchedulingDecisionReport) -> None:
+        bd = report.priority_breakdown
+        lines = [
+            f"Job ID: {report.job_id}",
+            f"User: {report.user}",
+            f"State: {report.state}",
+            f"Queue Position: #{report.queue_position} of {report.queue_total}",
+            f"Total Priority: {bd.total_priority}",
+            f"  Base Score: {bd.base_score}",
+            f"  Age Score: {bd.age_score} ({bd.age_seconds}s)",
+            f"  Fair-Share Score: {bd.fairshare_score} (F={bd.fairshare_factor})",
+            f"  Preemption Bonus: {bd.preemption_bonus}",
+            f"Required Slots: {report.required_slots} (Available: {report.available_slots}/{report.total_slots})",
+            f"Summary: {report.summary}",
+        ]
+        self._console.print("\n".join(lines))
+
+    def _render_explain_table(self, report: SchedulingDecisionReport) -> None:
+        table = Table(title=f"Scheduling Decision Report: {report.job_id}", expand=True)
+        table.add_column("Metric / Dimension", style="bold cyan")
+        table.add_column("Value", style="green")
+
+        bd = report.priority_breakdown
+        table.add_row("User / Owner", report.user)
+        table.add_row("Lifecycle State", str(report.state))
+        table.add_row("Queue Rank", f"#{report.queue_position} of {report.queue_total}")
+        table.add_row(
+            "Slots Required / Avail / Total",
+            f"{report.required_slots} / {report.available_slots} / {report.total_slots}",
+        )
+        if report.blocking_anchor_id:
+            table.add_row("Blocking Anchor Job", report.blocking_anchor_id)
+        if report.estimated_wait_seconds is not None:
+            table.add_row("Estimated Wait", f"{report.estimated_wait_seconds:.1f}s")
+        table.add_row(
+            "Total Priority Score",
+            f"[bold yellow]{bd.total_priority:.2f}[/]",
+        )
+        table.add_row("  └ Base Score", f"{bd.base_score:.2f}")
+        table.add_row(
+            "  └ Age Score",
+            f"{bd.age_score:.2f} (waiting {bd.age_seconds:.0f}s)",
+        )
+        table.add_row(
+            "  └ Fair-Share Score",
+            f"{bd.fairshare_score:.2f} (F={bd.fairshare_factor:.4f}, share={bd.target_share:.2%})",
+        )
+        table.add_row("  └ Preemption Bonus", f"{bd.preemption_bonus:.2f}")
+
+        for idx, r in enumerate(report.pending_reasons, start=1):
+            table.add_row(f"Blocker #{idx} ({r.code.value})", r.message)
+
+        self._console.print(table)
+        self._console.print(
+            Panel(report.summary, title="Summary Reason", border_style="yellow")
+        )
+
+    def render_fairshare_tree(
+        self,
+        report: FairShareTreeReport,
+        format_type: str | OutputFormat = OutputFormat.TABLE,
+    ) -> None:
+        """Render hierarchical fair-share tree in chosen format.
+
+        Args:
+            report: FairShareTreeReport instance.
+            format_type: Chosen output format.
+        """
+        fmt = (
+            format_type.value
+            if isinstance(format_type, OutputFormat)
+            else str(format_type).lower().strip()
+        )
+        if fmt == OutputFormat.JSON.value:
+            self._console.print(report.model_dump_json(indent=2))
+        else:
+            days = report.half_life_seconds / 86400.0
+            rich_tree = Tree(
+                f"[bold cyan]Root Hierarchy[/] (Decay Half-Life: {days:.1f} days, "
+                f"Total Usage: {report.total_decayed_usage:.1f})"
+            )
+            self._populate_rich_tree(report.root, rich_tree)
+            self._console.print(rich_tree)
+
+    def _populate_rich_tree(self, node: FairShareNodeReport, parent_tree: Tree) -> None:
+        for child in node.children:
+            label = (
+                f"[bold green]{child.id}[/] | shares={child.shares:.1f} | "
+                f"target={child.target_share:.1%} | usage={child.decayed_usage:.1f} | "
+                f"Factor F=[bold yellow]{child.fairshare_factor:.4f}[/]"
+            )
+            child_tree = parent_tree.add(label)
+            self._populate_rich_tree(child, child_tree)

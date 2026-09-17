@@ -92,6 +92,68 @@ def cancel_cmd(
     asyncio.run(_cancel())
 
 
+@app.command("why")
+def why_cmd(
+    job_id: str = typer.Argument(..., help="Job ID to explain"),
+) -> None:
+    """Explain why a job is currently waiting in the queue."""
+    presenter = CliPresenter(console=console)
+
+    async def _why() -> None:
+        client = LocalClientAdapter()
+        try:
+            report = await client.explain_job(job_id)
+            presenter.render_why_summary(report)
+        except Exception as e:
+            console.print(
+                f"[bold red]Error querying explanation for '{job_id}':[/] {e}"
+            )
+            raise typer.Exit(code=1) from e
+
+    asyncio.run(_why())
+
+
+@app.command("explain")
+def explain_cmd(
+    job_id: str = typer.Argument(..., help="Job ID to explain"),
+    format_type: str = format_option(),
+) -> None:
+    """Display rich priority math and resource blocker breakdown for a job."""
+    resolved_fmt = resolve_format(format_type)
+    presenter = CliPresenter(console=console)
+
+    async def _explain() -> None:
+        client = LocalClientAdapter()
+        try:
+            report = await client.explain_job(job_id)
+            presenter.render_explain_report(report, resolved_fmt)
+        except Exception as e:
+            console.print(f"[bold red]Error explaining job '{job_id}':[/] {e}")
+            raise typer.Exit(code=1) from e
+
+    asyncio.run(_explain())
+
+
+@app.command("fairshare")
+def fairshare_cmd(
+    format_type: str = format_option(),
+) -> None:
+    """Inspect hierarchical fair-share tree, historical usage, and decay factors."""
+    resolved_fmt = resolve_format(format_type)
+    presenter = CliPresenter(console=console)
+
+    async def _fairshare() -> None:
+        client = LocalClientAdapter()
+        try:
+            report = await client.get_fairshare_tree()
+            presenter.render_fairshare_tree(report, resolved_fmt)
+        except Exception as e:
+            console.print(f"[bold red]Error querying fair-share tree:[/] {e}")
+            raise typer.Exit(code=1) from e
+
+    asyncio.run(_fairshare())
+
+
 __all__ = [
     "app",
 ]

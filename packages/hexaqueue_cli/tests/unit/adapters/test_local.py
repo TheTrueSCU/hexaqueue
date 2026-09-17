@@ -37,4 +37,13 @@ async def test_local_client_adapter_operations() -> None:
     assert logs[0].content == "output line"
 
     cancel_report = await client.cancel_run(run.id)
-    assert cancel_report.run_id == run.id
+    res_cancel_id = cancel_report.run_id
+    assert res_cancel_id == run.id
+
+    explain_report = await client.explain_job(job.id)
+    res_job_id = explain_report.job_id
+    assert res_job_id == job.id
+
+    tree_report = await client.get_fairshare_tree()
+    res_root_id = tree_report.root.id
+    assert res_root_id == "root"

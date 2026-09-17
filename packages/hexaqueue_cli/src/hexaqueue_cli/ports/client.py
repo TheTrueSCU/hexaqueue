@@ -6,6 +6,10 @@ Notes/Architectural Intent:
 
 from abc import ABC, abstractmethod
 
+from hexaqueue_core.domain.explainability import (
+    FairShareTreeReport,
+    SchedulingDecisionReport,
+)
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.ports.logging import LogChunk
 from hexaqueue_server.domain.models import RunStatusReport, RunSubmission
@@ -33,6 +37,23 @@ class ClientPort(ABC):
     @abstractmethod
     async def get_logs(self, job_id: str) -> list[LogChunk]:
         """Retrieve historical logs for a job."""
+
+    @abstractmethod
+    async def explain_job(
+        self,
+        job_id: str,
+        requesting_user: str = "default",
+        is_admin: bool = False,
+    ) -> SchedulingDecisionReport:
+        """Retrieve diagnostic scheduling explanation for a given job."""
+
+    @abstractmethod
+    async def get_fairshare_tree(
+        self,
+        requesting_user: str = "default",
+        is_admin: bool = False,
+    ) -> FairShareTreeReport:
+        """Retrieve hierarchical fair-share tree diagnostic report."""
 
 
 __all__ = [

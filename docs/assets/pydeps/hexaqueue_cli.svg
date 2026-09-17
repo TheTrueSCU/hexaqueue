@@ -426,7 +426,7 @@
 <!-- hexaqueue_cli_ports_client -->
 <g id="node18" class="node">
 <title>hexaqueue_cli_ports_client</title><style>.edge>path:hover{stroke-width:8}</style>
-<ellipse fill="#9c621b" stroke="black" cx="208.64" cy="-626.81" rx="63.78" ry="28.98"/>
+<ellipse fill="#935c1a" stroke="black" cx="208.64" cy="-626.81" rx="63.78" ry="28.98"/>
 <text text-anchor="middle" x="208.64" y="-635.31" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#ffffff">hexaqueue_cli.</text>
 <text text-anchor="middle" x="208.64" y="-624.31" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#ffffff">ports.</text>
 <text text-anchor="middle" x="208.64" y="-613.31" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#ffffff">client</text>
@@ -436,19 +436,19 @@
 <title>hexaqueue_cli_ports_client&#45;&gt;hexaqueue_cli</title><style>.edge>path:hover{stroke-width:8}</style>
 <path fill="none" stroke="black" d="M179.67,-600.57C165.6,-586 150.66,-566.33 145.64,-544.82"/>
 <path fill="none" stroke="black" d="M145.64,-542.82C124.32,-451.54 175.04,-344.29 202.06,-295.87"/>
-<polygon fill="#9c621b" stroke="black" points="205.21,-297.42 207.12,-287 199.13,-293.95 205.21,-297.42"/>
+<polygon fill="#935c1a" stroke="black" points="205.21,-297.42 207.12,-287 199.13,-293.95 205.21,-297.42"/>
 </g>
 <!-- hexaqueue_cli_ports_client&#45;&gt;hexaqueue_cli_adapters_local -->
 <g id="edge48" class="edge">
 <title>hexaqueue_cli_ports_client&#45;&gt;hexaqueue_cli_adapters_local</title><style>.edge>path:hover{stroke-width:8}</style>
 <path fill="none" stroke="black" d="M145.64,-542.82C144.8,-501.39 181.72,-469.65 214.82,-449.58"/>
-<polygon fill="#9c621b" stroke="black" points="216.7,-452.54 223.58,-444.48 213.17,-446.49 216.7,-452.54"/>
+<polygon fill="#935c1a" stroke="black" points="216.7,-452.54 223.58,-444.48 213.17,-446.49 216.7,-452.54"/>
 </g>
 <!-- hexaqueue_cli_ports_client&#45;&gt;hexaqueue_cli_ports -->
 <g id="edge49" class="edge">
 <title>hexaqueue_cli_ports_client&#45;&gt;hexaqueue_cli_ports</title><style>.edge>path:hover{stroke-width:8}</style>
 <path fill="none" stroke="black" d="M212.14,-597.48C213.16,-589.24 214.27,-580.25 215.28,-572.07"/>
-<polygon fill="#9c621b" stroke="black" points="218.78,-572.27 216.53,-561.91 211.83,-571.41 218.78,-572.27"/>
+<polygon fill="#935c1a" stroke="black" points="218.78,-572.27 216.53,-561.91 211.83,-571.41 218.78,-572.27"/>
 </g>
 <!-- hexaqueue_core -->
 <g id="node19" class="node">

@@ -59,21 +59,59 @@ class FairShareTree:
         fair-share priority factors across all hierarchy levels.
     """
 
-    def __init__(self, root_id: str = "root") -> None:
+    def __init__(
+        self, root_id: str = "root", half_life_seconds: float = 604800.0
+    ) -> None:
         """Initialize fair-share tree with a designated root node.
 
         Args:
             root_id: Unique identifier of the root organizational node.
+            half_life_seconds: Exponential decay half-life in seconds (defaults to 7 days).
         """
         self._nodes: dict[str, FairShareNode] = {}
         self._children: dict[str, list[str]] = {}
         self._root_id = root_id
+        self._half_life_seconds = half_life_seconds
         self.add_node(FairShareNode(id=root_id, parent_id=None, shares=1.0))
 
     @property
     def root_id(self) -> str:
         """Identifier of the root node."""
         return self._root_id
+
+    @property
+    def root(self) -> FairShareNode:
+        """Root node instance."""
+        return self._nodes[self._root_id]
+
+    @property
+    def half_life_seconds(self) -> float:
+        """Configured usage decay half-life in seconds."""
+        return self._half_life_seconds
+
+    def get_children(self, node_id: str) -> list[FairShareNode]:
+        """Retrieve direct child nodes for a parent identifier.
+
+        Args:
+            node_id: Parent node identifier.
+
+        Returns:
+            List of child FairShareNode instances.
+        """
+        child_ids = self._children.get(node_id, [])
+        return [self._nodes[cid] for cid in child_ids if cid in self._nodes]
+
+    def total_decayed_usage(self, timestamp: float) -> float:
+        """Calculate total decayed cluster compute usage across the hierarchy.
+
+        Args:
+            timestamp: Evaluation timestamp in seconds.
+
+        Returns:
+            Decayed cumulative historical usage rooted at top of tree.
+        """
+        self.apply_decay(timestamp, self._half_life_seconds)
+        return self.root.historical_usage
 
     def add_node(self, node: FairShareNode) -> None:
         """Add or update an organizational node in the fair-share tree.

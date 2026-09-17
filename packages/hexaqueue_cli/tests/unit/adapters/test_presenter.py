@@ -210,3 +210,113 @@ def test_render_workflow_state_formats() -> None:
     out_table = buf_table.getvalue()
     assert "etl-pipeline" in out_table
     assert "fetch-data" in out_table
+
+
+def test_render_why_summary_and_explain() -> None:
+    """Verify render_why_summary and render_explain_report formats."""
+    from hexaqueue_core.domain.explainability import (
+        FairShareNodeReport,
+        FairShareTreeReport,
+        PendingReason,
+        PendingReasonCode,
+        PriorityBreakdown,
+        SchedulingDecisionReport,
+    )
+    from hexaqueue_core.domain.lifecycle import JobState
+
+    bd = PriorityBreakdown(
+        base_score=100.0,
+        age_score=50.0,
+        fairshare_score=250.0,
+        preemption_bonus=0.0,
+        total_priority=400.0,
+        age_seconds=120.0,
+        fairshare_factor=0.75,
+        target_share=0.5,
+        actual_usage=500.0,
+    )
+    report = SchedulingDecisionReport(
+        job_id="job-exp-1",
+        user="test-user",
+        state=JobState.PENDING,
+        queue_position=1,
+        queue_total=3,
+        priority_breakdown=bd,
+        pending_reasons=[
+            PendingReason(
+                code=PendingReasonCode.READY,
+                message="Job is at top of queue",
+            )
+        ],
+        required_slots=2,
+        available_slots=4,
+        total_slots=8,
+        summary="Job 'job-exp-1' is ready for immediate dispatch.",
+    )
+
+    # render_why_summary
+    buf_why = StringIO()
+    p_why = CliPresenter(console=Console(file=buf_why, no_color=True))
+    p_why.render_why_summary(report)
+    out_why = buf_why.getvalue()
+    assert "ready for immediate dispatch" in out_why
+
+    # render_explain_report - table
+    buf_tbl = StringIO()
+    p_tbl = CliPresenter(console=Console(file=buf_tbl, no_color=True))
+    p_tbl.render_explain_report(report, "table")
+    out_tbl = buf_tbl.getvalue()
+    assert "job-exp-1" in out_tbl
+    assert "400.00" in out_tbl
+
+    # render_explain_report - json
+    buf_json = StringIO()
+    p_json = CliPresenter(console=Console(file=buf_json))
+    p_json.render_explain_report(report, "json")
+    parsed = json.loads(buf_json.getvalue())
+    assert parsed["job_id"] == "job-exp-1"
+    assert parsed["queue_position"] == 1
+
+    # render_explain_report - plain
+    buf_plain = StringIO()
+    p_plain = CliPresenter(console=Console(file=buf_plain))
+    p_plain.render_explain_report(report, "plain")
+    out_plain = buf_plain.getvalue()
+    assert "Job ID: job-exp-1" in out_plain
+
+    # render_fairshare_tree
+    tree_report = FairShareTreeReport(
+        root=FairShareNodeReport(
+            id="root",
+            shares=1.0,
+            target_share=1.0,
+            raw_usage=100.0,
+            decayed_usage=100.0,
+            fairshare_factor=1.0,
+            children=[
+                FairShareNodeReport(
+                    id="team-a",
+                    parent_id="root",
+                    shares=1.0,
+                    target_share=1.0,
+                    raw_usage=100.0,
+                    decayed_usage=100.0,
+                    fairshare_factor=0.5,
+                    children=[],
+                )
+            ],
+        ),
+        half_life_seconds=86400.0,
+        total_decayed_usage=100.0,
+    )
+    buf_tree = StringIO()
+    p_tree = CliPresenter(console=Console(file=buf_tree, no_color=True))
+    p_tree.render_fairshare_tree(tree_report, "table")
+    out_tree = buf_tree.getvalue()
+    assert "team-a" in out_tree
+
+    buf_tree_json = StringIO()
+    p_tree_json = CliPresenter(console=Console(file=buf_tree_json))
+    p_tree_json.render_fairshare_tree(tree_report, "json")
+    parsed_tree = json.loads(buf_tree_json.getvalue())
+    assert parsed_tree["root"]["id"] == "root"
