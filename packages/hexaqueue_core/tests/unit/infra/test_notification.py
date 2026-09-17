@@ -1,5 +1,6 @@
 """Unit tests for NotificationDispatcher in hexaqueue_core.infra."""
 
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -89,7 +90,7 @@ def test_dispatcher_job_event_delivery_and_escalation() -> None:
         details={"exit_code": 139, "node_id": "worker-node-3"},
     )
     assert res_failed == [True]
-    mock_port.add_url.assert_called_once_with("slack://channel-a")
+    mock_port.add_url.assert_not_called()
     assert mock_port.notify.call_count == 1
 
     call_args = mock_port.notify.call_args.kwargs
@@ -98,8 +99,53 @@ def test_dispatcher_job_event_delivery_and_escalation() -> None:
     assert "**Node:** `worker-node-3`" in call_args["body"]
     assert "Segmentation fault" in call_args["body"]
     assert call_args["priority"] == NotificationPriority.HIGH
+    assert call_args["targets"] == ["slack://channel-a"]
     assert "failed" in call_args["tags"]
     assert "ci" in call_args["tags"]
+
+
+def test_dispatcher_legacy_adapter_fallback() -> None:
+    """Verify fallback to add_url when NotificationPort does not accept targets."""
+
+    class LegacyPort(NotificationPort):
+        def __init__(self) -> None:
+            self.urls: list[str] = []
+            self.calls: list[dict[str, Any]] = []
+
+        def add_url(self, url: str) -> None:
+            self.urls.append(url)
+
+        def notify(
+            self,
+            title: str,
+            body: str,
+            priority: NotificationPriority = NotificationPriority.NORMAL,
+            tags: list[str] | None = None,
+        ) -> bool:
+            self.calls.append(
+                {"title": title, "body": body, "priority": priority, "tags": tags}
+            )
+            return True
+
+    legacy = LegacyPort()
+    dispatcher = NotificationDispatcher(notification_port=legacy)
+    policy = NotificationPolicy(
+        targets=["discord://webhook-1"],
+        triggers=NotificationTrigger.COMPLETED,
+    )
+    job = JobSpec(
+        id="j1",
+        run_id="r1",
+        name="legacy-test",
+        command="ls",
+        notifications=[policy],
+    )
+
+    res = dispatcher.dispatch_job_event(job, NotificationTrigger.COMPLETED)
+    assert res == [True]
+    assert legacy.urls == ["discord://webhook-1"]
+    assert len(legacy.calls) == 1
+    assert legacy.calls[0]["title"] == "[Hexaqueue] Job legacy-test (j1): COMPLETED"
 
 
 def test_dispatcher_job_event_custom_template() -> None:

@@ -81,19 +81,17 @@ class NotificationDispatcher:
             if not policy.triggers.matches(trigger):
                 continue
 
-            # Dynamically register target destinations if supported by adapter
-            self._ensure_targets(policy.targets)
-
             title = f"[Hexaqueue] Job {job.name} ({job.id}): {trigger.name}"
             body = self._format_job_body(job, trigger, context, policy.template)
             priority = self._calculate_priority(policy, trigger)
             tags = list(policy.tags) + [trigger.name.lower(), "job", "hexaqueue"]
 
-            delivered = self._port.notify(
+            delivered = self._deliver_notification(
                 title=title,
                 body=body,
                 priority=priority,
                 tags=tags,
+                targets=policy.targets,
             )
             results.append(delivered)
 
@@ -126,18 +124,17 @@ class NotificationDispatcher:
             if not policy.triggers.matches(trigger):
                 continue
 
-            self._ensure_targets(policy.targets)
-
             title = f"[Hexaqueue] Run {run.name} ({run.id}): {trigger.name}"
             body = self._format_run_body(run, trigger, context, policy.template)
             priority = self._calculate_priority(policy, trigger)
             tags = list(policy.tags) + [trigger.name.lower(), "run", "hexaqueue"]
 
-            delivered = self._port.notify(
+            delivered = self._deliver_notification(
                 title=title,
                 body=body,
                 priority=priority,
                 tags=tags,
+                targets=policy.targets,
             )
             results.append(delivered)
 
@@ -174,8 +171,6 @@ class NotificationDispatcher:
             if not policy.triggers.matches(trigger):
                 continue
 
-            self._ensure_targets(policy.targets)
-
             title = (
                 f"[Hexaqueue] Workflow {workflow_id} Step {step_name}: {trigger.name}"
             )
@@ -190,11 +185,12 @@ class NotificationDispatcher:
                 "hexaqueue",
             ]
 
-            delivered = self._port.notify(
+            delivered = self._deliver_notification(
                 title=title,
                 body=body,
                 priority=priority,
                 tags=tags,
+                targets=policy.targets,
             )
             results.append(delivered)
 
@@ -265,6 +261,59 @@ class NotificationDispatcher:
         return await asyncio.to_thread(
             self.dispatch_step_event, workflow_id, step_name, trigger, policies, details
         )
+
+    def _deliver_notification(
+        self,
+        title: str,
+        body: str,
+        priority: NotificationPriority,
+        tags: list[str],
+        targets: list[str],
+    ) -> bool:
+        """Deliver notification payload to underlying NotificationPort.
+
+        Args:
+            title: Headline or alert summary.
+            body: Markdown or plaintext diagnostic body.
+            priority: Notification urgency level.
+            tags: Categorical tags for matching providers.
+            targets: Destination URLs for ad-hoc routing.
+
+        Returns:
+            True if delivered successfully, False otherwise.
+
+        Notes/Architectural Intent:
+            Passes ad-hoc destination targets directly to `NotificationPort.notify(..., targets=...)`
+            without mutating adapter singleton state (supported in Hexastack >= 0.7.0).
+            If a legacy adapter is provided whose `notify` method does not accept `targets`,
+            gracefully falls back to registering URLs via `_ensure_targets` before dispatching.
+        """
+        if self._port is None:
+            return False
+
+        notify_fn: Any = self._port.notify
+        try:
+            return bool(
+                notify_fn(
+                    title=title,
+                    body=body,
+                    priority=priority,
+                    tags=tags,
+                    targets=targets or None,
+                )
+            )
+        except TypeError as err:
+            if "targets" in str(err):
+                self._ensure_targets(targets)
+                return bool(
+                    self._port.notify(
+                        title=title,
+                        body=body,
+                        priority=priority,
+                        tags=tags,
+                    )
+                )
+            raise
 
     def _ensure_targets(self, targets: list[str]) -> None:
         """Register dynamic target URLs with the notification port if supported."""
