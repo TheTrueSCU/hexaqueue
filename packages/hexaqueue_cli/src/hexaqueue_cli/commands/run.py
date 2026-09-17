@@ -17,6 +17,10 @@ from hexaqueue_cli.domain.parser import parse_run_spec_from_file
 from hexaqueue_cli.domain.session import get_default_session
 from hexaqueue_cli.infra.options import format_option, resolve_format
 from hexaqueue_core.domain.lifecycle import RunState
+from hexaqueue_core.domain.notification import (
+    NotificationPolicy,
+    NotificationTrigger,
+)
 
 app = typer.Typer(help="Pipeline run management commands.")
 console = Console()
@@ -28,6 +32,17 @@ def submit_cmd(
     watch: bool = typer.Option(
         False, "--watch", "-w", help="Watch run execution until completion"
     ),
+    notify: list[str] | None = typer.Option(
+        None,
+        "--notify",
+        "-n",
+        help="Notification targets (e.g. slack://..., pagerduty://...)",
+    ),
+    notify_on: str = typer.Option(
+        "ERRORS",
+        "--notify-on",
+        help="Lifecycle triggers (e.g. COMPLETED, FAILED, ERRORS, ALL)",
+    ),
     format_type: str = format_option(),
 ) -> None:
     """Submit a DAG pipeline definition file."""
@@ -36,6 +51,17 @@ def submit_cmd(
     except Exception as e:
         console.print(f"[bold red]Error parsing pipeline spec:[/] {e}")
         raise typer.Exit(code=1) from e
+
+    if notify:
+        targets: list[str] = []
+        for n in notify:
+            targets.extend([t.strip() for t in n.split(",") if t.strip()])
+        if targets:
+            triggers = NotificationTrigger.parse(notify_on)
+            policy = NotificationPolicy(targets=targets, triggers=triggers)
+            submission.run_spec.notifications.append(policy)
+            for j in submission.jobs:
+                j.notifications.append(policy)
 
     resolved_fmt = resolve_format(format_type)
     presenter = CliPresenter(console=console)

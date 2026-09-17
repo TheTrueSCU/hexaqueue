@@ -43,8 +43,13 @@ from hexastack_core.ports.storage import StoragePort
 from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import JobState, JobStatus, TerminalOutcome
+from hexaqueue_core.domain.notification import (
+    NotificationPolicy,
+    NotificationTrigger,
+)
 from hexaqueue_core.domain.resources import ResourceRequirements
 from hexaqueue_core.domain.run import RunSpec
+from hexaqueue_core.infra.notification import NotificationDispatcher
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
 from hexaqueue_server.domain.models import RunSubmission
 from hexaqueue_server.ports.controller import SchedulerControllerPort
@@ -79,6 +84,7 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
         storage: Optional StoragePort if custom staging adapter is not provided.
         config: Optional DistributedWorkflowConfig parameterizing thresholds and resources.
         barrier: Optional SplitJoinBarrierPort for distributed split/join synchronization (defaults to GrpcSplitJoinBarrierAdapter).
+        notification_dispatcher: Optional NotificationDispatcher for emitting step and stage alerts.
     """
 
     def __init__(
@@ -89,6 +95,7 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
         storage: StoragePort | None = None,
         config: DistributedWorkflowConfig | None = None,
         barrier: SplitJoinBarrierPort | None = None,
+        notification_dispatcher: NotificationDispatcher | None = None,
     ) -> None:
         """Initialize HexaqueueDistributedEngine.
 
@@ -99,10 +106,15 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
             storage: Concrete StoragePort to use if default staging adapter is created.
             config: Distributed engine configuration.
             barrier: Split/join barrier synchronization adapter.
+            notification_dispatcher: NotificationDispatcher instance.
         """
         self._config = config or DistributedWorkflowConfig()
+        self._dispatcher = notification_dispatcher or NotificationDispatcher(
+            notification_port=None
+        )
         self._controller = controller or LocalSchedulerControllerAdapter(
-            queue=InMemoryJobQueueAdapter()
+            queue=InMemoryJobQueueAdapter(),
+            notification_dispatcher=self._dispatcher,
         )
         self._store = state_store or InMemoryStateStore()
         self._barrier = barrier or GrpcSplitJoinBarrierAdapter()
@@ -416,46 +428,74 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
             for step, res in zip(stage.steps, results, strict=True):
                 cached_outputs[step.name] = res
 
-    async def _execute_step(
+        with contextlib.suppress(Exception):
+            await self._dispatcher.async_dispatch_step_event(
+                workflow_id=state.run_id,
+                step_name=stage.name,
+                trigger=NotificationTrigger.COMPLETED,
+                details={"stage": stage.name, "step_count": len(stage.steps)},
+            )
+
+    def _record_skipped_checkpoint(
+        self,
+        state: WorkflowExecutionState,
+        stage_name: str,
+        step_name: str,
+        initial_inputs: dict[str, Any],
+    ) -> None:
+        """Record a SKIPPED checkpoint in the persistence store and state."""
+        start_time = datetime.now(UTC)
+        chk = CheckpointRecord(
+            run_id=state.run_id,
+            stage_name=stage_name,
+            step_name=step_name,
+            status=StepStatus.SKIPPED,
+            attempt_number=1,
+            input_payload=initial_inputs,
+            output_payload=None,
+            started_at=start_time,
+            completed_at=start_time,
+            duration_seconds=0.0,
+        )
+        self._store.save_checkpoint(chk)
+        state.step_checkpoints[step_name] = chk
+
+    def _check_step_cached_or_skipped(
         self,
         state: WorkflowExecutionState,
         stage: StageDefinition,
         step: StepDefinition,
-        cached_outputs: dict[str, Any],
         initial_inputs: dict[str, Any],
         skipped_steps: set[str],
-        is_restart: bool = False,
-    ) -> Any:
-        """Execute an individual step with resource mapping, controller tracking, and artifact staging."""
-        # 1. Resumption Check
+        is_restart: bool,
+    ) -> tuple[bool, Any]:
+        """Check if step is already cached or explicitly marked as skipped."""
         if not is_restart:
             existing_chk = self._store.get_checkpoint(state.run_id, step.name)
             if existing_chk and existing_chk.status in (
                 StepStatus.COMPLETED,
                 StepStatus.SKIPPED,
             ):
-                return self._staging.retrieve_artifact(existing_chk.output_payload)
+                return True, self._staging.retrieve_artifact(
+                    existing_chk.output_payload
+                )
 
-        # 2. Explicit Skip Check
         if step.name in skipped_steps:
-            start_time = datetime.now(UTC)
-            chk = CheckpointRecord(
-                run_id=state.run_id,
-                stage_name=stage.name,
-                step_name=step.name,
-                status=StepStatus.SKIPPED,
-                attempt_number=1,
-                input_payload=initial_inputs,
-                output_payload=None,
-                started_at=start_time,
-                completed_at=start_time,
-                duration_seconds=0.0,
+            self._record_skipped_checkpoint(
+                state, stage.name, step.name, initial_inputs
             )
-            self._store.save_checkpoint(chk)
-            state.step_checkpoints[step.name] = chk
-            return None
+            return True, None
 
-        # 3. Join Barrier Verification & Trigger Rule Evaluation
+        return False, None
+
+    def _check_barrier_and_trigger(
+        self,
+        state: WorkflowExecutionState,
+        stage: StageDefinition,
+        step: StepDefinition,
+        initial_inputs: dict[str, Any],
+    ) -> bool:
+        """Verify join barrier dependencies and evaluate step trigger rule."""
         parent_statuses: list[StepStatus] = []
         for dep in step.depends_on:
             dep_chk = state.step_checkpoints.get(dep) or self._store.get_checkpoint(
@@ -470,58 +510,89 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
             parent_statuses.append(dep_chk.status)
 
         if not evaluate_trigger_rule(step.trigger_rule, parent_statuses):
-            start_time = datetime.now(UTC)
-            chk = CheckpointRecord(
-                run_id=state.run_id,
-                stage_name=stage.name,
-                step_name=step.name,
-                status=StepStatus.SKIPPED,
-                attempt_number=1,
-                input_payload=initial_inputs,
-                output_payload=None,
-                started_at=start_time,
-                completed_at=start_time,
-                duration_seconds=0.0,
+            self._record_skipped_checkpoint(
+                state, stage.name, step.name, initial_inputs
             )
-            self._store.save_checkpoint(chk)
-            state.step_checkpoints[step.name] = chk
+            return False
+        return True
+
+    async def _execute_step(
+        self,
+        state: WorkflowExecutionState,
+        stage: StageDefinition,
+        step: StepDefinition,
+        cached_outputs: dict[str, Any],
+        initial_inputs: dict[str, Any],
+        skipped_steps: set[str],
+        is_restart: bool = False,
+    ) -> Any:
+        """Execute an individual step with resource mapping, controller tracking, and artifact staging."""
+        handled, val = self._check_step_cached_or_skipped(
+            state, stage, step, initial_inputs, skipped_steps, is_restart
+        )
+        if handled:
+            return val
+
+        if not self._check_barrier_and_trigger(state, stage, step, initial_inputs):
             return None
 
-        # 4. Resolve Step Inputs
+        # Resolve Step Inputs
         step_inputs: dict[str, Any] = dict(initial_inputs)
         for dep in step.depends_on:
             step_inputs[dep] = cached_outputs.get(dep)
 
-        # 4b. Dynamic Mapped Step Check
+        # Dynamic Mapped Step Check
         if getattr(step, "is_mapped", False):
             return await self._execute_mapped_step(
                 state, stage, step, cached_outputs, initial_inputs, step_inputs
             )
 
-        # 5. Convert step to cluster JobSpec with resource constraints
+        # Convert step to cluster JobSpec with resource constraints
         job_spec = self._build_job_spec(state.run_id, stage.name, step)
 
         # Register run / job in controller
         run_submission = RunSubmission(
-            run_spec=RunSpec(id=f"{state.run_id}_{step.name}", name=step.name),
+            run_spec=RunSpec(
+                id=f"{state.run_id}_{step.name}",
+                name=step.name,
+                notifications=list(job_spec.notifications),
+            ),
             jobs=[job_spec],
             dependencies={},
         )
         with contextlib.suppress(Exception):
             await self._controller.submit_run(run_submission)
 
-        # 6. Execute action with retry policy
+        step_policies = (
+            list(mapping.notifications)
+            if (mapping := self._config.step_mappings.get(step.name))
+            else list(self._config.default_notifications)
+        )
+
+        return await self._run_step_action_with_retry(
+            state, stage, step, step_inputs, job_spec, step_policies
+        )
+
+    async def _run_step_action_with_retry(
+        self,
+        state: WorkflowExecutionState,
+        stage: StageDefinition,
+        step: StepDefinition,
+        step_inputs: dict[str, Any],
+        job_spec: JobSpec,
+        step_policies: list[NotificationPolicy],
+    ) -> Any:
+        """Execute step action with retry handling, artifact staging, and notification dispatch."""
         max_attempts = step.retry_policy.max_attempts if step.retry_policy else 1
         current_attempt = 1
         last_exception: Exception | None = None
         start_time = datetime.now(UTC)
 
-        ctx = StepContext(
-            run_id=state.run_id,
-            stage_name=stage.name,
+        await self._dispatcher.async_dispatch_step_event(
+            workflow_id=state.run_id,
             step_name=step.name,
-            attempt_number=current_attempt,
-            inputs=step_inputs,
+            trigger=NotificationTrigger.STARTED,
+            policies=step_policies,
         )
 
         while current_attempt <= max_attempts:
@@ -535,18 +606,14 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
             try:
                 output = await self._invoke_callable(step.action, ctx)
 
-                # Step Succeeded: update controller outcome
                 await self._controller.update_job_outcome(
                     job_id=job_spec.id,
                     outcome=TerminalOutcome.COMPLETED,
                 )
 
-                # Check if output should be staged to StoragePort
                 staged_output = self._staging.stage_artifact(
                     run_id=state.run_id, step_name=step.name, payload=output
                 )
-
-                # Checkpoint output payload (stores envelope if staged)
                 output_for_checkpoint = (
                     staged_output.to_envelope()
                     if isinstance(staged_output, ArtifactReference)
@@ -568,6 +635,17 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
                 )
                 self._store.save_checkpoint(chk)
                 state.step_checkpoints[step.name] = chk
+
+                await self._dispatcher.async_dispatch_step_event(
+                    workflow_id=state.run_id,
+                    step_name=step.name,
+                    trigger=NotificationTrigger.COMPLETED,
+                    policies=step_policies,
+                    details={
+                        "duration_seconds": (end_time - start_time).total_seconds()
+                    },
+                )
+
                 return output
 
             except Exception as e:
@@ -617,6 +695,17 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
         )
         self._store.save_checkpoint(chk)
         state.step_checkpoints[step.name] = chk
+
+        await self._dispatcher.async_dispatch_step_event(
+            workflow_id=state.run_id,
+            step_name=step.name,
+            trigger=NotificationTrigger.FAILED,
+            policies=step_policies,
+            details={
+                "error": str(last_exception),
+                "duration_seconds": (end_time - start_time).total_seconds(),
+            },
+        )
 
         raise WorkflowSuspended(
             run_id=state.run_id,
@@ -854,6 +943,7 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
             cmd = mapping.command or f"python -m hexaflow.step {step.name}"
             args = list(mapping.args)
             env = dict(mapping.env)
+            notifications = list(mapping.notifications)
         else:
             cpu = self._config.default_cpu_cores
             mem = self._config.default_memory_mb
@@ -862,6 +952,7 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
             cmd = f"python -m hexaflow.step {step.name}"
             args = []
             env = {}
+            notifications = list(self._config.default_notifications)
 
         return JobSpec(
             id=f"{run_id}_{step.name}",
@@ -876,6 +967,7 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
                 gpus=max(0, int(gpu)),
             ),
             tags=tags,
+            notifications=notifications,
             status=JobStatus(state=JobState.PENDING),
         )
 

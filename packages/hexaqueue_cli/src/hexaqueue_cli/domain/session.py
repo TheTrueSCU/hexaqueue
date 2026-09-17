@@ -8,6 +8,7 @@ Notes/Architectural Intent:
 from hexaqueue_core.adapters.logging.in_memory import InMemoryLogStreamAdapter
 from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
 from hexaqueue_core.adapters.storage.in_memory import InMemoryStorageVolumeAdapter
+from hexaqueue_core.infra.notification import NotificationDispatcher
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
 from hexaqueue_worker.adapters.local import LocalSubprocessWorker
 from hexaqueue_worker.domain.models import WorkerConfig
@@ -16,11 +17,32 @@ from hexaqueue_worker.domain.models import WorkerConfig
 class LocalCliSession:
     """Manages an active local in-process cluster session for hq commands."""
 
-    def __init__(self, concurrency: int = 4) -> None:
+    def __init__(
+        self,
+        concurrency: int = 4,
+        notification_dispatcher: NotificationDispatcher | None = None,
+    ) -> None:
         self.queue = InMemoryJobQueueAdapter()
         self.storage = InMemoryStorageVolumeAdapter()
         self.log_stream = InMemoryLogStreamAdapter()
-        self.controller = LocalSchedulerControllerAdapter(queue=self.queue)
+        if notification_dispatcher is not None:
+            self.notification_dispatcher = notification_dispatcher
+        else:
+            try:
+                from hexastack_events.adapters.notifications.apprise import (
+                    AppriseNotificationAdapter,
+                )
+
+                port = AppriseNotificationAdapter()
+            except Exception:
+                port = None
+            self.notification_dispatcher = NotificationDispatcher(
+                notification_port=port
+            )
+        self.controller = LocalSchedulerControllerAdapter(
+            queue=self.queue,
+            notification_dispatcher=self.notification_dispatcher,
+        )
         self.worker = LocalSubprocessWorker(
             queue=self.queue,
             controller=self.controller,

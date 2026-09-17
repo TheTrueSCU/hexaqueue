@@ -5,6 +5,7 @@ from hexaqueue_core.infra.bootstrap import (
     HexaqueueBootstrapResult,
     bootstrap_hexaqueue,
 )
+from hexaqueue_core.infra.notification import NotificationDispatcher
 from hexaqueue_core.infra.registries import (
     GenericHandlerRegistry,
     GenericHandlerRegistryError,
@@ -22,4 +23,5 @@ __all__ = [
     "HexaqueueBootstrapContext",
     "HexaqueueBootstrapResult",
     "HexaqueueConfigRegistry",
+    "NotificationDispatcher",
 ]

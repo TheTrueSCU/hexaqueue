@@ -20,7 +20,13 @@ from rich.console import Console
 
 from hexaqueue_cli.adapters.presenter import CliPresenter
 from hexaqueue_cli.infra.options import format_option, resolve_format
+from hexaqueue_core.domain.notification import (
+    NotificationPolicy,
+    NotificationTrigger,
+)
+from hexaqueue_core.infra.notification import NotificationDispatcher
 from hexaqueue_workflow.adapters.engines.distributed import HexaqueueDistributedEngine
+from hexaqueue_workflow.domain.models import DistributedWorkflowConfig
 
 app = typer.Typer(
     name="workflow",
@@ -130,6 +136,17 @@ def submit_cmd(
     inputs: str | None = typer.Option(
         None, "--inputs", "-i", help="JSON dictionary of initial inputs"
     ),
+    notify: list[str] | None = typer.Option(
+        None,
+        "--notify",
+        "-n",
+        help="Notification targets (e.g. slack://..., pagerduty://...)",
+    ),
+    notify_on: str = typer.Option(
+        "ERRORS",
+        "--notify-on",
+        help="Lifecycle triggers (e.g. COMPLETED, FAILED, ERRORS, ALL)",
+    ),
     db_path: str = typer.Option(
         ".hexaflow/state.db", "--db", help="Path to SQLite state database"
     ),
@@ -143,6 +160,8 @@ def submit_cmd(
     Args:
         target: Target file path or specifier.
         inputs: Optional JSON inputs string.
+        notify: Optional list of notification destination URLs.
+        notify_on: Comma- or pipe-separated lifecycle triggers.
         db_path: SQLite state store database path.
         watch: Whether to block and watch until terminal completion.
         format_type: Output presentation format.
@@ -151,8 +170,33 @@ def submit_cmd(
     initial_inputs = parse_inputs_arg(inputs)
     resolved_fmt = resolve_format(format_type)
 
+    default_notifications: list[NotificationPolicy] = []
+    if notify:
+        targets: list[str] = []
+        for n in notify:
+            targets.extend([t.strip() for t in n.split(",") if t.strip()])
+        if targets:
+            triggers = NotificationTrigger.parse(notify_on)
+            policy = NotificationPolicy(targets=targets, triggers=triggers)
+            default_notifications.append(policy)
+
+    config = DistributedWorkflowConfig(default_notifications=default_notifications)
+    port = None
+    try:
+        from hexastack_events.adapters.notifications.apprise import (
+            AppriseNotificationAdapter,
+        )
+
+        port = AppriseNotificationAdapter()
+    except Exception:
+        port = None
+    dispatcher = NotificationDispatcher(notification_port=port)
     store = SqliteStateStore(db_path=db_path)
-    engine = HexaqueueDistributedEngine(state_store=store)
+    engine = HexaqueueDistributedEngine(
+        state_store=store,
+        config=config,
+        notification_dispatcher=dispatcher,
+    )
 
     if resolved_fmt in ("table", "rich"):
         console.print(

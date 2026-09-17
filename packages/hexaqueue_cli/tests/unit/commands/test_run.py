@@ -77,3 +77,33 @@ def test_cli_cancel(tmp_path: Path) -> None:
     cancel_res = runner.invoke(app, ["cancel", "test-cancel-run"])
     assert cancel_res.exit_code == 0
     assert "cancelled" in cancel_res.stdout
+
+
+def test_cli_run_submit_with_notifications(tmp_path: Path) -> None:
+    """Verify hq run submit accepts --notify and --notify-on options."""
+    data = {
+        "run": {"id": "test-notif-run", "name": "Notif Run"},
+        "jobs": [
+            {"id": "j_notif", "name": "step_notif", "command": "echo 'Notif Test'"},
+        ],
+    }
+    yaml_file = tmp_path / "notif_run.yaml"
+    with yaml_file.open("w") as f:
+        yaml.safe_dump(data, f)
+
+    res = runner.invoke(
+        app,
+        [
+            "run",
+            "submit",
+            str(yaml_file),
+            "--notify",
+            "slack://channel-a,discord://channel-b",
+            "--notify-on",
+            "COMPLETED,FAILED",
+            "--watch",
+        ],
+    )
+    assert res.exit_code == 0
+    assert "submitted" in res.stdout
+    assert "Run completed" in res.stdout

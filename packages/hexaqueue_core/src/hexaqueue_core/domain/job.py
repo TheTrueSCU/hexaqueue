@@ -12,6 +12,7 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from hexaqueue_core.domain.lifecycle import JobState, JobStatus, TerminalOutcome
+from hexaqueue_core.domain.notification import NotificationPolicy
 from hexaqueue_core.domain.resources import ResourceRequirements
 
 
@@ -28,6 +29,7 @@ class JobSpec(BaseModel):
         resources: Compute and hardware requirements.
         collateral_ids: Associated collateral bundle IDs required by this job.
         tags: Categorization tags for node affinity and filtering.
+        notifications: Optional notification policies for lifecycle events.
         status: Current lifecycle state and history.
         created_at: Creation timestamp in UTC.
         updated_at: Last update timestamp in UTC.
@@ -51,6 +53,9 @@ class JobSpec(BaseModel):
     )
     tags: list[str] = Field(
         default_factory=list, description="Affinity & placement tags"
+    )
+    notifications: list[NotificationPolicy] = Field(
+        default_factory=list, description="Notification policies"
     )
     status: JobStatus = Field(default_factory=JobStatus, description="Lifecycle status")
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
