@@ -146,16 +146,16 @@ graph TD
 
 | Package | Version | Description |
 |---|---|---|
-| [`hexaqueue`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue/README.md) | `0.2.0` | Umbrella metapackage (`pip install hexaqueue[all]`) |
-| [`hexaqueue-core`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_core/README.md) | `0.2.0` | Pure domain models, lifecycle state machines, port interfaces |
-| [`hexaqueue-cli`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_cli/README.md) | `0.2.0` | `hq` interactive terminal CLI |
-| [`hexaqueue-server`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_server/README.md) | `0.2.0` | HA central controller & scheduler engine |
-| [`hexaqueue-worker`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_worker/README.md) | `0.2.0` | Compute node execution daemon (cgroups v2, GPU isolation) |
-| [`hexaqueue-collateral`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_collateral/README.md) | `0.2.0` | Direct presigned multi-part upload & staging storage service |
-| [`hexaqueue-scanner`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_scanner/README.md) | `0.2.0` | Malware scanning, AV (ClamAV/YARA) & quarantine daemon |
-| [`hexaqueue-monitor`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_monitor/README.md) | `0.2.0` | Health, heartbeat telemetry & budget tracking daemon |
-| [`hexaqueue-dashboard`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_dashboard/README.md) | `0.2.0` | Web interface, cluster visualizer & operator console |
-| [`hexaqueue-github-runner`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_github_runner/README.md) | `0.2.0` | GitHub Actions JIT autoscaler & webhook bridge |
-| [`hexaqueue-gitlab-runner`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_gitlab_runner/README.md) | `0.2.0` | GitLab CI/CD Custom Executor driver |
-| [`hexaqueue-kueue`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_kueue/README.md) | `0.2.0` | Kubernetes Batch v1 & Kueue controller bridge |
-| [`hexaqueue-workflow`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_workflow/README.md) | `0.2.0` | Native Hexaflow cluster scheduler adapter & distributed engine |
+| [`hexaqueue`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue/README.md) | `0.3.0` | Umbrella metapackage (`pip install hexaqueue[all]`) |
+| [`hexaqueue-core`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_core/README.md) | `0.3.0` | Pure domain models, lifecycle state machines, port interfaces |
+| [`hexaqueue-cli`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_cli/README.md) | `0.3.0` | `hq` interactive terminal CLI |
+| [`hexaqueue-server`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_server/README.md) | `0.3.0` | HA central controller & scheduler engine |
+| [`hexaqueue-worker`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_worker/README.md) | `0.3.0` | Compute node execution daemon (cgroups v2, GPU isolation) |
+| [`hexaqueue-collateral`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_collateral/README.md) | `0.3.0` | Direct presigned multi-part upload & staging storage service |
+| [`hexaqueue-scanner`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_scanner/README.md) | `0.3.0` | Malware scanning, AV (ClamAV/YARA) & quarantine daemon |
+| [`hexaqueue-monitor`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_monitor/README.md) | `0.3.0` | Health, heartbeat telemetry & budget tracking daemon |
+| [`hexaqueue-dashboard`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_dashboard/README.md) | `0.3.0` | Web interface, cluster visualizer & operator console |
+| [`hexaqueue-github-runner`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_github_runner/README.md) | `0.3.0` | GitHub Actions JIT autoscaler & webhook bridge |
+| [`hexaqueue-gitlab-runner`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_gitlab_runner/README.md) | `0.3.0` | GitLab CI/CD Custom Executor driver |
+| [`hexaqueue-kueue`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_kueue/README.md) | `0.3.0` | Kubernetes Batch v1 & Kueue controller bridge |
+| [`hexaqueue-workflow`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_workflow/README.md) | `0.3.0` | Native Hexaflow cluster scheduler adapter & distributed engine |

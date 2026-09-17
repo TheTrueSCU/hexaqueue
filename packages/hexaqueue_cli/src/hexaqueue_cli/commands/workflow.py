@@ -15,14 +15,12 @@ from typing import Any
 import typer
 from hexaflow.adapters.storage.sqlite import SqliteStateStore
 from hexaflow.domain.models import WorkflowDefinition
-from hexaflow.domain.state import StepStatus, WorkflowStatus
 from hexaflow.dsl.builder import Workflow
 from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
 
+from hexaqueue_cli.adapters.presenter import CliPresenter
+from hexaqueue_cli.infra.options import format_option, resolve_format
 from hexaqueue_workflow.adapters.engines.distributed import HexaqueueDistributedEngine
-from hexaqueue_workflow.domain.models import ArtifactReference
 
 app = typer.Typer(
     name="workflow",
@@ -30,6 +28,7 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 console = Console()
+presenter = CliPresenter(console=console)
 
 
 def load_workflow_from_target(target: str) -> WorkflowDefinition:
@@ -137,6 +136,7 @@ def submit_cmd(
     watch: bool = typer.Option(
         False, "--watch", "-w", help="Watch workflow execution until completion"
     ),
+    format_type: str = format_option(),
 ) -> None:
     """Submit a workflow definition for distributed cluster execution.
 
@@ -145,21 +145,24 @@ def submit_cmd(
         inputs: Optional JSON inputs string.
         db_path: SQLite state store database path.
         watch: Whether to block and watch until terminal completion.
+        format_type: Output presentation format.
     """
     workflow = load_workflow_from_target(target)
     initial_inputs = parse_inputs_arg(inputs)
+    resolved_fmt = resolve_format(format_type)
 
     store = SqliteStateStore(db_path=db_path)
     engine = HexaqueueDistributedEngine(state_store=store)
 
-    console.print(
-        f"[bold green]Submitting workflow:[/] [cyan]{workflow.name}[/] "
-        f"({len(workflow.stages)} stages, {sum(len(s.steps) for s in workflow.stages)} steps)"
-    )
+    if resolved_fmt in ("table", "rich"):
+        console.print(
+            f"[bold green]Submitting workflow:[/] [cyan]{workflow.name}[/] "
+            f"({len(workflow.stages)} stages, {sum(len(s.steps) for s in workflow.stages)} steps)"
+        )
 
     async def _execute() -> None:
         state = await engine.run_async(workflow, initial_inputs=initial_inputs)
-        _render_workflow_state(state, store)
+        _render_workflow_state(state, store, resolved_fmt)
 
     asyncio.run(_execute())
 
@@ -172,13 +175,16 @@ def status_cmd(
     db_path: str = typer.Option(
         ".hexaflow/state.db", "--db", help="Path to SQLite state database"
     ),
+    format_type: str = format_option(),
 ) -> None:
     """Inspect status, checkpoints, and staged artifacts for a workflow run.
 
     Args:
         run_id: Run identifier to query.
         db_path: SQLite state store database path.
+        format_type: Output presentation format.
     """
+    resolved_fmt = resolve_format(format_type)
     store = SqliteStateStore(db_path=db_path)
     state = store.get_run(run_id)
 
@@ -188,7 +194,7 @@ def status_cmd(
         )
         raise typer.Exit(code=1)
 
-    _render_workflow_state(state, store)
+    _render_workflow_state(state, store, resolved_fmt)
 
 
 @app.command("resume")
@@ -207,6 +213,7 @@ def resume_cmd(
     db_path: str = typer.Option(
         ".hexaflow/state.db", "--db", help="Path to SQLite state database"
     ),
+    format_type: str = format_option(),
 ) -> None:
     """Resume execution of a suspended workflow run from its latest checkpoints.
 
@@ -216,14 +223,17 @@ def resume_cmd(
         inputs: Optional patch inputs.
         skip_steps: Optional step names to skip.
         db_path: SQLite state database path.
+        format_type: Output presentation format.
     """
     workflow = load_workflow_from_target(target)
     patch_inputs = parse_inputs_arg(inputs)
+    resolved_fmt = resolve_format(format_type)
 
     store = SqliteStateStore(db_path=db_path)
     engine = HexaqueueDistributedEngine(state_store=store)
 
-    console.print(f"[bold yellow]Resuming workflow run:[/] [cyan]{run_id}[/]")
+    if resolved_fmt in ("table", "rich"):
+        console.print(f"[bold yellow]Resuming workflow run:[/] [cyan]{run_id}[/]")
 
     async def _resume() -> None:
         state = await engine.resume_async(
@@ -232,7 +242,7 @@ def resume_cmd(
             patch_inputs=patch_inputs,
             skip_steps=set(skip_steps or ()),
         )
-        _render_workflow_state(state, store)
+        _render_workflow_state(state, store, resolved_fmt)
 
     asyncio.run(_resume())
 
@@ -244,6 +254,7 @@ def abort_cmd(
     db_path: str = typer.Option(
         ".hexaflow/state.db", "--db", help="Path to SQLite state database"
     ),
+    format_type: str = format_option(),
 ) -> None:
     """Abort an active or suspended workflow, unwinding step compensations in reverse order.
 
@@ -251,97 +262,29 @@ def abort_cmd(
         run_id: Run identifier to abort.
         target: Workflow file specifier containing compensations.
         db_path: SQLite state database path.
+        format_type: Output presentation format.
     """
     workflow = load_workflow_from_target(target)
+    resolved_fmt = resolve_format(format_type)
     store = SqliteStateStore(db_path=db_path)
     engine = HexaqueueDistributedEngine(state_store=store)
 
-    console.print(f"[bold red]Aborting workflow run:[/] [cyan]{run_id}[/]")
+    if resolved_fmt in ("table", "rich"):
+        console.print(f"[bold red]Aborting workflow run:[/] [cyan]{run_id}[/]")
 
     async def _abort() -> None:
         state = await engine.abort_async(run_id=run_id, workflow=workflow)
-        _render_workflow_state(state, store)
+        _render_workflow_state(state, store, resolved_fmt)
 
     asyncio.run(_abort())
 
 
-def _render_workflow_state(state: Any, store: SqliteStateStore) -> None:
-    """Render Rich status summary panel and step checkpoint table."""
-    status_color = {
-        WorkflowStatus.COMPLETED: "bold green",
-        WorkflowStatus.RUNNING: "bold cyan",
-        WorkflowStatus.SUSPENDED: "bold yellow",
-        WorkflowStatus.CANCELLED: "bold magenta",
-        WorkflowStatus.PENDING: "bold white",
-    }.get(state.status, "white")
-
-    header_table = Table.grid(padding=(0, 2))
-    header_table.add_column(style="bold")
-    header_table.add_column()
-    header_table.add_row("Run ID:", state.run_id)
-    header_table.add_row("Workflow:", state.workflow_name)
-    header_table.add_row("Status:", f"[{status_color}]{state.status.value}[/]")
-    if state.current_stage:
-        header_table.add_row("Current Stage:", state.current_stage)
-    if state.error_summary:
-        header_table.add_row("Error:", f"[bold red]{state.error_summary}[/]")
-    header_table.add_row(
-        "Started At:", state.started_at.strftime("%Y-%m-%d %H:%M:%S UTC")
-    )
-    if state.finished_at:
-        header_table.add_row(
-            "Finished At:", state.finished_at.strftime("%Y-%m-%d %H:%M:%S UTC")
-        )
-
-    console.print(
-        Panel(
-            header_table,
-            title=f"Workflow Run: {state.workflow_name}",
-            expand=False,
-        )
-    )
-
+def _render_workflow_state(
+    state: Any, store: SqliteStateStore, format_type: str = "table"
+) -> None:
+    """Render workflow status summary and step checkpoint table."""
     checkpoints = store.get_checkpoints(state.run_id)
-    if not checkpoints:
-        console.print("[dim]No step checkpoints recorded yet.[/]")
-        return
-
-    table = Table(title="Step Checkpoints & Staged Artifacts", expand=True)
-    table.add_column("Stage", style="cyan")
-    table.add_column("Step", style="bold")
-    table.add_column("Status", justify="center")
-    table.add_column("Attempt", justify="right")
-    table.add_column("Duration (s)", justify="right")
-    table.add_column("Artifact / Output", style="dim")
-
-    for chk in checkpoints:
-        chk_color = {
-            StepStatus.COMPLETED: "[green]COMPLETED[/]",
-            StepStatus.RUNNING: "[cyan]RUNNING[/]",
-            StepStatus.FAILED: "[red]FAILED[/]",
-            StepStatus.SKIPPED: "[dim]SKIPPED[/]",
-            StepStatus.PENDING: "[white]PENDING[/]",
-        }.get(chk.status, str(chk.status))
-
-        artifact_info = "-"
-        if ArtifactReference.is_artifact_envelope(chk.output_payload):
-            uri = chk.output_payload.get("storage_uri", "")
-            size = chk.output_payload.get("size_bytes", 0)
-            artifact_info = f"[cyan]staged:[/] {uri} ({size}B)"
-        elif chk.output_payload is not None:
-            raw_str = str(chk.output_payload)
-            artifact_info = (raw_str[:30] + "...") if len(raw_str) > 30 else raw_str
-
-        table.add_row(
-            chk.stage_name,
-            chk.step_name,
-            chk_color,
-            str(chk.attempt_number),
-            f"{chk.duration_seconds:.3f}",
-            artifact_info,
-        )
-
-    console.print(table)
+    presenter.render_workflow_state(state, checkpoints, format_type=format_type)
 
 
 __all__ = [

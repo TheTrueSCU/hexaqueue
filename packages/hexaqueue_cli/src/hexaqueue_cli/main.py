@@ -8,11 +8,12 @@ import asyncio
 
 import typer
 from rich.console import Console
-from rich.table import Table
 
 from hexaqueue_cli.adapters.local import LocalClientAdapter
+from hexaqueue_cli.adapters.presenter import CliPresenter
 from hexaqueue_cli.commands.run import app as run_app
 from hexaqueue_cli.commands.workflow import app as workflow_app
+from hexaqueue_cli.infra.options import format_option, resolve_format
 
 app = typer.Typer(
     name="hq",
@@ -28,58 +29,24 @@ console = Console()
 @app.command("status")
 def status_cmd(
     target_id: str = typer.Argument(..., help="Run ID or Job ID to inspect"),
+    format_type: str = format_option(),
 ) -> None:
     """Check status of a run or job."""
+    resolved_fmt = resolve_format(format_type)
+    presenter = CliPresenter(console=console)
 
     async def _status() -> None:
         client = LocalClientAdapter()
         try:
             report = await client.get_run_status(target_id)
-            table = Table(title=f"Run Status: {report.run_id}")
-            table.add_column("Run ID", style="cyan")
-            table.add_column("State", style="magenta")
-            table.add_column(
-                "Outcome",
-                style="green"
-                if report.outcome in ("COMPLETED", "SUCCEEDED")
-                else "yellow",
-            )
-            table.add_column("Total", justify="center")
-            table.add_column("Completed", justify="center", style="green")
-            table.add_column("Failed", justify="center", style="red")
-            table.add_column("Pending", justify="center", style="yellow")
-            table.add_row(
-                report.run_id,
-                report.state.value
-                if hasattr(report.state, "value")
-                else str(report.state),
-                str(report.outcome) if report.outcome else "-",
-                str(report.total_jobs),
-                str(report.completed_jobs),
-                str(report.failed_jobs),
-                str(report.pending_jobs),
-            )
-            console.print(table)
+            presenter.render_run_status(report, resolved_fmt)
             return
         except Exception:
             pass
 
         try:
             job = await client.get_job(target_id)
-            table = Table(title=f"Job Status: {job.id}")
-            table.add_column("Job ID", style="cyan")
-            table.add_column("Run ID", style="blue")
-            table.add_column("Name")
-            table.add_column("State", style="magenta")
-            table.add_column("Outcome")
-            table.add_row(
-                job.id,
-                job.run_id,
-                job.name,
-                job.state.value if hasattr(job.state, "value") else str(job.state),
-                str(job.outcome) if job.outcome else "-",
-            )
-            console.print(table)
+            presenter.render_job(job, resolved_fmt)
         except Exception as e:
             console.print(f"[bold red]Error querying status for '{target_id}':[/] {e}")
             raise typer.Exit(code=1) from e

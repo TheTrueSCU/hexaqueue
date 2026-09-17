@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## v0.3.0 (2026-09-17)
+
+### Highlights & Features
+* **CLI Output Formatting Alignment (`hexaqueue-cli`)**:
+  * Unified `-f` / `--format` flag supporting `table`, `json`, `markdown`, `plain`, and `rich` formats.
+  * Standardized `CliPresenter` handling tabular and tree formatting with column truncation and ANSI auto-stripping in non-interactive terminals.
+  * Aligned `--format` across `hq run submit`, `hq run list`, `hq workflow submit`, `hq workflow status`, and `hq workflow list`.
+* **Distributed Split/Join Barrier Resolution (`hexaqueue-workflow`)**:
+  * Implemented `SplitJoinBarrierPort` and `GrpcSplitJoinBarrierAdapter` integrating `hexastack-grpc` with `hexaflow>=0.3.0` dynamic steps (`@wf.map_step`).
+  * Added partition state tracking (`BarrierPartition`, `BarrierResolutionSummary`, `BarrierState`) with sub-step fan-out, dynamic parallel execution, and barrier checkpoint synchronization.
+  * Robust error propagation and partial partition recovery inside `HexaqueueDistributedEngine`.
+* **Hypothesis State Machine Fuzzing for Job Preemption (`hexaqueue-core`)**:
+  * Implemented `JobPreemptionStateMachine` modeling arbitrary transitions across `SUBMITTED`, `PENDING`, `RUNNING`, and `DONE` states with preemption signals (`TerminalOutcome.PREEMPTED`).
+  * Validated checkpoint state preservation and re-queue recovery invariants across spot termination and cluster preemption events.
+  * Verified pure mathematical roll-up of `compute_run_state` and `compute_run_outcome`.
+* **Dependency & Ecosystem Upgrades**:
+  * Upgraded dependencies to `hexastack-*>=0.6.0`, `hexaflow>=0.3.0`, and `hexaqual[all]>=0.4.0`.
+  * Synchronized workspace and all 13 subpackages to `v0.3.0`.
+
 ## v0.2.0 (2026-09-16)
 
 ### Highlights & Features

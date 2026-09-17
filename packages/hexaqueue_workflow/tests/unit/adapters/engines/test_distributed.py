@@ -1,5 +1,6 @@
 """Tests for HexaqueueDistributedEngine."""
 
+import asyncio
 from typing import Any
 
 import pytest
@@ -566,3 +567,176 @@ async def test_resuming_with_skipped_parent(test_setup: tuple[Any, Any, Any]) ->
     # Resuming should read step_a as SKIPPED and populate cached_outputs with None
     resumed = await engine.resume_async(state.run_id, workflow)
     assert resumed.status == WorkflowStatus.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_distributed_engine_dynamic_mapped_step(
+    test_setup: tuple[Any, Any, Any],
+) -> None:
+    """Verify dynamic step mapping (@wf.map_step) executes and synchronizes at join barrier."""
+    engine, storage, store = test_setup
+
+    def generate_numbers() -> list[int]:
+        return [10, 20, 30]
+
+    def square(item: int) -> int:
+        return item * item
+
+    workflow = WorkflowDefinition(
+        name="test_mapped_flow",
+        stages=[
+            StageDefinition(
+                name="stage_gen",
+                steps=[
+                    StepDefinition(name="gen", action=generate_numbers),
+                ],
+            ),
+            StageDefinition(
+                name="stage_map",
+                steps=[
+                    StepDefinition(
+                        name="process_items",
+                        action=square,
+                        depends_on=["gen"],
+                        is_mapped=True,
+                        map_over="gen",
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    state = await engine.run_async(workflow)
+    assert state.status == WorkflowStatus.COMPLETED
+
+    chk = state.step_checkpoints["process_items"]
+    assert chk.status == StepStatus.COMPLETED
+    assert chk.output_payload == [100, 400, 900]
+
+    sub_chk_0 = store.get_checkpoint(state.run_id, "process_items[0]")
+    assert sub_chk_0 is not None
+    assert sub_chk_0.output_payload == 100
+
+
+@pytest.mark.asyncio
+async def test_distributed_engine_mapped_step_concurrency_limit(
+    test_setup: tuple[Any, Any, Any],
+) -> None:
+    """Verify mapped step with concurrency_limit throttles execution."""
+    engine, storage, store = test_setup
+    active_count = 0
+    max_active = 0
+
+    async def throttled_task(item: int) -> int:
+        nonlocal active_count, max_active
+        active_count += 1
+        max_active = max(max_active, active_count)
+        await asyncio.sleep(0.01)
+        active_count -= 1
+        return item * 2
+
+    workflow = WorkflowDefinition(
+        name="test_concurrency_flow",
+        stages=[
+            StageDefinition(
+                name="stage_map",
+                steps=[
+                    StepDefinition(
+                        name="throttled",
+                        action=throttled_task,
+                        is_mapped=True,
+                        map_over="items",
+                        concurrency_limit=2,
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    state = await engine.run_async(
+        workflow, initial_inputs={"items": [1, 2, 3, 4, 5, 6]}
+    )
+    assert state.status == WorkflowStatus.COMPLETED
+    assert max_active <= 2
+    assert state.step_checkpoints["throttled"].output_payload == [2, 4, 6, 8, 10, 12]
+
+
+@pytest.mark.asyncio
+async def test_distributed_engine_mapped_step_empty(
+    test_setup: tuple[Any, Any, Any],
+) -> None:
+    """Verify mapped step over empty collection completes with empty outputs."""
+    engine, storage, store = test_setup
+
+    workflow = WorkflowDefinition(
+        name="test_empty_map",
+        stages=[
+            StageDefinition(
+                name="stage_map",
+                steps=[
+                    StepDefinition(
+                        name="empty_proc",
+                        action=lambda item: item + 1,
+                        is_mapped=True,
+                        map_over="empty_list",
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    state = await engine.run_async(workflow, initial_inputs={"empty_list": []})
+    assert state.status == WorkflowStatus.COMPLETED
+    assert state.step_checkpoints["empty_proc"].output_payload == []
+
+
+@pytest.mark.asyncio
+async def test_distributed_engine_mapped_step_errors(
+    test_setup: tuple[Any, Any, Any],
+) -> None:
+    """Verify error conditions on missing or non-iterable map targets."""
+    engine, storage, store = test_setup
+
+    workflow_missing = WorkflowDefinition(
+        name="test_missing_map",
+        stages=[
+            StageDefinition(
+                name="stage_map",
+                steps=[
+                    StepDefinition(
+                        name="bad_step",
+                        action=lambda item: item,
+                        is_mapped=True,
+                        map_over="non_existent",
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    state_missing = await engine.run_async(workflow_missing)
+    assert state_missing.status == WorkflowStatus.SUSPENDED
+    assert "not found in inputs" in (state_missing.error_summary or "")
+
+    workflow_non_iter = WorkflowDefinition(
+        name="test_non_iter",
+        stages=[
+            StageDefinition(
+                name="stage_map",
+                steps=[
+                    StepDefinition(
+                        name="bad_step",
+                        action=lambda item: item,
+                        is_mapped=True,
+                        map_over="scalar",
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    state_non_iter = await engine.run_async(
+        workflow_non_iter, initial_inputs={"scalar": 12345}
+    )
+    assert state_non_iter.status == WorkflowStatus.SUSPENDED
+    assert "is not iterable" in (state_non_iter.error_summary or "")

@@ -1,6 +1,6 @@
 [project]
 name = "hexaqueue-cli"
-version = "0.2.0"
+version = "0.3.0"
 description = "Hexaqueue CLI - Modern developer and operator terminal interface"
 readme = "README.md"
 license = "Apache-2.0"
@@ -13,10 +13,10 @@ dependencies = [
     "hexaqueue-server",
     "hexaqueue-worker",
     "hexaqueue-workflow",
-    "hexastack-cli>=0.5.0",
-    "hexastack-core>=0.5.0",
-    "hexastack-cqrs>=0.5.0",
-    "hexastack-grpc>=0.5.0",
+    "hexastack-cli>=0.6.0",
+    "hexastack-core>=0.6.0",
+    "hexastack-cqrs>=0.6.0",
+    "hexastack-grpc>=0.6.0",
     "pyyaml>=6.0.2",
     "rich>=13.8.0",
     "typer>=0.15.0",

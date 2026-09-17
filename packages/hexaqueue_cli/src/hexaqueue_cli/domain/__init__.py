@@ -1,5 +1,6 @@
 """Domain package for hexaqueue-cli."""
 
+from hexaqueue_cli.domain.options import OutputFormat
 from hexaqueue_cli.domain.parser import (
     parse_run_spec_from_dict,
     parse_run_spec_from_file,
@@ -13,6 +14,7 @@ from hexaqueue_cli.domain.session import (
 __all__ = [
     "get_default_session",
     "LocalCliSession",
+    "OutputFormat",
     "parse_run_spec_from_dict",
     "parse_run_spec_from_file",
     "set_default_session",

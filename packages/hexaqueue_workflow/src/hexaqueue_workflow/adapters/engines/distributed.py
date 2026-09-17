@@ -48,13 +48,18 @@ from hexaqueue_core.domain.run import RunSpec
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
 from hexaqueue_server.domain.models import RunSubmission
 from hexaqueue_server.ports.controller import SchedulerControllerPort
+from hexaqueue_workflow.adapters.barrier.grpc import (
+    GrpcSplitJoinBarrierAdapter,
+)
 from hexaqueue_workflow.adapters.staging.storage import (
     StoragePortArtifactStagingAdapter,
 )
+from hexaqueue_workflow.domain.barrier import BarrierPartition
 from hexaqueue_workflow.domain.models import (
     ArtifactReference,
     DistributedWorkflowConfig,
 )
+from hexaqueue_workflow.ports.barrier import SplitJoinBarrierPort
 from hexaqueue_workflow.ports.staging import ArtifactStagingPort
 
 
@@ -73,6 +78,7 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
         state_store: WorkflowStateStorePort for checkpoint persistence (defaults to InMemoryStateStore).
         storage: Optional StoragePort if custom staging adapter is not provided.
         config: Optional DistributedWorkflowConfig parameterizing thresholds and resources.
+        barrier: Optional SplitJoinBarrierPort for distributed split/join synchronization (defaults to GrpcSplitJoinBarrierAdapter).
     """
 
     def __init__(
@@ -82,6 +88,7 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
         state_store: WorkflowStateStorePort | None = None,
         storage: StoragePort | None = None,
         config: DistributedWorkflowConfig | None = None,
+        barrier: SplitJoinBarrierPort | None = None,
     ) -> None:
         """Initialize HexaqueueDistributedEngine.
 
@@ -91,12 +98,14 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
             state_store: Persistence store for workflow state and step checkpoints.
             storage: Concrete StoragePort to use if default staging adapter is created.
             config: Distributed engine configuration.
+            barrier: Split/join barrier synchronization adapter.
         """
         self._config = config or DistributedWorkflowConfig()
         self._controller = controller or LocalSchedulerControllerAdapter(
             queue=InMemoryJobQueueAdapter()
         )
         self._store = state_store or InMemoryStateStore()
+        self._barrier = barrier or GrpcSplitJoinBarrierAdapter()
 
         if staging is not None:
             self._staging = staging
@@ -483,6 +492,12 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
         for dep in step.depends_on:
             step_inputs[dep] = cached_outputs.get(dep)
 
+        # 4b. Dynamic Mapped Step Check
+        if getattr(step, "is_mapped", False):
+            return await self._execute_mapped_step(
+                state, stage, step, cached_outputs, initial_inputs, step_inputs
+            )
+
         # 5. Convert step to cluster JobSpec with resource constraints
         job_spec = self._build_job_spec(state.run_id, stage.name, step)
 
@@ -609,6 +624,223 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
             reason=f"Step '{step.name}' failed after {current_attempt} attempts: {last_exception}",
         )
 
+    def _resolve_mapped_items(
+        self,
+        run_id: str,
+        step: StepDefinition,
+        step_inputs: dict[str, Any],
+        initial_inputs: dict[str, Any],
+        cached_outputs: dict[str, Any],
+    ) -> list[Any]:
+        """Extract and validate the target iterable for a mapped step."""
+        map_key = getattr(step, "map_over", "") or ""
+        collection = step_inputs.get(map_key)
+        if collection is None and map_key in initial_inputs:
+            collection = initial_inputs[map_key]
+        if collection is None and map_key in cached_outputs:
+            collection = cached_outputs[map_key]
+
+        if collection is None:
+            raise WorkflowSuspended(
+                run_id=run_id,
+                failed_step=step.name,
+                reason=f"Mapped step '{step.name}' target '{map_key}' not found in inputs or parent outputs.",
+            )
+
+        if not hasattr(collection, "__iter__"):
+            raise WorkflowSuspended(
+                run_id=run_id,
+                failed_step=step.name,
+                reason=f"Mapped step '{step.name}' target '{map_key}' is not iterable (got {type(collection).__name__}).",
+            )
+
+        return list(collection.values() if isinstance(collection, dict) else collection)
+
+    def _save_empty_mapped_checkpoint(
+        self,
+        state: WorkflowExecutionState,
+        stage_name: str,
+        step_name: str,
+        step_inputs: dict[str, Any],
+        start_time: datetime,
+    ) -> None:
+        """Persist a completed checkpoint for an empty mapped step."""
+        chk = CheckpointRecord(
+            run_id=state.run_id,
+            stage_name=stage_name,
+            step_name=step_name,
+            status=StepStatus.COMPLETED,
+            attempt_number=1,
+            input_payload=step_inputs,
+            output_payload=[],
+            started_at=start_time,
+            completed_at=start_time,
+            duration_seconds=0.0,
+        )
+        self._store.save_checkpoint(chk)
+        state.step_checkpoints[step_name] = chk
+
+    async def _execute_mapped_sub_step(
+        self,
+        state: WorkflowExecutionState,
+        stage_name: str,
+        step: StepDefinition,
+        step_inputs: dict[str, Any],
+        idx: int,
+        item_val: Any,
+    ) -> Any:
+        """Execute and checkpoint an individual sub-step partition of a mapped step."""
+        sub_step_name = f"{step.name}[{idx}]"
+        sub_inputs = dict(step_inputs)
+        sub_inputs["item"] = item_val
+        sub_inputs["index"] = idx
+
+        existing_chk = self._store.get_checkpoint(state.run_id, sub_step_name)
+        if existing_chk and existing_chk.status == StepStatus.COMPLETED:
+            return self._staging.retrieve_artifact(existing_chk.output_payload)
+
+        sub_job_spec = self._build_job_spec(state.run_id, stage_name, step)
+        sub_job_spec = sub_job_spec.model_copy(
+            update={"id": f"{state.run_id}_{sub_step_name}", "name": sub_step_name}
+        )
+        with contextlib.suppress(Exception):
+            await self._controller.submit_run(
+                RunSubmission(
+                    run_spec=RunSpec(
+                        id=f"{state.run_id}_{sub_step_name}", name=sub_step_name
+                    ),
+                    jobs=[sub_job_spec],
+                    dependencies={},
+                )
+            )
+
+        sub_start = datetime.now(UTC)
+        partition = BarrierPartition(
+            partition_id=idx,
+            sub_step_name=sub_step_name,
+            node_id=f"node-{idx % 4}",
+            payload=item_val,
+        )
+        ctx = StepContext(
+            run_id=state.run_id,
+            stage_name=stage_name,
+            step_name=sub_step_name,
+            attempt_number=1,
+            inputs=sub_inputs,
+        )
+        output = await self._invoke_callable(step.action, ctx)
+        await self._barrier.dispatch_partition(
+            state.run_id, step.name, partition, output
+        )
+        staged = self._staging.stage_artifact(state.run_id, sub_step_name, output)
+        out_payload = (
+            staged.to_envelope() if isinstance(staged, ArtifactReference) else staged
+        )
+
+        sub_end = datetime.now(UTC)
+        chk = CheckpointRecord(
+            run_id=state.run_id,
+            stage_name=stage_name,
+            step_name=sub_step_name,
+            status=StepStatus.COMPLETED,
+            attempt_number=1,
+            input_payload=sub_inputs,
+            output_payload=out_payload,
+            started_at=sub_start,
+            completed_at=sub_end,
+            duration_seconds=(sub_end - sub_start).total_seconds(),
+        )
+        self._store.save_checkpoint(chk)
+        state.step_checkpoints[sub_step_name] = chk
+        await self._controller.update_job_outcome(
+            job_id=sub_job_spec.id, outcome=TerminalOutcome.COMPLETED
+        )
+        return output
+
+    def _save_completed_mapped_checkpoint(
+        self,
+        state: WorkflowExecutionState,
+        stage_name: str,
+        step_name: str,
+        step_inputs: dict[str, Any],
+        outputs: list[Any],
+        start_time: datetime,
+    ) -> None:
+        """Persist a completed checkpoint for the aggregated mapped step."""
+        staged = self._staging.stage_artifact(state.run_id, step_name, outputs)
+        out_payload = (
+            staged.to_envelope() if isinstance(staged, ArtifactReference) else staged
+        )
+        end_time = datetime.now(UTC)
+        chk = CheckpointRecord(
+            run_id=state.run_id,
+            stage_name=stage_name,
+            step_name=step_name,
+            status=StepStatus.COMPLETED,
+            attempt_number=1,
+            input_payload=step_inputs,
+            output_payload=out_payload,
+            started_at=start_time,
+            completed_at=end_time,
+            duration_seconds=(end_time - start_time).total_seconds(),
+        )
+        self._store.save_checkpoint(chk)
+        state.step_checkpoints[step_name] = chk
+
+    async def _execute_mapped_step(
+        self,
+        state: WorkflowExecutionState,
+        stage: StageDefinition,
+        step: StepDefinition,
+        cached_outputs: dict[str, Any],
+        initial_inputs: dict[str, Any],
+        step_inputs: dict[str, Any],
+    ) -> list[Any]:
+        """Execute a dynamically mapped step fanning out across a runtime iterable."""
+        items = self._resolve_mapped_items(
+            state.run_id, step, step_inputs, initial_inputs, cached_outputs
+        )
+        start_time = datetime.now(UTC)
+
+        if not items:
+            self._save_empty_mapped_checkpoint(
+                state, stage.name, step.name, step_inputs, start_time
+            )
+            return []
+
+        limit = getattr(step, "concurrency_limit", None)
+        sem = asyncio.Semaphore(limit) if limit and limit > 0 else None
+
+        async def _run_item(idx: int, val: Any) -> Any:
+            if sem:
+                async with sem:
+                    return await self._execute_mapped_sub_step(
+                        state, stage.name, step, step_inputs, idx, val
+                    )
+            return await self._execute_mapped_sub_step(
+                state, stage.name, step, step_inputs, idx, val
+            )
+
+        tasks = [_run_item(i, val) for i, val in enumerate(items)]
+        raw_results = await asyncio.gather(*tasks)
+
+        dispatched = [
+            BarrierPartition(
+                partition_id=i,
+                sub_step_name=f"{step.name}[{i}]",
+                node_id=f"node-{i % 4}",
+                payload=res,
+                status="COMPLETED",
+            )
+            for i, res in enumerate(raw_results)
+        ]
+        summary = await self._barrier.await_barrier(state.run_id, step.name, dispatched)
+
+        self._save_completed_mapped_checkpoint(
+            state, stage.name, step.name, step_inputs, summary.outputs, start_time
+        )
+        return summary.outputs
+
     def _build_job_spec(
         self, run_id: str, stage_name: str, step: StepDefinition
     ) -> JobSpec:
@@ -660,6 +892,12 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
             result = action(ctx)
         elif len(params) == 1 and params[0].name in ("inputs", "data"):
             result = action(ctx.inputs)
+        elif (
+            len(params) == 1
+            and "item" in ctx.inputs
+            and params[0].name not in ctx.inputs
+        ):
+            result = action(ctx.inputs["item"])
         else:
             # Map keyword arguments from ctx.inputs
             kwargs: dict[str, Any] = {}

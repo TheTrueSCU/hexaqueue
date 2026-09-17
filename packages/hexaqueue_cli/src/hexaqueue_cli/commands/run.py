@@ -10,11 +10,12 @@ from pathlib import Path
 
 import typer
 from rich.console import Console
-from rich.table import Table
 
 from hexaqueue_cli.adapters.local import LocalClientAdapter
+from hexaqueue_cli.adapters.presenter import CliPresenter
 from hexaqueue_cli.domain.parser import parse_run_spec_from_file
 from hexaqueue_cli.domain.session import get_default_session
+from hexaqueue_cli.infra.options import format_option, resolve_format
 from hexaqueue_core.domain.lifecycle import RunState
 
 app = typer.Typer(help="Pipeline run management commands.")
@@ -27,6 +28,7 @@ def submit_cmd(
     watch: bool = typer.Option(
         False, "--watch", "-w", help="Watch run execution until completion"
     ),
+    format_type: str = format_option(),
 ) -> None:
     """Submit a DAG pipeline definition file."""
     try:
@@ -35,41 +37,38 @@ def submit_cmd(
         console.print(f"[bold red]Error parsing pipeline spec:[/] {e}")
         raise typer.Exit(code=1) from e
 
+    resolved_fmt = resolve_format(format_type)
+    presenter = CliPresenter(console=console)
+
     async def _run() -> None:
         session = get_default_session()
         await session.start()
         client = LocalClientAdapter(session=session)
 
         report = await client.submit_run(submission)
-        console.print(
-            f"[bold green]✓[/] Run '[bold cyan]{report.run_id}[/]' submitted ({report.total_jobs} jobs)"
-        )
+        if resolved_fmt in ("table", "rich"):
+            console.print(
+                f"[bold green]✓[/] Run '[bold cyan]{report.run_id}[/]' submitted ({report.total_jobs} jobs)"
+            )
+        else:
+            presenter.render_run_status(report, resolved_fmt)
 
-        if watch:
-            with console.status(f"[bold blue]Executing run {report.run_id}...[/]"):
-                while report.state not in (RunState.DONE, RunState.BLOCKED):
-                    await asyncio.sleep(0.1)
-                    report = await client.get_run_status(report.run_id)
+        if not watch:
+            return
 
+        with console.status(f"[bold blue]Executing run {report.run_id}...[/]"):
+            while report.state not in (RunState.DONE, RunState.BLOCKED):
+                await asyncio.sleep(0.1)
+                report = await client.get_run_status(report.run_id)
+
+        if resolved_fmt in ("table", "rich"):
             outcome_str = (
                 f"[bold green]{report.outcome}[/]"
-                if report.outcome == "COMPLETED" or report.outcome == "SUCCEEDED"
+                if str(report.outcome) in ("COMPLETED", "SUCCEEDED")
                 else f"[bold red]{report.outcome}[/]"
             )
             console.print(f"Run completed with status: {outcome_str}")
-
-            table = Table(title=f"Run Summary: {report.run_id}")
-            table.add_column("Total", justify="center")
-            table.add_column("Completed", justify="center", style="green")
-            table.add_column("Failed", justify="center", style="red")
-            table.add_column("Pending", justify="center", style="yellow")
-            table.add_row(
-                str(report.total_jobs),
-                str(report.completed_jobs),
-                str(report.failed_jobs),
-                str(report.pending_jobs),
-            )
-            console.print(table)
+        presenter.render_run_status(report, resolved_fmt)
 
     asyncio.run(_run())
 

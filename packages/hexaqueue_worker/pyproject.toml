@@ -1,6 +1,6 @@
 [project]
 name = "hexaqueue-worker"
-version = "0.2.0"
+version = "0.3.0"
 description = "Hexaqueue Worker - Lightweight Compute Node Execution Daemon"
 readme = "README.md"
 license = "Apache-2.0"
@@ -10,10 +10,10 @@ authors = [
 requires-python = ">=3.13"
 dependencies = [
     "hexaqueue-core",
-    "hexastack-auth>=0.5.0",
-    "hexastack-core>=0.5.0",
-    "hexastack-grpc>=0.5.0",
-    "hexastack-logging>=0.5.0",
+    "hexastack-auth>=0.6.0",
+    "hexastack-core>=0.6.0",
+    "hexastack-grpc>=0.6.0",
+    "hexastack-logging>=0.6.0",
 ]
 
 [build-system]

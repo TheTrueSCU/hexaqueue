@@ -6,6 +6,7 @@ import hexaqueue_workflow.adapters as adapters_pkg
 def test_adapters_exports() -> None:
     """Verify all expected adapters are exported."""
     expected = [
+        "GrpcSplitJoinBarrierAdapter",
         "HexaqueueDistributedEngine",
         "StoragePortArtifactStagingAdapter",
     ]

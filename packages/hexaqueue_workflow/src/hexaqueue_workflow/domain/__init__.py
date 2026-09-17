@@ -5,6 +5,11 @@ Notes/Architectural Intent:
     handling out-of-band artifact metadata, and domain-level error conditions.
 """
 
+from hexaqueue_workflow.domain.barrier import (
+    BarrierPartition,
+    BarrierResolutionSummary,
+    BarrierState,
+)
 from hexaqueue_workflow.domain.exceptions import (
     ArtifactStagingError,
     HexaqueueWorkflowError,
@@ -20,6 +25,9 @@ from hexaqueue_workflow.domain.models import (
 __all__ = [
     "ArtifactReference",
     "ArtifactStagingError",
+    "BarrierPartition",
+    "BarrierResolutionSummary",
+    "BarrierState",
     "DistributedWorkflowConfig",
     "HexaqueueWorkflowError",
     "JobExecutionFailedError",

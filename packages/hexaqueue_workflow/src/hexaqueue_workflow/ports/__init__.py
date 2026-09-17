@@ -5,8 +5,10 @@ Notes/Architectural Intent:
     for distributed step execution and artifact staging.
 """
 
+from hexaqueue_workflow.ports.barrier import SplitJoinBarrierPort
 from hexaqueue_workflow.ports.staging import ArtifactStagingPort
 
 __all__ = [
     "ArtifactStagingPort",
+    "SplitJoinBarrierPort",
 ]

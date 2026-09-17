@@ -8,6 +8,9 @@ def test_domain_exports() -> None:
     expected = [
         "ArtifactReference",
         "ArtifactStagingError",
+        "BarrierPartition",
+        "BarrierResolutionSummary",
+        "BarrierState",
         "DistributedWorkflowConfig",
         "HexaqueueWorkflowError",
         "JobExecutionFailedError",

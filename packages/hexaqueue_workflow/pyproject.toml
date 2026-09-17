@@ -1,6 +1,6 @@
 [project]
 name = "hexaqueue-workflow"
-version = "0.2.0"
+version = "0.3.0"
 description = "Hexaqueue Workflow - Distributed Cluster Engine & Artifact Staging for Hexaflow"
 readme = "README.md"
 license = "Apache-2.0"
@@ -9,11 +9,12 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
-    "hexaflow>=0.2.0",
+    "hexaflow>=0.3.0",
     "hexaqueue-core",
     "hexaqueue-server",
     "hexaqueue-worker",
-    "hexastack-core>=0.5.0",
+    "hexastack-core>=0.6.0",
+    "hexastack-grpc>=0.6.0",
     "pydantic>=2.10.0",
 ]
 
