@@ -23,6 +23,9 @@ from hexaqueue_core.ports.runtime import (
     ExecutionRuntimePort,
     ProcessExecutionResult,
 )
+from hexaqueue_core.ports.scheduling import (
+    BatchSchedulerPort,
+)
 from hexaqueue_core.ports.security import (
     SecurityQuarantinePort,
     SecurityScanResult,
@@ -33,6 +36,7 @@ from hexaqueue_core.ports.storage import (
 )
 
 __all__ = [
+    "BatchSchedulerPort",
     "BootstrapperPort",
     "BudgetAccountingPort",
     "ComputeResourcePort",
