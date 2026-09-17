@@ -11,6 +11,8 @@ from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from hexaqueue_core.domain.notification import NotificationPolicy
+
 
 class ArtifactReference(BaseModel):
     """Metadata pointer for an intermediate step artifact stored in off-node storage.
@@ -134,6 +136,7 @@ class WorkflowStepJobMapping(BaseModel):
         command: Optional executable command override.
         args: Command arguments.
         env: Job-specific environment variable overrides.
+        notifications: Explicit notification policies for this workflow step.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -151,6 +154,9 @@ class WorkflowStepJobMapping(BaseModel):
     args: list[str] = Field(default_factory=list, description="Command arguments")
     env: dict[str, str] = Field(
         default_factory=dict, description="Environment variables"
+    )
+    notifications: list[NotificationPolicy] = Field(
+        default_factory=list, description="Notification policies for this step job"
     )
 
     @model_validator(mode="after")
@@ -185,6 +191,7 @@ class DistributedWorkflowConfig(BaseModel):
         timeout_seconds: Maximum execution time allowed before timing out a job run.
         storage_prefix: Base prefix or directory for artifact keys.
         step_mappings: Optional pre-configured step name to WorkflowStepJobMapping dictionary.
+        default_notifications: Default notification policies applied to steps without custom mappings.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -212,6 +219,10 @@ class DistributedWorkflowConfig(BaseModel):
     )
     step_mappings: dict[str, WorkflowStepJobMapping] = Field(
         default_factory=dict, description="Per-step compute resource configurations"
+    )
+    default_notifications: list[NotificationPolicy] = Field(
+        default_factory=list,
+        description="Default notification policies for workflow steps",
     )
 
 

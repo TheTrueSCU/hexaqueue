@@ -53,6 +53,11 @@ from hexaqueue_core.domain.lifecycle import (
     compute_run_outcome,
     compute_run_state,
 )
+from hexaqueue_core.domain.notification import (
+    NotificationPolicy,
+    NotificationTrigger,
+    map_lifecycle_to_trigger,
+)
 from hexaqueue_core.domain.resources import (
     ResourceRequirements,
 )
@@ -91,6 +96,9 @@ __all__ = [
     "JobStateTransitionError",
     "JobStatus",
     "JobTemplateSpec",
+    "map_lifecycle_to_trigger",
+    "NotificationPolicy",
+    "NotificationTrigger",
     "QuotaExceededError",
     "ResolvedJobCollection",
     "ResourceOverrideSpec",

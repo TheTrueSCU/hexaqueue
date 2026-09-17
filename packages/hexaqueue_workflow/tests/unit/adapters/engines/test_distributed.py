@@ -2,6 +2,7 @@
 
 import asyncio
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from hexaflow.adapters.storage.in_memory import InMemoryStateStore
@@ -20,8 +21,14 @@ from hexaflow.domain.state import (
     WorkflowStatus,
 )
 from hexastack_core.adapters.storage.in_memory import InMemoryStorage
+from hexastack_core.ports.notification import NotificationPort
 
 from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
+from hexaqueue_core.domain.notification import (
+    NotificationPolicy,
+    NotificationTrigger,
+)
+from hexaqueue_core.infra.notification import NotificationDispatcher
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
 from hexaqueue_workflow.adapters.engines.distributed import (
     HexaqueueDistributedEngine,
@@ -740,3 +747,87 @@ async def test_distributed_engine_mapped_step_errors(
     )
     assert state_non_iter.status == WorkflowStatus.SUSPENDED
     assert "is not iterable" in (state_non_iter.error_summary or "")
+
+
+@pytest.mark.asyncio
+async def test_distributed_engine_step_notifications_success() -> None:
+    """Verify notification dispatcher triggers upon step started and completed."""
+    mock_port = MagicMock(spec=NotificationPort)
+    mock_port.notify.return_value = True
+    dispatcher = NotificationDispatcher(notification_port=mock_port)
+
+    policy = NotificationPolicy(
+        targets=["slack://workflows"],
+        triggers=NotificationTrigger.STARTED | NotificationTrigger.COMPLETED,
+    )
+    config = DistributedWorkflowConfig(
+        default_notifications=[policy],
+    )
+    engine = HexaqueueDistributedEngine(
+        config=config,
+        notification_dispatcher=dispatcher,
+    )
+
+    workflow = WorkflowDefinition(
+        name="notif_wf",
+        stages=[
+            StageDefinition(
+                name="stage_main",
+                steps=[
+                    StepDefinition(name="task_ok", action=lambda: {"result": 42}),
+                ],
+            ),
+        ],
+    )
+
+    state = await engine.run_async(workflow)
+    assert state.status == WorkflowStatus.COMPLETED
+
+    # Check notification calls: step STARTED, step COMPLETED, stage COMPLETED (default policies)
+    titles = [call[1]["title"] for call in mock_port.notify.call_args_list]
+    has_started = any("STARTED" in t and "task_ok" in t for t in titles)
+    has_completed = any("COMPLETED" in t and "task_ok" in t for t in titles)
+    assert has_started is True
+    assert has_completed is True
+
+
+@pytest.mark.asyncio
+async def test_distributed_engine_step_notifications_failure() -> None:
+    """Verify notification dispatcher triggers upon step failure."""
+    mock_port = MagicMock(spec=NotificationPort)
+    mock_port.notify.return_value = True
+    dispatcher = NotificationDispatcher(notification_port=mock_port)
+
+    policy = NotificationPolicy(
+        targets=["pagerduty://wf-alerts"],
+        triggers=NotificationTrigger.ERRORS,
+    )
+    config = DistributedWorkflowConfig(
+        default_notifications=[policy],
+    )
+    engine = HexaqueueDistributedEngine(
+        config=config,
+        notification_dispatcher=dispatcher,
+    )
+
+    def failing_action() -> None:
+        raise RuntimeError("simulated cluster step failure")
+
+    workflow = WorkflowDefinition(
+        name="failing_wf",
+        stages=[
+            StageDefinition(
+                name="stage_err",
+                steps=[
+                    StepDefinition(name="task_fail", action=failing_action),
+                ],
+            ),
+        ],
+    )
+
+    state = await engine.run_async(workflow)
+    assert state.status == WorkflowStatus.SUSPENDED
+
+    titles = [call[1]["title"] for call in mock_port.notify.call_args_list]
+    has_failed = any("FAILED" in t and "task_fail" in t for t in titles)
+    assert has_failed is True

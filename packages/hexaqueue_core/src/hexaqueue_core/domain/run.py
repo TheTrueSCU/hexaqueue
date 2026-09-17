@@ -17,6 +17,7 @@ from hexaqueue_core.domain.lifecycle import (
     compute_run_outcome,
     compute_run_state,
 )
+from hexaqueue_core.domain.notification import NotificationPolicy
 
 
 class RunSpec(BaseModel):
@@ -27,6 +28,7 @@ class RunSpec(BaseModel):
         name: Human-readable run name.
         jobs: List of constituent concrete leaf jobs.
         tags: Metadata tags.
+        notifications: Optional notification policies for lifecycle events.
         created_at: Creation timestamp in UTC.
         updated_at: Last update timestamp in UTC.
     """
@@ -37,6 +39,9 @@ class RunSpec(BaseModel):
     name: str = Field(description="Run name")
     jobs: list[JobSpec] = Field(default_factory=list, description="Constituent jobs")
     tags: list[str] = Field(default_factory=list, description="Metadata tags")
+    notifications: list[NotificationPolicy] = Field(
+        default_factory=list, description="Notification policies"
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

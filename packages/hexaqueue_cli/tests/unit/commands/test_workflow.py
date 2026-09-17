@@ -216,3 +216,28 @@ def test_workflow_abort(tmp_path: Path) -> None:
     assert abort_res.exit_code == 0
     assert "Aborting workflow run:" in abort_res.stdout
     assert "CANCELLED" in abort_res.stdout
+
+
+def test_workflow_submit_with_notifications(
+    workflow_file: Path, tmp_path: Path
+) -> None:
+    """Verify hq workflow submit accepts --notify and --notify-on options."""
+    db_path = tmp_path / "test_notif_state.db"
+    submit_res = runner.invoke(
+        app,
+        [
+            "workflow",
+            "submit",
+            str(workflow_file),
+            "--notify",
+            "slack://alerts,discord://alerts",
+            "--notify-on",
+            "ALL",
+            "--db",
+            str(db_path),
+        ],
+    )
+    assert submit_res.exit_code == 0
+    assert "Submitting workflow:" in submit_res.stdout
+    assert "sample_pipeline" in submit_res.stdout
+    assert "COMPLETED" in submit_res.stdout
