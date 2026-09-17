@@ -79,6 +79,14 @@ class SchedulerControllerPort(ABC):
             Updated RunStatusReport showing CANCELLED state.
         """
 
+    @abstractmethod
+    async def list_jobs(self) -> list[JobSpec]:
+        """Retrieve all currently registered jobs across runs.
+
+        Returns:
+            List of all JobSpec instances.
+        """
+
 
 __all__ = [
     "SchedulerControllerPort",

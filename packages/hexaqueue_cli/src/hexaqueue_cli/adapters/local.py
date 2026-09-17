@@ -5,8 +5,14 @@ Notes/Architectural Intent:
     and log stream port without network transport overhead.
 """
 
+from __future__ import annotations
+
 from hexaqueue_cli.domain.session import LocalCliSession, get_default_session
 from hexaqueue_cli.ports.client import ClientPort
+from hexaqueue_core.domain.explainability import (
+    FairShareTreeReport,
+    SchedulingDecisionReport,
+)
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.ports.logging import LogChunk
 from hexaqueue_server.domain.models import RunStatusReport, RunSubmission
@@ -39,6 +45,53 @@ class LocalClientAdapter(ClientPort):
         return [
             c async for c in self._session.log_stream.stream_logs(job_id, follow=False)
         ]
+
+    async def explain_job(
+        self,
+        job_id: str,
+        requesting_user: str = "default",
+        is_admin: bool = False,
+    ) -> SchedulingDecisionReport:
+        """Generate explainability report for a job in the local session."""
+        from datetime import UTC, datetime
+
+        from hexaqueue_core.domain.explainability import SchedulerExplainabilityEngine
+        from hexaqueue_core.domain.redaction import MultiTenantRedactionFilter
+        from hexaqueue_core.domain.scheduling import ResourceSlotPool
+
+        engine = SchedulerExplainabilityEngine()
+        redaction = MultiTenantRedactionFilter()
+        all_jobs = await self._session.controller.list_jobs()
+        pool = ResourceSlotPool(total_slots=4)
+        report = engine.explain_job(
+            job_id=job_id,
+            all_jobs=all_jobs,
+            pool=pool,
+            current_timestamp=datetime.now(UTC).timestamp(),
+        )
+        return redaction.redact_decision_report(
+            report, requesting_user=requesting_user, is_admin=is_admin
+        )
+
+    async def get_fairshare_tree(
+        self,
+        requesting_user: str = "default",
+        is_admin: bool = False,
+    ) -> FairShareTreeReport:
+        """Generate fair-share tree report for the local session."""
+        from datetime import UTC, datetime
+
+        from hexaqueue_core.domain.explainability import (
+            SchedulerExplainabilityEngine,
+        )
+        from hexaqueue_core.domain.redaction import MultiTenantRedactionFilter
+
+        engine = SchedulerExplainabilityEngine()
+        redaction = MultiTenantRedactionFilter()
+        report = engine.explain_fairshare(datetime.now(UTC).timestamp())
+        return redaction.redact_fairshare_tree(
+            report, requesting_user=requesting_user, is_admin=is_admin
+        )
 
 
 __all__ = [

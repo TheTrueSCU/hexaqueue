@@ -33,6 +33,15 @@ from hexaqueue_core.domain.exceptions import (
 from hexaqueue_core.domain.exceptions import (
     HexaqueueConfigError as BaseHexaqueueConfigError,
 )
+from hexaqueue_core.domain.explainability import (
+    FairShareNodeReport,
+    FairShareTreeReport,
+    PendingReason,
+    PendingReasonCode,
+    PriorityBreakdown,
+    SchedulerExplainabilityEngine,
+    SchedulingDecisionReport,
+)
 from hexaqueue_core.domain.fairshare import (
     FairShareNode,
     FairShareTree,
@@ -66,6 +75,9 @@ from hexaqueue_core.domain.priority import (
     JobPriorityCalculator,
     PriorityWeights,
     RankedJob,
+)
+from hexaqueue_core.domain.redaction import (
+    MultiTenantRedactionFilter,
 )
 from hexaqueue_core.domain.resources import (
     ResourceRequirements,
@@ -101,7 +113,9 @@ __all__ = [
     "DependencySpec",
     "ExecutionMode",
     "FairShareNode",
+    "FairShareNodeReport",
     "FairShareTree",
+    "FairShareTreeReport",
     "FreeTierLimitExceededError",
     "FreeTierProfileConfig",
     "GroupExpansionEngine",
@@ -120,9 +134,13 @@ __all__ = [
     "JobStatus",
     "JobTemplateSpec",
     "map_lifecycle_to_trigger",
+    "MultiTenantRedactionFilter",
     "NotificationPolicy",
     "NotificationTrigger",
+    "PendingReason",
+    "PendingReasonCode",
     "PreemptionPolicy",
+    "PriorityBreakdown",
     "PriorityWeights",
     "QuotaExceededError",
     "RankedJob",
@@ -133,7 +151,9 @@ __all__ = [
     "RunOutcome",
     "RunSpec",
     "RunState",
+    "SchedulerExplainabilityEngine",
     "SchedulingDecision",
+    "SchedulingDecisionReport",
     "TerminalOutcome",
     "TriggerCondition",
 ]

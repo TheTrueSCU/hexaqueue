@@ -8,6 +8,9 @@ from hexaqueue_core.ports.budget import (
     CostRate,
     CostRateModelPort,
 )
+from hexaqueue_core.ports.explainability import (
+    SchedulerExplainabilityPort,
+)
 from hexaqueue_core.ports.logging import (
     LogChunk,
     LogStreamPort,
@@ -48,6 +51,7 @@ __all__ = [
     "LogStreamPort",
     "NodeCapacity",
     "ProcessExecutionResult",
+    "SchedulerExplainabilityPort",
     "SecurityQuarantinePort",
     "SecurityScanResult",
     "StorageVolumePort",

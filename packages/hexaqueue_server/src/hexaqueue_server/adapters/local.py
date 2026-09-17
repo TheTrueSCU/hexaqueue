@@ -163,6 +163,11 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                 raise HexaqueueError(msg)
             return self._jobs[job_id]
 
+    async def list_jobs(self) -> list[JobSpec]:
+        """Retrieve all currently registered jobs across runs."""
+        async with self._lock:
+            return list(self._jobs.values())
+
     async def update_job_outcome(
         self,
         job_id: str,
