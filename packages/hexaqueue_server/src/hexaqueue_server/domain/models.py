@@ -5,6 +5,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from hexaqueue_core.domain.freetier import FreeTierBurnReport
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import RunOutcome, RunState
 from hexaqueue_core.domain.run import RunSpec
@@ -60,9 +61,16 @@ class RunStatusReport(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    burn_report: FreeTierBurnReport | None = Field(
+        default=None, description="Current free-tier quota burn report"
+    )
     completed_jobs: int = Field(ge=0, description="Completed jobs count")
     created_at: datetime = Field(description="Run creation timestamp")
     failed_jobs: int = Field(ge=0, description="Failed jobs count")
+    free_tier_active: bool = Field(
+        default=False,
+        description="Whether cluster is operating under Free-Tier Safety Mode",
+    )
     outcome: RunOutcome | None = Field(
         default=None, description="Terminal outcome if DONE"
     )

@@ -204,7 +204,7 @@ def map_lifecycle_to_trigger(
         return NotificationTrigger.SUBMITTED
     if state in (JobState.RUNNING, RunState.RUNNING):
         return NotificationTrigger.STARTED
-    if state in (JobState.DONE, RunState.DONE):
+    if state in (JobState.DONE, RunState.DONE, RunState.BLOCKED):
         if outcome in (TerminalOutcome.COMPLETED, RunOutcome.SUCCEEDED):
             return NotificationTrigger.COMPLETED
         if outcome in (

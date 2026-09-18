@@ -15,6 +15,7 @@ from rich.console import Console
 
 from hexaqueue_cli.adapters.presenter import CliPresenter
 from hexaqueue_cli.domain.options import OutputFormat
+from hexaqueue_core.domain.freetier import CspProvider, FreeTierBurnReport
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import (
     RunOutcome,
@@ -320,3 +321,110 @@ def test_render_why_summary_and_explain() -> None:
     p_tree_json.render_fairshare_tree(tree_report, "json")
     parsed_tree = json.loads(buf_tree_json.getvalue())
     assert parsed_tree["root"]["id"] == "root"
+
+
+def _sample_burn_report(is_throttled: bool = False) -> FreeTierBurnReport:
+    return FreeTierBurnReport(
+        active_jobs_count=2,
+        allocated_cpus=2,
+        allocated_ram_mb=2048,
+        allocated_storage_mb=1024,
+        cpu_ceiling=2,
+        cpu_utilization_pct=100.0,
+        is_throttled=is_throttled,
+        profile_name="Local Container / Developer Sandbox",
+        provider=CspProvider.LOCAL,
+        ram_ceiling_mb=2048,
+        ram_utilization_pct=100.0,
+        storage_ceiling_mb=5120,
+        storage_utilization_pct=20.0,
+    )
+
+
+def test_render_run_status_free_tier_table() -> None:
+    """Verify run status renders [FREE TIER ACTIVE] badge and burn meter table."""
+    buf = StringIO()
+    presenter = CliPresenter(console=Console(file=buf, no_color=True, width=120))
+    now = datetime.now(UTC)
+    burn = _sample_burn_report(is_throttled=True)
+    report = RunStatusReport(
+        burn_report=burn,
+        completed_jobs=2,
+        created_at=now,
+        failed_jobs=0,
+        free_tier_active=True,
+        outcome=RunOutcome.SUCCEEDED,
+        pending_jobs=0,
+        run_id="run-free-tier",
+        running_jobs=0,
+        state=RunState.DONE,
+        total_jobs=2,
+    )
+
+    presenter.render_run_status(report, OutputFormat.TABLE)
+    out = buf.getvalue()
+    assert "FREE TIER ACTIVE" in out
+    assert "Free-Tier Quota Burn Meter" in out
+    assert "THROTTLED" in out
+    assert "Developer" in out
+    assert "Sandbox" in out
+    assert "Local Container" in out
+
+
+def test_render_run_status_free_tier_json() -> None:
+    """Verify run status in JSON includes free_tier_active and burn_report."""
+    buf = StringIO()
+    presenter = CliPresenter(console=Console(file=buf))
+    now = datetime.now(UTC)
+    burn = _sample_burn_report(is_throttled=False)
+    report = RunStatusReport(
+        burn_report=burn,
+        completed_jobs=1,
+        created_at=now,
+        failed_jobs=0,
+        free_tier_active=True,
+        outcome=None,
+        pending_jobs=1,
+        run_id="run-ft-json",
+        running_jobs=1,
+        state=RunState.RUNNING,
+        total_jobs=2,
+    )
+
+    with patch("sys.stdout", buf):
+        presenter.render_run_status(report, OutputFormat.JSON)
+
+    data = json.loads(buf.getvalue())
+    assert data["free_tier_active"] is True
+    assert data["burn_report"] is not None
+    assert data["burn_report"]["profile_name"] == "Local Container / Developer Sandbox"
+    assert data["burn_report"]["cpu_utilization_pct"] == 100.0
+
+
+def test_render_run_status_free_tier_markdown() -> None:
+    """Verify run status in Markdown includes free-tier header and quota burn section."""
+    buf = StringIO()
+    presenter = CliPresenter(console=Console(file=buf))
+    now = datetime.now(UTC)
+    burn = _sample_burn_report(is_throttled=False)
+    report = RunStatusReport(
+        burn_report=burn,
+        completed_jobs=1,
+        created_at=now,
+        failed_jobs=0,
+        free_tier_active=True,
+        outcome=None,
+        pending_jobs=0,
+        run_id="run-ft-md",
+        running_jobs=1,
+        state=RunState.RUNNING,
+        total_jobs=1,
+    )
+
+    with patch("sys.stdout", buf):
+        presenter.render_run_status(report, OutputFormat.MARKDOWN)
+
+    out = buf.getvalue()
+    assert "[FREE TIER ACTIVE]" in out
+    assert "Free-Tier Quota Burn" in out
+    assert "2 cores" in out
