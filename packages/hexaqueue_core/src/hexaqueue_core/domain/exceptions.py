@@ -33,6 +33,14 @@ class JobStateTransitionError(HexaqueueError):
     """Exception raised when an illegal job or run lifecycle state transition is attempted."""
 
 
+class GpuAllocationError(HexaqueueError):
+    """Exception raised when dynamic GPU device allocation fails or cannot be satisfied."""
+
+
+class StorageVolumeError(HexaqueueError):
+    """Exception raised when scratch volume allocation, quota, or mounting fails."""
+
+
 class SuiteCompilationError(HexaqueueError):
     """Exception raised when hierarchical suite compilation or validation fails."""
 
@@ -44,10 +52,12 @@ class VariableInterpolationError(SuiteCompilationError):
 __all__ = [
     "ChecksumMismatchError",
     "FreeTierLimitExceededError",
+    "GpuAllocationError",
     "HexaqueueConfigError",
     "HexaqueueError",
     "JobStateTransitionError",
     "QuotaExceededError",
+    "StorageVolumeError",
     "SuiteCompilationError",
     "VariableInterpolationError",
 ]

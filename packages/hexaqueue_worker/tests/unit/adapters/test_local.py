@@ -152,3 +152,105 @@ async def test_worker_poll_loop_e2e() -> None:
     assert metrics.total_executed == 2
     assert metrics.total_completed == 2
     assert metrics.is_running is False
+
+
+@pytest.mark.asyncio
+async def test_worker_execute_job_with_gpu_allocation() -> None:
+    """Verify GPU allocation, CUDA_VISIBLE_DEVICES injection, and post-job GPU release."""
+    queue = InMemoryJobQueueAdapter()
+    storage = InMemoryStorageVolumeAdapter()
+    controller = AsyncMock()
+
+    from hexaqueue_core.domain.gpu import GpuDevice
+    from hexaqueue_worker.adapters.gpu import MockGpuDeviceManagerAdapter
+
+    gpu_mgr = MockGpuDeviceManagerAdapter(
+        devices=[
+            GpuDevice(
+                index=0,
+                name="NVIDIA A100",
+                uuid="GPU-0",
+                total_vram_mb=81920,
+                free_vram_mb=81920,
+            ),
+        ]
+    )
+
+    worker = LocalSubprocessWorker(
+        queue=queue,
+        controller=controller,
+        storage=storage,
+        gpu_manager=gpu_mgr,
+    )
+
+    import sys
+
+    job = JobSpec(
+        id="gpu-job-1",
+        run_id="run-1",
+        name="gpu-test",
+        command=f"{sys.executable} -c \"import os; assert os.environ.get('CUDA_VISIBLE_DEVICES') == '0'\"",
+        resources=ResourceRequirements(gpus=1, walltime_seconds=10),
+    )
+
+    result = await worker.execute_job(job)
+    exit_code = result.exit_code
+    outcome = result.outcome
+    assert exit_code == 0
+    assert outcome == TerminalOutcome.COMPLETED
+
+    # Verify GPU was released
+    active_allocs = await gpu_mgr.get_active_allocations()
+    count = len(active_allocs)
+    assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_worker_execute_job_gpu_released_on_failure() -> None:
+    """Verify GPU is cleanly released even when job execution fails."""
+    queue = InMemoryJobQueueAdapter()
+    storage = InMemoryStorageVolumeAdapter()
+    controller = AsyncMock()
+
+    from hexaqueue_core.domain.gpu import GpuDevice
+    from hexaqueue_worker.adapters.gpu import MockGpuDeviceManagerAdapter
+
+    gpu_mgr = MockGpuDeviceManagerAdapter(
+        devices=[
+            GpuDevice(
+                index=0,
+                name="NVIDIA A100",
+                uuid="GPU-0",
+                total_vram_mb=81920,
+                free_vram_mb=81920,
+            ),
+        ]
+    )
+
+    worker = LocalSubprocessWorker(
+        queue=queue,
+        controller=controller,
+        storage=storage,
+        gpu_manager=gpu_mgr,
+    )
+
+    import sys
+
+    job = JobSpec(
+        id="gpu-job-fail",
+        run_id="run-1",
+        name="gpu-fail-test",
+        command=f'{sys.executable} -c "import sys; sys.exit(3)"',
+        resources=ResourceRequirements(gpus=1, walltime_seconds=10),
+    )
+
+    result = await worker.execute_job(job)
+    exit_code = result.exit_code
+    outcome = result.outcome
+    assert exit_code == 3
+    assert outcome == TerminalOutcome.FAILED
+
+    # Verify GPU was still released
+    active_allocs = await gpu_mgr.get_active_allocations()
+    count = len(active_allocs)
+    assert count == 0
