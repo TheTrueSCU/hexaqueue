@@ -29,6 +29,8 @@ from hexaqueue_core.domain.exceptions import (
     HexaqueueError,
     JobStateTransitionError,
     QuotaExceededError,
+    SuiteCompilationError,
+    VariableInterpolationError,
 )
 from hexaqueue_core.domain.exceptions import (
     HexaqueueConfigError as BaseHexaqueueConfigError,
@@ -93,6 +95,17 @@ from hexaqueue_core.domain.scheduling import (
     ResourceSlotPool,
     SchedulingDecision,
 )
+from hexaqueue_core.domain.suite import (
+    ContextResolver,
+    MatrixExpansionEngine,
+    ResolvedContext,
+    SuiteCompilationResult,
+    SuiteCompiler,
+    SuiteContext,
+    SuiteSpec,
+    TaskSpec,
+    TestSpec,
+)
 
 __all__ = [
     "BaseHexaqueueConfigError",
@@ -107,6 +120,7 @@ __all__ = [
     "compute_run_outcome",
     "compute_run_state",
     "ConservativeBackfillScheduler",
+    "ContextResolver",
     "ControlledPreemptionEngine",
     "CspProvider",
     "DependencyCycleError",
@@ -134,6 +148,7 @@ __all__ = [
     "JobStatus",
     "JobTemplateSpec",
     "map_lifecycle_to_trigger",
+    "MatrixExpansionEngine",
     "MultiTenantRedactionFilter",
     "NotificationPolicy",
     "NotificationTrigger",
@@ -144,6 +159,7 @@ __all__ = [
     "PriorityWeights",
     "QuotaExceededError",
     "RankedJob",
+    "ResolvedContext",
     "ResolvedJobCollection",
     "ResourceOverrideSpec",
     "ResourceRequirements",
@@ -154,6 +170,14 @@ __all__ = [
     "SchedulerExplainabilityEngine",
     "SchedulingDecision",
     "SchedulingDecisionReport",
+    "SuiteCompilationError",
+    "SuiteCompilationResult",
+    "SuiteCompiler",
+    "SuiteContext",
+    "SuiteSpec",
+    "TaskSpec",
     "TerminalOutcome",
+    "TestSpec",
     "TriggerCondition",
+    "VariableInterpolationError",
 ]
