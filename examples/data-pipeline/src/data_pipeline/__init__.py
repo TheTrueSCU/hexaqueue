@@ -8,7 +8,7 @@ from data_pipeline.ports.processor import DataProcessorPort
 __all__ = [
     "DataProcessorPort",
     "DataRecord",
+    "load_etl_pipeline",
     "LocalDataProcessorAdapter",
     "SummaryResult",
-    "load_etl_pipeline",
 ]

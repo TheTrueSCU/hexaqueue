@@ -31,14 +31,51 @@ examples/data-pipeline/
 
 ## Getting Started
 
+### 1. Execute Pipeline with Live Watch
+
+Each pipeline stage includes a deliberate artificial delay (~1.5s per task) allowing developers to observe parallel execution and inspect queue metrics while tasks are in flight:
+
 ```bash
-# 1. Run pipeline via hq CLI
+# Submit DAG pipeline and stream live execution status
 uv run hq run submit pipelines/etl_workflow.yaml --watch
+```
 
-# 2. Inspect run and job execution logs
+### 2. Free-Tier Safety Mode ($0 Cloud Spend Guard)
+
+Ensure all job allocations comply with cloud free-tier quota limits:
+
+```bash
+uv run hq run submit pipelines/etl_workflow.yaml --watch --free-tier
+```
+
+### 3. Queue Explainability & Scheduling Diagnostics
+
+Hexaqueue provides transparent introspection into why jobs are pending or blocked:
+
+```bash
+# 1-line reason why a job is waiting (e.g., dependencies or resource constraints)
+uv run hq why stage3-load-report
+
+# Detailed priority breakdown, fair-share deficit, and resource blockers
+uv run hq explain stage3-load-report
+
+# Inspect cluster fair-share tree hierarchy and historical usage
+uv run hq fairshare
+```
+
+### 4. Status and Execution Logs
+
+```bash
+# Query aggregate run report or individual job status
 uv run hq status demo-etl-run
-uv run hq logs stage1-extract
+uv run hq status stage2-transform-a
 
-# 3. Run unit tests
-uv run pytest
+# Tail stdout/stderr logs from a specific job
+uv run hq logs stage1-extract
+```
+
+### 5. Run Unit & Parity Tests
+
+```bash
+uv run hexaqual test run -e data-pipeline
 ```

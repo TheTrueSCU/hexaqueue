@@ -38,11 +38,11 @@ groups:
     name: Simulate {{ label }} Trajectories
     command: python {{ SIM_SCRIPT }} simulate --regime {{ regime }} --seed {{ seed
       }} --drift {{ drift }} --vol {{ vol }} --paths 50 --steps 100 --output-dir {{
-      SIM_DIR }}
+      SIM_DIR }} --delay 1.5
 jobs:
 - id: smooth-and-aggregate
   name: Multi-Variable Smoothing & Statistical Aggregation
   command: python {{ SIM_SCRIPT }} aggregate --input-dir {{ SIM_DIR }} --regimes low_vol
-    mid_vol high_vol --window 5
+    mid_vol high_vol --window 5 --delay 1.5
   depends_on:
   - sim-regimes
