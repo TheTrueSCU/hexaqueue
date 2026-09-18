@@ -249,7 +249,7 @@ __all__ = [
 
 ## 4. Executable Collateral CLI (`src/monte_carlo/cli.py`)
 
-Create `src/monte_carlo/cli.py` as an executable collateral script invoked by batch jobs for both simulation regimes and aggregation:
+Create `src/monte_carlo/cli.py` as an executable collateral script invoked by batch jobs for both simulation regimes and aggregation. We support an optional `--delay` argument (default `0.0`) so that pipeline runs can introduce deliberate delays (~1.5s) to enable live inspection and explainability queries:
 
 ```python
 """Command-line entrypoint for Monte-Carlo simulation and smoothing collateral script."""
@@ -260,6 +260,7 @@ import math
 from pathlib import Path
 import random
 import sys
+import time
 
 
 def run_simulate(
@@ -272,8 +273,12 @@ def run_simulate(
     dt: float,
     initial_value: float,
     output_dir: Path,
+    delay: float = 0.0,
 ) -> None:
     """Simulate geometric Brownian motion paths and save to output JSON file."""
+    if delay > 0.0:
+        time.sleep(delay)
+
     output_dir.mkdir(parents=True, exist_ok=True)
     rng = random.Random(seed)  # noqa: S311
 
@@ -317,8 +322,12 @@ def run_aggregate(
     input_dir: Path,
     regimes: list[str],
     window_size: int,
+    delay: float = 0.0,
 ) -> None:
     """Aggregate multiple simulated regimes, compute pointwise mean, and apply smoothing."""
+    if delay > 0.0:
+        time.sleep(delay)
+
     all_paths: list[list[float]] = []
     for reg in regimes:
         reg_file = input_dir / f"{reg}.json"
@@ -386,6 +395,12 @@ def main(argv: list[str] | None = None) -> int:
         required=True,
         help="Output directory for JSON results",
     )
+    sim_p.add_argument(
+        "--delay",
+        type=float,
+        default=0.0,
+        help="Artificial delay in seconds to simulate compute work",
+    )
 
     agg_p = subparsers.add_parser(
         "aggregate", help="Aggregate and smooth simulated regime outputs."
@@ -399,8 +414,12 @@ def main(argv: list[str] | None = None) -> int:
     agg_p.add_argument(
         "--regimes", nargs="+", required=True, help="List of regime names"
     )
+    agg_p.add_argument("--window", type=int, default=5, help="Smoothing window size")
     agg_p.add_argument(
-        "--window", type=int, default=5, help="Smoothing window size"
+        "--delay",
+        type=float,
+        default=0.0,
+        help="Artificial delay in seconds to simulate compute work",
     )
 
     args = parser.parse_args(argv)
@@ -416,12 +435,14 @@ def main(argv: list[str] | None = None) -> int:
             dt=args.dt,
             initial_value=args.initial_value,
             output_dir=args.output_dir,
+            delay=args.delay,
         )
     elif args.subcommand == "aggregate":
         run_aggregate(
             input_dir=args.input_dir,
             regimes=args.regimes,
             window_size=args.window,
+            delay=args.delay,
         )
 
     return 0
@@ -435,7 +456,7 @@ if __name__ == "__main__":
 
 ## 5. Multi-Regime Job Group DAG Specification
 
-Define three parallel parameter regimes in a nested `groups` block referencing the collateral script in `pipelines/monte_carlo_simulation.yaml`:
+Define three parallel parameter regimes in a nested `groups` block referencing the collateral script in `pipelines/monte_carlo_simulation.yaml`. Note the `--delay 1.5` parameter: this introduces a deliberate ~1.5s execution window per stage so developers can observe parallel multi-regime simulation and test CLI explainability commands:
 
 ```yaml
 run:
@@ -465,19 +486,21 @@ groups:
     jobs:
       - id: "sim-regime-{{ regime }}"
         name: "Simulate {{ label }} Trajectories"
-        command: "python {{ SIM_SCRIPT }} simulate --regime {{ regime }} --seed {{ seed }} --drift {{ drift }} --vol {{ vol }} --paths 50 --steps 100 --output-dir {{ SIM_DIR }}"
+        command: "python {{ SIM_SCRIPT }} simulate --regime {{ regime }} --seed {{ seed }} --drift {{ drift }} --vol {{ vol }} --paths 50 --steps 100 --output-dir {{ SIM_DIR }} --delay 1.5"
 
 jobs:
   - id: "smooth-and-aggregate"
     name: "Multi-Variable Smoothing & Statistical Aggregation"
-    command: "python {{ SIM_SCRIPT }} aggregate --input-dir {{ SIM_DIR }} --regimes low_vol mid_vol high_vol --window 5"
+    command: "python {{ SIM_SCRIPT }} aggregate --input-dir {{ SIM_DIR }} --regimes low_vol mid_vol high_vol --window 5 --delay 1.5"
     depends_on:
       - "sim-regimes"
 ```
 
 ---
 
-## 6. Running the Simulation via CLI
+## 6. Running and Inspecting via CLI
+
+### 1. Submit and Watch Execution Live
 
 ```bash
 uv run hq run submit examples/monte-carlo/pipelines/monte_carlo_simulation.yaml --watch
@@ -487,12 +510,41 @@ Output:
 ```text
 ✓ Run 'monte-carlo-stochastic-sim' submitted (4 jobs)
 Run completed with status: SUCCEEDED
-Run Summary: monte-carlo-stochastic-sim
-┏━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━┓
-┃ Total ┃ Completed ┃ Failed ┃ Pending ┃
-┡━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━┩
-│   4   │     4     │   0    │    0    │
-└───────┴───────────┴────────┴─────────┘
+                     Run Status: monte-carlo-stochastic-sim
+┏━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━┓
+┃ Run ID            ┃ State ┃ Outcome   ┃ Total ┃ Completed ┃ Failed ┃ Pending ┃
+┡━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━┩
+│ monte-carlo-stoc… │ DONE  │ SUCCEEDED │   4   │     4     │   0    │    0    │
+└───────────────────┴───────┴───────────┴───────┴───────────┴────────┴─────────┘
+```
+
+### 2. Free-Tier Safety Mode ($0 Cloud Spend Guard)
+
+Clamp worker allocations and verify zero-cost boundary compliance:
+
+```bash
+uv run hq run submit examples/monte-carlo/pipelines/monte_carlo_simulation.yaml --watch --free-tier
+```
+
+### 3. Queue Explainability & Scheduling Diagnostics
+
+Inspect scheduling decisions, dependencies, and fair-share trees:
+
+```bash
+# Query why aggregation job is waiting for regime simulations
+uv run hq why smooth-and-aggregate
+
+# Inspect priority math and dependency blockers
+uv run hq explain smooth-and-aggregate
+
+# View cluster fair-share hierarchy
+uv run hq fairshare
+```
+
+### 4. Tail Execution Logs
+
+```bash
+uv run hq logs smooth-and-aggregate
 ```
 
 ---
@@ -655,3 +707,27 @@ Execute with:
 ```bash
 uv run python examples/monte-carlo/run_programmatic.py
 ```
+
+---
+
+## 8. Running Unit & Parity Tests
+
+Verify 100% test coverage and hexagonal boundary isolation using Hexaqual:
+
+```bash
+uv run hexaqual test run -e monte-carlo
+```
+
+---
+
+## 9. Summary & Next Steps
+
+### What You've Learned 🎓
+- How to structure high-throughput parameter sweep simulation models.
+- How to run multi-branch parallel pipelines using `groups` with template parameter expansion.
+- How deliberate artificial delays make distributed parallel execution observable via the `hq` CLI.
+- How to inspect scheduling explainability, fair-share status, and dependency graphs.
+- How to compose and execute batch workflows directly in Python code without YAML.
+
+### Up Next 🚀
+- **Tutorial 3: Resolving the 100-Slot Monopoly with Fair-Share & Controlled Preemption**

@@ -168,6 +168,8 @@ __all__ = [
 
 Hexaqueue workflows are defined declaratively with resource allocations, timeouts, and dependency graphs.
 
+To make local experimentation observable, we introduce deliberate **artificial delays** (`time.sleep(1.5)`) across each stage. Without delays, tiny local tasks finish in milliseconds, making it impossible to observe in-flight states or test CLI status inspection tools. With ~1.5s per stage, the entire pipeline executes in ~4.5 seconds—fast enough for rapid iteration, yet spacious enough to watch tasks transition from pending to running to completed.
+
 Create `pipelines/etl_workflow.yaml`:
 
 ```yaml
@@ -181,7 +183,7 @@ run:
 jobs:
   - id: "stage1-extract"
     name: "Extract Source Records"
-    command: "python -c \"import json, os; os.makedirs('/tmp/demo_etl', exist_ok=True); json.dump([{'id': i, 'val': i * 10} for i in range(1, 6)], open('/tmp/demo_etl/raw.json', 'w')); print('Extracted 5 records')\""
+    command: "python -c \"import json, os, time; time.sleep(1.5); os.makedirs('/tmp/demo_etl', exist_ok=True); json.dump([{'id': i, 'val': i * 10} for i in range(1, 6)], open('/tmp/demo_etl/raw.json', 'w')); print('Extracted 5 records')\""
     resources:
       cpus: 1
       ram_mb: 512
@@ -190,7 +192,7 @@ jobs:
 
   - id: "stage2-transform-a"
     name: "Calculate Summary Metrics"
-    command: "python -c \"import json; records = json.load(open('/tmp/demo_etl/raw.json')); total = sum(r['val'] for r in records); json.dump({'total': total, 'count': len(records)}, open('/tmp/demo_etl/summary.json', 'w')); print(f'Transformed metrics: Total={total}')\""
+    command: "python -c \"import json, time; time.sleep(1.5); records = json.load(open('/tmp/demo_etl/raw.json')); total = sum(r['val'] for r in records); json.dump({'total': total, 'count': len(records)}, open('/tmp/demo_etl/summary.json', 'w')); print(f'Transformed metrics: Total={total}')\""
     depends_on: "stage1-extract"
     resources:
       cpus: 1
@@ -200,7 +202,7 @@ jobs:
 
   - id: "stage2-transform-b"
     name: "Generate Squared Features"
-    command: "python -c \"import json; records = json.load(open('/tmp/demo_etl/raw.json')); squares = [r['val']**2 for r in records]; json.dump({'squares': squares}, open('/tmp/demo_etl/squares.json', 'w')); print(f'Calculated {len(squares)} squared features')\""
+    command: "python -c \"import json, time; time.sleep(1.5); records = json.load(open('/tmp/demo_etl/raw.json')); squares = [r['val']**2 for r in records]; json.dump({'squares': squares}, open('/tmp/demo_etl/squares.json', 'w')); print(f'Calculated {len(squares)} squared features')\""
     depends_on: "stage1-extract"
     resources:
       cpus: 1
@@ -210,7 +212,7 @@ jobs:
 
   - id: "stage3-load-report"
     name: "Aggregate Final Report"
-    command: "python -c \"import json; s = json.load(open('/tmp/demo_etl/summary.json')); sq = json.load(open('/tmp/demo_etl/squares.json')); print(f'ETL Completed! Total: {s[\"total\"]}, Mean: {s[\"total\"]/s[\"count\"]}, Squares: {sq[\"squares\"]}')\""
+    command: "python -c \"import json, time; time.sleep(1.5); s = json.load(open('/tmp/demo_etl/summary.json')); sq = json.load(open('/tmp/demo_etl/squares.json')); print(f'ETL Completed! Total: {s[\"total\"]}, Mean: {s[\"total\"]/s[\"count\"]}, Squares: {sq[\"squares\"]}')\""
     depends_on:
       - "stage2-transform-a"
       - "stage2-transform-b"
@@ -227,7 +229,7 @@ jobs:
 
 Submit and monitor the DAG pipeline on your local machine using the built-in `hq` CLI:
 
-### 1. Submit and Watch DAG Execution
+### 1. Submit and Watch DAG Execution Live
 
 ```bash
 uv run hq run submit examples/data-pipeline/pipelines/etl_workflow.yaml --watch
@@ -237,27 +239,64 @@ Output:
 ```text
 ✓ Run 'demo-etl-run' submitted (4 jobs)
 Run completed with status: SUCCEEDED
-       Run Summary: demo-etl-run
-┏━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━┓
-┃ Total ┃ Completed ┃ Failed ┃ Pending ┃
-┡━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━┩
-│   4   │     4     │   0    │    0    │
-└───────┴───────────┴────────┴─────────┘
+                         Run Status: demo-etl-run
+┏━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━┓
+┃ Run ID       ┃ State ┃ Outcome   ┃ Total ┃ Completed ┃ Failed ┃ Pending ┃
+┡━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━┩
+│ demo-etl-run │ DONE  │ SUCCEEDED │   4   │     4     │   0    │    0    │
+└──────────────┴───────┴───────────┴───────┴───────────┴────────┴─────────┘
 ```
 
-### 2. Inspect Run & Individual Job Status
+### 2. Free-Tier Safety Mode ($0 Cloud Spend Guard)
+
+Hexaqueue enforces automated guardrails against unexpected cloud spend via `--free-tier`. When activated, task requests are validated against Cloud Service Provider free-tier quotas, and a live Quota Burn Meter is rendered:
 
 ```bash
-# Query aggregate run report
-uv run hq status demo-etl-run
+uv run hq run submit examples/data-pipeline/pipelines/etl_workflow.yaml --watch --free-tier
+```
 
+Output:
+```text
+✓ Run 'demo-etl-run' submitted (4 jobs)
+Run completed with status: SUCCEEDED
+                [FREE TIER ACTIVE] Run Status: demo-etl-run
+┏━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━┓
+┃ Run ID       ┃ State ┃ Outcome   ┃ Total ┃ Completed ┃ Failed ┃ Pending ┃
+┡━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━┩
+│ demo-etl-run │ DONE  │ SUCCEEDED │   4   │     4     │   0    │    0    │
+└──────────────┴───────┴───────────┴───────┴───────────┴────────┴─────────┘
+ Free-Tier Quota Burn Meter (Local Container / Developer Sandbox)
+┏━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━┓
+┃ Resource ┃ Allocated ┃ Ceiling ┃ Utilization ┃ Status ┃
+┡━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━┩
+│ CPU      │   0 cores │ 2 cores │        0.0% │   OK   │
+│ RAM      │      0 MB │ 2048 MB │        0.0% │   OK   │
+│ Storage  │      0 MB │ 5120 MB │        0.0% │   OK   │
+└──────────┴───────────┴─────────┴─────────────┴────────┘
+```
+
+### 3. Queue Explainability & Scheduling Diagnostics
+
+Hexaqueue provides full explainability for every scheduling decision:
+
+```bash
+# Get a concise 1-line reason why a job is waiting
+uv run hq why stage3-load-report
+
+# Inspect rich priority breakdown, fair-share deficit, and dependency blockers
+uv run hq explain stage3-load-report
+
+# Inspect cluster fair-share tree hierarchy and usage decay
+uv run hq fairshare
+```
+
+### 4. Inspect Individual Job Status & Captured Logs
+
+```bash
 # Query individual job outcome
 uv run hq status stage2-transform-a
-```
 
-### 3. Tail stdout/stderr Stream Logs
-
-```bash
+# Tail captured stdout/stderr stream logs
 uv run hq logs stage1-extract
 ```
 
@@ -265,10 +304,10 @@ uv run hq logs stage1-extract
 
 ## 6. Running Unit & Parity Tests
 
-Execute the test suite to verify 1:1 architecture symmetry and 100% test coverage:
+Verify 1:1 architecture symmetry, zero-defect type safety, and 100% test coverage using the unified Hexaqual test runner:
 
 ```bash
-PYTHONPATH=examples/data-pipeline/src uv run pytest examples/data-pipeline/tests
+uv run hexaqual test run -e data-pipeline
 ```
 
 ---
@@ -278,10 +317,10 @@ PYTHONPATH=examples/data-pipeline/src uv run pytest examples/data-pipeline/tests
 ### What You've Learned 🎓
 - How to structure clean, framework-agnostic batch data processing models.
 - How Hexaqueue resolves DAG dependencies and schedules parallel ready tasks automatically.
-- How ephemeral scratch directories isolate task execution with zero cross-job pollution.
-- How to operate workflows via the `hq` CLI terminal interface.
+- How deliberate artificial delays provide an observable execution window for CLI diagnostics.
+- How Free-Tier Safety Mode (`--free-tier`) guards developer workflows against unintended cloud charges.
+- How to inspect scheduling rationale transparently using `hq why` and `hq explain`.
 
 ### Up Next 🚀
-- **Tutorial 2: Containerized Execution with Rootless Podman & Apptainer** (Milestone v0.2.0)
-- **Tutorial 3: Direct-to-Storage Presigned Collateral Ingestion & Security Quarantine Scanning**
-- **Tutorial 4: Cloud Batch Deference & Hybrid Scheduling on Slurm / Kubernetes Kueue**
+- **Tutorial 2: Parallel Monte-Carlo Simulation & Multi-Variable Smoothing**
+- **Tutorial 3: Resolving the 100-Slot Monopoly with Fair-Share & Controlled Preemption**

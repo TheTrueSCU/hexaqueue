@@ -31,13 +31,54 @@ examples/monte-carlo/
 
 ## Getting Started
 
+### 1. Execute Parallel Monte-Carlo DAG with Live Watch
+
+Each simulation and aggregation worker includes a configurable artificial delay (`--delay 1.5`) so developers can observe parallel multi-regime execution and query queue metrics in real time:
+
 ```bash
-# 1. Execute parallel Monte-Carlo DAG
+# Submit and stream live DAG execution
 uv run hq run submit examples/monte-carlo/pipelines/monte_carlo_simulation.yaml --watch
+```
 
-# 2. View aggregation output
+### 2. Free-Tier Safety Mode ($0 Cloud Spend Guard)
+
+Clamp worker allocations and verify zero-cost boundary compliance:
+
+```bash
+uv run hq run submit examples/monte-carlo/pipelines/monte_carlo_simulation.yaml --watch --free-tier
+```
+
+### 3. Queue Explainability & Scheduling Diagnostics
+
+Inspect scheduling decisions, dependencies, and fair-share trees:
+
+```bash
+# Query why aggregation job is waiting for regime simulations
+uv run hq why smooth-and-aggregate
+
+# Inspect priority math and dependency blockers
+uv run hq explain smooth-and-aggregate
+
+# View cluster fair-share hierarchy
+uv run hq fairshare
+```
+
+### 4. View Captured Output Logs
+
+```bash
 uv run hq logs smooth-and-aggregate
+```
 
-# 3. Run test suite
-PYTHONPATH=examples/monte-carlo/src uv run pytest examples/monte-carlo/tests
+### 5. Programmatic Pipeline Execution
+
+You can also submit and monitor workflows programmatically from Python:
+
+```bash
+uv run python examples/monte-carlo/run_programmatic.py
+```
+
+### 6. Run Test Suite
+
+```bash
+uv run hexaqual test run -e monte-carlo
 ```

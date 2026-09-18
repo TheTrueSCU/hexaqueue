@@ -10,6 +10,7 @@ import json
 import math
 import random
 import sys
+import time
 from pathlib import Path
 
 
@@ -23,6 +24,7 @@ def run_simulate(
     dt: float,
     initial_value: float,
     output_dir: Path,
+    delay: float = 0.0,
 ) -> None:
     """Simulate geometric Brownian motion paths and save to output JSON file.
 
@@ -36,7 +38,11 @@ def run_simulate(
         dt: Delta time increment.
         initial_value: Starting value at step 0.
         output_dir: Target directory for result JSON.
+        delay: Artificial delay in seconds to simulate compute work.
     """
+    if delay > 0.0:
+        time.sleep(delay)
+
     output_dir.mkdir(parents=True, exist_ok=True)
     rng = random.Random(seed)  # noqa: S311
 
@@ -80,6 +86,7 @@ def run_aggregate(
     input_dir: Path,
     regimes: list[str],
     window_size: int,
+    delay: float = 0.0,
 ) -> None:
     """Aggregate multiple simulated regimes, compute pointwise mean, and apply smoothing.
 
@@ -87,7 +94,11 @@ def run_aggregate(
         input_dir: Directory containing simulation JSON outputs.
         regimes: List of regime names to load and merge.
         window_size: Moving average smoothing window size.
+        delay: Artificial delay in seconds to simulate compute work.
     """
+    if delay > 0.0:
+        time.sleep(delay)
+
     all_paths: list[list[float]] = []
     for reg in regimes:
         reg_file = input_dir / f"{reg}.json"
@@ -156,6 +167,12 @@ def main(argv: list[str] | None = None) -> int:
         required=True,
         help="Output directory for JSON results",
     )
+    sim_p.add_argument(
+        "--delay",
+        type=float,
+        default=0.0,
+        help="Artificial delay in seconds to simulate compute work",
+    )
 
     # aggregate subcommand
     agg_p = subparsers.add_parser(
@@ -171,6 +188,12 @@ def main(argv: list[str] | None = None) -> int:
         "--regimes", nargs="+", required=True, help="List of regime names"
     )
     agg_p.add_argument("--window", type=int, default=5, help="Smoothing window size")
+    agg_p.add_argument(
+        "--delay",
+        type=float,
+        default=0.0,
+        help="Artificial delay in seconds to simulate compute work",
+    )
 
     args = parser.parse_args(argv)
 
@@ -185,12 +208,14 @@ def main(argv: list[str] | None = None) -> int:
             dt=args.dt,
             initial_value=args.initial_value,
             output_dir=args.output_dir,
+            delay=args.delay,
         )
     elif args.subcommand == "aggregate":
         run_aggregate(
             input_dir=args.input_dir,
             regimes=args.regimes,
             window_size=args.window,
+            delay=args.delay,
         )
 
     return 0
