@@ -37,6 +37,9 @@ from hexaqueue_core.ports.storage import (
     StorageVolumePort,
     VolumeAllocation,
 )
+from hexaqueue_core.ports.suite import (
+    SuiteCompilerPort,
+)
 
 __all__ = [
     "BatchSchedulerPort",
@@ -55,5 +58,6 @@ __all__ = [
     "SecurityQuarantinePort",
     "SecurityScanResult",
     "StorageVolumePort",
+    "SuiteCompilerPort",
     "VolumeAllocation",
 ]

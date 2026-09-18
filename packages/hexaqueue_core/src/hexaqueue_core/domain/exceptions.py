@@ -33,6 +33,14 @@ class JobStateTransitionError(HexaqueueError):
     """Exception raised when an illegal job or run lifecycle state transition is attempted."""
 
 
+class SuiteCompilationError(HexaqueueError):
+    """Exception raised when hierarchical suite compilation or validation fails."""
+
+
+class VariableInterpolationError(SuiteCompilationError):
+    """Exception raised when an unresolved or leaked template variable is encountered."""
+
+
 __all__ = [
     "ChecksumMismatchError",
     "FreeTierLimitExceededError",
@@ -40,4 +48,6 @@ __all__ = [
     "HexaqueueError",
     "JobStateTransitionError",
     "QuotaExceededError",
+    "SuiteCompilationError",
+    "VariableInterpolationError",
 ]
