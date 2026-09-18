@@ -48,6 +48,17 @@ from hexaqueue_core.domain.fairshare import (
     FairShareNode,
     FairShareTree,
 )
+from hexaqueue_core.domain.freetier import (
+    AWS_FREE_TIER_PROFILE,
+    AZURE_FREE_TIER_PROFILE,
+    GCP_ALWAYS_FREE_PROFILE,
+    LOCAL_FREE_TIER_PROFILE,
+    OCI_ALWAYS_FREE_PROFILE,
+    CspFreeTierProfile,
+    FreeTierBurnReport,
+    FreeTierGovernor,
+    get_free_tier_profile,
+)
 from hexaqueue_core.domain.group import (
     GroupExpansionEngine,
     JobGroupSpec,
@@ -108,6 +119,8 @@ from hexaqueue_core.domain.suite import (
 )
 
 __all__ = [
+    "AWS_FREE_TIER_PROFILE",
+    "AZURE_FREE_TIER_PROFILE",
     "BaseHexaqueueConfigError",
     "BatchSchedulerEngine",
     "can_transition_collateral",
@@ -122,6 +135,7 @@ __all__ = [
     "ConservativeBackfillScheduler",
     "ContextResolver",
     "ControlledPreemptionEngine",
+    "CspFreeTierProfile",
     "CspProvider",
     "DependencyCycleError",
     "DependencySpec",
@@ -130,8 +144,12 @@ __all__ = [
     "FairShareNodeReport",
     "FairShareTree",
     "FairShareTreeReport",
+    "FreeTierBurnReport",
+    "FreeTierGovernor",
     "FreeTierLimitExceededError",
     "FreeTierProfileConfig",
+    "GCP_ALWAYS_FREE_PROFILE",
+    "get_free_tier_profile",
     "GroupExpansionEngine",
     "HexaqueueConfig",
     "HexaqueueConfigError",
@@ -147,11 +165,13 @@ __all__ = [
     "JobStateTransitionError",
     "JobStatus",
     "JobTemplateSpec",
+    "LOCAL_FREE_TIER_PROFILE",
     "map_lifecycle_to_trigger",
     "MatrixExpansionEngine",
     "MultiTenantRedactionFilter",
     "NotificationPolicy",
     "NotificationTrigger",
+    "OCI_ALWAYS_FREE_PROFILE",
     "PendingReason",
     "PendingReasonCode",
     "PreemptionPolicy",

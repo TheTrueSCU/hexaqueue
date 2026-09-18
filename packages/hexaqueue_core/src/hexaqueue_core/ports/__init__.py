@@ -11,6 +11,9 @@ from hexaqueue_core.ports.budget import (
 from hexaqueue_core.ports.explainability import (
     SchedulerExplainabilityPort,
 )
+from hexaqueue_core.ports.freetier import (
+    FreeTierGovernorPort,
+)
 from hexaqueue_core.ports.logging import (
     LogChunk,
     LogStreamPort,
@@ -49,6 +52,7 @@ __all__ = [
     "CostRate",
     "CostRateModelPort",
     "ExecutionRuntimePort",
+    "FreeTierGovernorPort",
     "JobQueuePort",
     "LogChunk",
     "LogStreamPort",

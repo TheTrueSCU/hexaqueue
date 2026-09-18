@@ -32,7 +32,7 @@
 <!-- hexaqueue_server_domain_models -->
 <g id="node6" class="node">
 <title>hexaqueue_server_domain_models</title><style>.edge>path:hover{stroke-width:8}</style>
-<ellipse fill="#1eae1e" stroke="black" cx="202.77" cy="-544.99" rx="77.15" ry="28.98"/>
+<ellipse fill="#1da51d" stroke="black" cx="202.77" cy="-544.99" rx="77.15" ry="28.98"/>
 <text text-anchor="middle" x="202.77" y="-553.49" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#ffffff">hexaqueue_server.</text>
 <text text-anchor="middle" x="202.77" y="-542.49" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#ffffff">domain.</text>
 <text text-anchor="middle" x="202.77" y="-531.49" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#ffffff">models</text>
@@ -131,19 +131,19 @@
 <path fill="none" stroke="black" d="M207.74,-515.85C211.56,-487.79 214.43,-443.81 202.77,-408"/>
 <path fill="none" stroke="black" d="M202.77,-407C190.44,-376.78 155.25,-399.17 138.77,-371 113.42,-327.65 113.42,-301.35 138.77,-258 155.25,-229.83 218.8,-250.43 202.77,-222"/>
 <path fill="none" stroke="black" d="M202.77,-221C190.25,-200.58 168.03,-187.59 146.02,-179.37"/>
-<polygon fill="#1eae1e" stroke="black" points="146.89,-175.97 136.29,-176.03 144.61,-182.59 146.89,-175.97"/>
+<polygon fill="#1da51d" stroke="black" points="146.89,-175.97 136.29,-176.03 144.61,-182.59 146.89,-175.97"/>
 </g>
 <!-- hexaqueue_server_domain_models&#45;&gt;hexaqueue_server_domain -->
 <g id="edge11" class="edge">
 <title>hexaqueue_server_domain_models&#45;&gt;hexaqueue_server_domain</title><style>.edge>path:hover{stroke-width:8}</style>
 <path fill="none" stroke="black" d="M175.59,-517.47C165.67,-507.79 154.5,-496.89 144.78,-487.4"/>
-<polygon fill="#1eae1e" stroke="black" points="146.94,-484.62 137.34,-480.14 142.05,-489.63 146.94,-484.62"/>
+<polygon fill="#1da51d" stroke="black" points="146.94,-484.62 137.34,-480.14 142.05,-489.63 146.94,-484.62"/>
 </g>
 <!-- hexaqueue_server_domain_models&#45;&gt;hexaqueue_server_ports_controller -->
 <g id="edge12" class="edge">
 <title>hexaqueue_server_domain_models&#45;&gt;hexaqueue_server_ports_controller</title><style>.edge>path:hover{stroke-width:8}</style>
 <path fill="none" stroke="black" d="M202.77,-407C200.15,-398.95 199.33,-389.88 199.38,-381.45"/>
-<polygon fill="#1eae1e" stroke="black" points="202.89,-381.38 199.84,-371.23 195.89,-381.06 202.89,-381.38"/>
+<polygon fill="#1da51d" stroke="black" points="202.89,-381.38 199.84,-371.23 195.89,-381.06 202.89,-381.38"/>
 </g>
 <!-- hexaqueue_server_infra -->
 <g id="node7" class="node">

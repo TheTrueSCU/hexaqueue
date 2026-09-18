@@ -6,8 +6,14 @@ import pytest
 from hexastack_core.ports.notification import NotificationPort
 
 from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
+from hexaqueue_core.domain.config import ExecutionMode
 from hexaqueue_core.domain.dag import DependencyCycleError
 from hexaqueue_core.domain.exceptions import HexaqueueError
+from hexaqueue_core.domain.freetier import (
+    GCP_ALWAYS_FREE_PROFILE,
+    LOCAL_FREE_TIER_PROFILE,
+    FreeTierGovernor,
+)
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import (
     JobState,
@@ -19,6 +25,7 @@ from hexaqueue_core.domain.notification import (
     NotificationPolicy,
     NotificationTrigger,
 )
+from hexaqueue_core.domain.resources import ResourceRequirements
 from hexaqueue_core.domain.run import RunSpec
 from hexaqueue_core.infra.notification import NotificationDispatcher
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
@@ -351,3 +358,145 @@ async def test_local_scheduler_controller_notifications_cancel_run() -> None:
     assert j1.name in job_title
     assert "CANCELLED" in run_title
     assert run.name in run_title
+
+
+@pytest.mark.asyncio
+async def test_local_scheduler_controller_list_jobs() -> None:
+    """Verify list_jobs retrieves all registered jobs."""
+    queue = InMemoryJobQueueAdapter()
+    controller = LocalSchedulerControllerAdapter(queue=queue)
+
+    run = RunSpec(id="run-list", name="list-run")
+    j1 = JobSpec(id="j1", run_id=run.id, name="job-1", command="echo", args=["1"])
+    j2 = JobSpec(id="j2", run_id=run.id, name="job-2", command="echo", args=["2"])
+    submission = RunSubmission(run_spec=run, jobs=[j1, j2])
+
+    await controller.submit_run(submission)
+    all_jobs = await controller.list_jobs()
+    job_ids = {j.id for j in all_jobs}
+    assert job_ids == {"j1", "j2"}
+
+
+@pytest.mark.asyncio
+async def test_local_scheduler_controller_free_tier_gpu_blocking() -> None:
+    """Verify GPU requests are blocked with FREE_TIER_CAPACITY_EXCEEDED."""
+    queue = InMemoryJobQueueAdapter()
+    controller = LocalSchedulerControllerAdapter(
+        queue=queue,
+        mode=ExecutionMode.FREE_TIER,
+    )
+
+    run = RunSpec(id="run-free-gpu", name="free-gpu-run")
+    j_gpu = JobSpec(
+        id="j-gpu",
+        run_id=run.id,
+        name="gpu-training",
+        command="torchrun",
+        resources=ResourceRequirements(gpus=1),
+    )
+    submission = RunSubmission(run_spec=run, jobs=[j_gpu])
+
+    report = await controller.submit_run(submission)
+    assert report.state == RunState.BLOCKED
+    assert report.failed_jobs == 1
+    assert report.free_tier_active is True
+    assert report.burn_report is not None
+
+    stored_job = await controller.get_job(j_gpu.id)
+    assert stored_job.state == JobState.BLOCKED
+    assert stored_job.outcome is None
+    assert stored_job.status.reason is not None
+    assert "FREE_TIER_CAPACITY_EXCEEDED" in stored_job.status.reason
+    assert "strictly allows 0 GPUs" in stored_job.status.reason
+
+    dequeued = await queue.dequeue(timeout_seconds=0.05)
+    assert dequeued is None
+
+
+@pytest.mark.asyncio
+async def test_local_scheduler_controller_free_tier_region_and_cpu_blocking() -> None:
+    """Verify invalid region and CPU caps are blocked, causing downstream cascading blocks."""
+    queue = InMemoryJobQueueAdapter()
+    governor = FreeTierGovernor(profile=GCP_ALWAYS_FREE_PROFILE)
+    controller = LocalSchedulerControllerAdapter(
+        queue=queue,
+        governor=governor,
+    )
+
+    run = RunSpec(id="run-gcp-free", name="gcp-free-run")
+    j1_bad_region = JobSpec(
+        id="j1-region",
+        run_id=run.id,
+        name="job-bad-region",
+        command="echo",
+        tags=["region:eu-west-1"],
+    )
+    j2_bad_cpu = JobSpec(
+        id="j2-cpu",
+        run_id=run.id,
+        name="job-bad-cpu",
+        command="echo",
+        resources=ResourceRequirements(cpus=8),
+    )
+    j3_dependent = JobSpec(
+        id="j3-downstream",
+        run_id=run.id,
+        name="job-downstream",
+        command="echo",
+        tags=["region:us-central1"],
+    )
+
+    submission = RunSubmission(
+        run_spec=run,
+        jobs=[j1_bad_region, j2_bad_cpu, j3_dependent],
+        dependencies={j3_dependent.id: [j1_bad_region.id]},
+    )
+
+    report = await controller.submit_run(submission)
+    assert report.state == RunState.BLOCKED
+    assert report.failed_jobs == 3
+    assert report.free_tier_active is True
+
+    stored_j1 = await controller.get_job(j1_bad_region.id)
+    assert stored_j1.state == JobState.BLOCKED
+    assert stored_j1.status.reason is not None
+    assert "is not eligible for free-tier execution" in stored_j1.status.reason
+
+    stored_j2 = await controller.get_job(j2_bad_cpu.id)
+    assert stored_j2.state == JobState.BLOCKED
+    assert stored_j2.status.reason is not None
+    assert "exceeding Google Cloud (GCP) Always Free" in stored_j2.status.reason
+
+    stored_j3 = await controller.get_job(j3_dependent.id)
+    assert stored_j3.state == JobState.BLOCKED
+    assert stored_j3.status.reason is not None
+    assert "Upstream prerequisite task failed" in stored_j3.status.reason
+
+
+@pytest.mark.asyncio
+async def test_local_scheduler_controller_free_tier_burn_report() -> None:
+    """Verify burn meter metrics report active allocations under Free-Tier Mode."""
+    queue = InMemoryJobQueueAdapter()
+    controller = LocalSchedulerControllerAdapter(
+        queue=queue,
+        mode=ExecutionMode.FREE_TIER,
+    )
+
+    run = RunSpec(id="run-valid-free", name="valid-free-run")
+    j1 = JobSpec(
+        id="j1-valid",
+        run_id=run.id,
+        name="job-valid",
+        command="echo",
+        resources=ResourceRequirements(cpus=1, ram_mb=1024),
+    )
+    submission = RunSubmission(run_spec=run, jobs=[j1])
+
+    report = await controller.submit_run(submission)
+    assert report.free_tier_active is True
+    assert report.burn_report is not None
+    burn = report.burn_report
+    assert burn.allocated_cpus == 1
+    assert burn.allocated_ram_mb == 1024
+    assert burn.is_throttled is False
+    assert burn.profile_name == LOCAL_FREE_TIER_PROFILE.name

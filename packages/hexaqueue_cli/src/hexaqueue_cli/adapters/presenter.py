@@ -25,6 +25,7 @@ from hexaqueue_core.domain.explainability import (
     FairShareTreeReport,
     SchedulingDecisionReport,
 )
+from hexaqueue_core.domain.freetier import FreeTierBurnReport
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_server.domain.models import RunStatusReport
 
@@ -93,6 +94,10 @@ class CliPresenter:
             "failed_jobs": report.failed_jobs,
             "pending_jobs": report.pending_jobs,
         }
+        if report.free_tier_active:
+            data["free_tier_active"] = True
+        if report.burn_report is not None:
+            data["burn_report"] = report.burn_report.model_dump()
 
         if fmt == OutputFormat.JSON.value:
             sys.stdout.write(json.dumps(data, indent=2) + "\n")
@@ -111,6 +116,22 @@ class CliPresenter:
                 f"| Failed | {report.failed_jobs} |",
                 f"| Pending | {report.pending_jobs} |",
             ]
+            if report.free_tier_active:
+                lines.insert(0, "> **[FREE TIER ACTIVE]** Zero-Cost Guard Active\n")
+            if report.burn_report is not None:
+                b = report.burn_report
+                lines.extend(
+                    [
+                        "",
+                        f"#### Free-Tier Quota Burn ({b.profile_name})",
+                        "",
+                        "| Resource | Allocated | Ceiling | Utilization |",
+                        "|---|---|---|---|",
+                        f"| CPU | {b.allocated_cpus} cores | {b.cpu_ceiling} cores | {b.cpu_utilization_pct}% |",
+                        f"| RAM | {b.allocated_ram_mb} MB | {b.ram_ceiling_mb} MB | {b.ram_utilization_pct}% |",
+                        f"| Storage | {b.allocated_storage_mb} MB | {b.storage_ceiling_mb} MB | {b.storage_utilization_pct}% |",
+                    ]
+                )
             sys.stdout.write("\n".join(lines) + "\n")
             sys.stdout.flush()
         elif fmt == OutputFormat.PLAIN.value:
@@ -119,7 +140,10 @@ class CliPresenter:
             sys.stdout.flush()
         else:
             # table or rich
-            table = Table(title=f"Run Status: {report.run_id}")
+            title = f"Run Status: {report.run_id}"
+            if report.free_tier_active:
+                title = f"[bold green][FREE TIER ACTIVE][/] {title}"
+            table = Table(title=title)
             table.add_column("Run ID", style="cyan")
             table.add_column("State", style="magenta")
             table.add_column(
@@ -142,6 +166,55 @@ class CliPresenter:
                 str(report.pending_jobs),
             )
             self._console.print(table)
+            if report.burn_report is not None:
+                self._render_burn_meter(report.burn_report)
+
+    def _render_burn_meter(self, burn: FreeTierBurnReport) -> None:
+        """Render Rich table visualizing free-tier resource burn meters."""
+        burn_table = Table(
+            title=f"Free-Tier Quota Burn Meter ({burn.profile_name})",
+            style="green",
+        )
+        burn_table.add_column("Resource", style="cyan")
+        burn_table.add_column("Allocated", justify="right")
+        burn_table.add_column("Ceiling", justify="right")
+        burn_table.add_column("Utilization", justify="right", style="yellow")
+        burn_table.add_column("Status", justify="center")
+
+        cpu_status = (
+            "[bold red]THROTTLED[/]"
+            if burn.is_throttled and burn.cpu_utilization_pct >= 100.0
+            else "[green]OK[/]"
+        )
+        ram_status = (
+            "[bold red]THROTTLED[/]"
+            if burn.is_throttled and burn.ram_utilization_pct >= 100.0
+            else "[green]OK[/]"
+        )
+        storage_status = "[green]OK[/]"
+
+        burn_table.add_row(
+            "CPU",
+            f"{burn.allocated_cpus} cores",
+            f"{burn.cpu_ceiling} cores",
+            f"{burn.cpu_utilization_pct}%",
+            cpu_status,
+        )
+        burn_table.add_row(
+            "RAM",
+            f"{burn.allocated_ram_mb} MB",
+            f"{burn.ram_ceiling_mb} MB",
+            f"{burn.ram_utilization_pct}%",
+            ram_status,
+        )
+        burn_table.add_row(
+            "Storage",
+            f"{burn.allocated_storage_mb} MB",
+            f"{burn.storage_ceiling_mb} MB",
+            f"{burn.storage_utilization_pct}%",
+            storage_status,
+        )
+        self._console.print(burn_table)
 
     def render_job(
         self,

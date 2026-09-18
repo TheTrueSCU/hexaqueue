@@ -107,3 +107,28 @@ def test_cli_run_submit_with_notifications(tmp_path: Path) -> None:
     assert res.exit_code == 0
     assert "submitted" in res.stdout
     assert "Run completed" in res.stdout
+
+
+def test_cli_run_submit_free_tier(tmp_path: Path) -> None:
+    """Verify hq run submit with --free-tier clamps non-compliant jobs."""
+    data = {
+        "run": {"id": "test-free-tier-run", "name": "Free Tier Run"},
+        "jobs": [
+            {
+                "id": "gpu-job",
+                "name": "gpu-task",
+                "command": "torchrun",
+                "resources": {"gpus": 1},
+            },
+        ],
+    }
+    yaml_file = tmp_path / "free_tier_run.yaml"
+    with yaml_file.open("w") as f:
+        yaml.safe_dump(data, f)
+
+    res = runner.invoke(
+        app,
+        ["run", "submit", str(yaml_file), "--free-tier"],
+    )
+    assert res.exit_code == 0
+    assert "submitted" in res.stdout
