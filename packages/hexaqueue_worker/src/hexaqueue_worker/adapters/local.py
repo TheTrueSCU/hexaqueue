@@ -12,7 +12,9 @@ from typing import Any
 
 from hexaqueue_core.adapters.runtime.local import LocalSubprocessExecutionRuntimeAdapter
 from hexaqueue_core.adapters.storage.local import LocalDiskStorageVolumeAdapter
+from hexaqueue_core.domain.gpu import GpuAllocation
 from hexaqueue_core.domain.job import JobSpec
+from hexaqueue_core.ports.gpu import GpuDeviceManagerPort
 from hexaqueue_core.ports.logging import LogStreamPort
 from hexaqueue_core.ports.queue import JobQueuePort
 from hexaqueue_core.ports.runtime import ExecutionRuntimePort, ProcessExecutionResult
@@ -30,6 +32,7 @@ class LocalSubprocessWorker(WorkerDaemonPort):
         runtime: Optional ExecutionRuntimePort (defaults to LocalSubprocessExecutionRuntimeAdapter).
         storage: Optional StorageVolumePort (defaults to LocalStorageVolumeAdapter).
         log_port: Optional LogStreamPort for streaming stdout/stderr.
+        gpu_manager: Optional GpuDeviceManagerPort for dynamic GPU allocation and CUDA masking.
         config: Optional WorkerConfig for concurrency and polling parameters.
     """
 
@@ -40,11 +43,13 @@ class LocalSubprocessWorker(WorkerDaemonPort):
         runtime: ExecutionRuntimePort | None = None,
         storage: StorageVolumePort | None = None,
         log_port: LogStreamPort | None = None,
+        gpu_manager: GpuDeviceManagerPort | None = None,
         config: WorkerConfig | None = None,
     ) -> None:
         self._queue = queue
         self._controller = controller
         self._log_port = log_port
+        self._gpu_manager = gpu_manager
         self._runtime = runtime or LocalSubprocessExecutionRuntimeAdapter(
             log_port=self._log_port
         )
@@ -122,23 +127,35 @@ class LocalSubprocessWorker(WorkerDaemonPort):
             self._active_jobs.add(job.id)
             self._total_executed += 1
 
+        gpu_alloc: GpuAllocation | None = None
         scratch_vol: VolumeAllocation | None = None
         try:
-            # 1. Allocate isolated scratch workspace
+            # 1. Allocate dedicated GPU accelerators if requested
+            env = dict(job.env)
+            if self._gpu_manager and job.resources.gpus > 0:
+                gpu_alloc = await self._gpu_manager.allocate_gpus(
+                    job_id=job.id,
+                    count=job.resources.gpus,
+                    model=job.resources.gpu_model,
+                    min_vram_mb=job.resources.vram_mb,
+                )
+                env["CUDA_VISIBLE_DEVICES"] = gpu_alloc.cuda_visible_devices_env
+
+            # 2. Allocate isolated scratch workspace
             scratch_vol = await self._storage.allocate_scratch(
                 job_id=job.id,
                 size_mb=job.resources.scratch_mb,
                 base_dir=self._config.scratch_base_dir,
             )
 
-            # 2. Execute process via runtime
+            # 3. Execute process via runtime
             result = await self._runtime.execute(
                 job=job,
                 scratch_volume=scratch_vol,
-                environment=job.env,
+                environment=env,
             )
 
-            # 3. Notify controller if configured
+            # 4. Notify controller if configured
             if self._controller:
                 await self._controller.update_job_outcome(
                     job_id=job.id,
@@ -154,9 +171,13 @@ class LocalSubprocessWorker(WorkerDaemonPort):
 
             return result
         finally:
-            # 4. Clean up scratch storage
+            # 5. Clean up scratch storage
             if scratch_vol and scratch_vol.is_ephemeral:
                 await self._storage.cleanup_scratch(scratch_vol.volume_id)
+
+            # 6. Release reserved GPU accelerators
+            if gpu_alloc and self._gpu_manager:
+                await self._gpu_manager.release_gpus(job.id)
 
             async with self._lock:
                 self._active_jobs.discard(job.id)

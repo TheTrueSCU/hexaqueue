@@ -14,6 +14,9 @@ from hexaqueue_core.ports.explainability import (
 from hexaqueue_core.ports.freetier import (
     FreeTierGovernorPort,
 )
+from hexaqueue_core.ports.gpu import (
+    GpuDeviceManagerPort,
+)
 from hexaqueue_core.ports.logging import (
     LogChunk,
     LogStreamPort,
@@ -53,6 +56,7 @@ __all__ = [
     "CostRateModelPort",
     "ExecutionRuntimePort",
     "FreeTierGovernorPort",
+    "GpuDeviceManagerPort",
     "JobQueuePort",
     "LogChunk",
     "LogStreamPort",

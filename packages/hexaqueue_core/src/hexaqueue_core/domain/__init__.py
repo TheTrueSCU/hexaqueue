@@ -26,9 +26,11 @@ from hexaqueue_core.domain.dag import (
 from hexaqueue_core.domain.exceptions import (
     ChecksumMismatchError,
     FreeTierLimitExceededError,
+    GpuAllocationError,
     HexaqueueError,
     JobStateTransitionError,
     QuotaExceededError,
+    StorageVolumeError,
     SuiteCompilationError,
     VariableInterpolationError,
 )
@@ -58,6 +60,10 @@ from hexaqueue_core.domain.freetier import (
     FreeTierBurnReport,
     FreeTierGovernor,
     get_free_tier_profile,
+)
+from hexaqueue_core.domain.gpu import (
+    GpuAllocation,
+    GpuDevice,
 )
 from hexaqueue_core.domain.group import (
     GroupExpansionEngine,
@@ -106,6 +112,10 @@ from hexaqueue_core.domain.scheduling import (
     ResourceSlotPool,
     SchedulingDecision,
 )
+from hexaqueue_core.domain.storage import (
+    FilesystemType,
+    SharedVolumeMount,
+)
 from hexaqueue_core.domain.suite import (
     ContextResolver,
     MatrixExpansionEngine,
@@ -144,12 +154,16 @@ __all__ = [
     "FairShareNodeReport",
     "FairShareTree",
     "FairShareTreeReport",
+    "FilesystemType",
     "FreeTierBurnReport",
     "FreeTierGovernor",
     "FreeTierLimitExceededError",
     "FreeTierProfileConfig",
     "GCP_ALWAYS_FREE_PROFILE",
     "get_free_tier_profile",
+    "GpuAllocation",
+    "GpuAllocationError",
+    "GpuDevice",
     "GroupExpansionEngine",
     "HexaqueueConfig",
     "HexaqueueConfigError",
@@ -190,6 +204,8 @@ __all__ = [
     "SchedulerExplainabilityEngine",
     "SchedulingDecision",
     "SchedulingDecisionReport",
+    "SharedVolumeMount",
+    "StorageVolumeError",
     "SuiteCompilationError",
     "SuiteCompilationResult",
     "SuiteCompiler",
