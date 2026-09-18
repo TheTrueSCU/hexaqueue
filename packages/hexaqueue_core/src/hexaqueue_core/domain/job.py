@@ -11,6 +11,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from hexaqueue_core.domain.container import ContainerSpec
 from hexaqueue_core.domain.lifecycle import JobState, JobStatus, TerminalOutcome
 from hexaqueue_core.domain.notification import NotificationPolicy
 from hexaqueue_core.domain.resources import ResourceRequirements
@@ -67,6 +68,9 @@ class JobSpec(BaseModel):
     )
     priority_bonus: float = Field(
         default=0.0, description="Compensatory priority boost granted upon preemption"
+    )
+    container: ContainerSpec | None = Field(
+        default=None, description="Optional container execution specification"
     )
     status: JobStatus = Field(default_factory=JobStatus, description="Lifecycle status")
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

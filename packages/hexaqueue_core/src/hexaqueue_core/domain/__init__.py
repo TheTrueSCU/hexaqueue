@@ -15,6 +15,11 @@ from hexaqueue_core.domain.config import (
     HexaqueueConfigError,
     HexaqueueCoreConfig,
 )
+from hexaqueue_core.domain.container import (
+    ContainerMount,
+    ContainerRuntimeType,
+    ContainerSpec,
+)
 from hexaqueue_core.domain.dag import (
     DependencyCycleError,
     DependencySpec,
@@ -143,6 +148,9 @@ __all__ = [
     "compute_run_outcome",
     "compute_run_state",
     "ConservativeBackfillScheduler",
+    "ContainerMount",
+    "ContainerRuntimeType",
+    "ContainerSpec",
     "ContextResolver",
     "ControlledPreemptionEngine",
     "CspFreeTierProfile",
