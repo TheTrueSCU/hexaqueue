@@ -39,7 +39,9 @@ class DummyClient(ClientPort):
     async def get_job(self, job_id: str) -> JobSpec:
         return JobSpec(id=job_id, run_id="r1", name="j1", command="echo 1")
 
-    async def cancel_run(self, run_id: str) -> RunStatusReport:
+    async def cancel_run(
+        self, run_id: str, user_id: str = "default", elevate: bool = False
+    ) -> RunStatusReport:
         return RunStatusReport(
             run_id=run_id,
             state=RunState.DONE,
@@ -112,13 +114,19 @@ class DummyClient(ClientPort):
             total_decayed_usage=0.0,
         )
 
-    async def cancel_job(self, job_id: str) -> JobSpec:
+    async def cancel_job(
+        self, job_id: str, user_id: str = "default", elevate: bool = False
+    ) -> JobSpec:
         return JobSpec(id=job_id, run_id="r1", name="j1", command="echo 1")
 
-    async def hold_job(self, job_id: str) -> JobSpec:
+    async def hold_job(
+        self, job_id: str, user_id: str = "default", elevate: bool = False
+    ) -> JobSpec:
         return JobSpec(id=job_id, run_id="r1", name="j1", command="echo 1")
 
-    async def release_job(self, job_id: str) -> JobSpec:
+    async def release_job(
+        self, job_id: str, user_id: str = "default", elevate: bool = False
+    ) -> JobSpec:
         return JobSpec(id=job_id, run_id="r1", name="j1", command="echo 1")
 
     async def list_jobs(self) -> list[JobSpec]:
@@ -155,6 +163,70 @@ class DummyClient(ClientPort):
             job_id=request.job_id,
             user_id=request.user_id,
             pid=1234,
+        )
+
+    async def submit_suite(
+        self, suite, user_id: str = "default", elevate: bool = False
+    ):
+        from hexaqueue_server.domain.models import RunStatusReport
+
+        return RunStatusReport(
+            run_id=suite.id,
+            state=RunState.DONE,
+            total_jobs=1,
+            completed_jobs=1,
+            failed_jobs=0,
+            running_jobs=0,
+            pending_jobs=0,
+            created_at=datetime.now(UTC),
+        )
+
+    async def register_collateral(
+        self,
+        name: str,
+        size_bytes: int,
+        checksum_sha256: str,
+        tier=None,
+        kind=None,
+        target_path: str = "",
+        user_id: str = "default",
+        elevate: bool = False,
+    ):
+        from hexaqueue_core.domain.collateral import (
+            CollateralBundle,
+            CollateralKind,
+            CollateralState,
+            CollateralTier,
+        )
+
+        return CollateralBundle(
+            id="col-1",
+            job_id="global",
+            filename=name,
+            size_bytes=size_bytes,
+            sha256_checksum=checksum_sha256
+            if len(checksum_sha256) == 64
+            else checksum_sha256.zfill(64),
+            tier=tier or CollateralTier.TEMPORARY,
+            kind=kind or CollateralKind.BUNDLE,
+            state=CollateralState.REGISTERED,
+            staging_uri=f"s3://staging/{name}",
+        )
+
+    async def create_bastion_session(
+        self,
+        node_id: str,
+        session_id: str = "",
+        user_id: str = "default",
+        elevate: bool = False,
+    ):
+        from hexaqueue_worker.domain.pty import PtySessionInfo
+
+        return PtySessionInfo(
+            session_id=session_id or "bastion-1",
+            job_id=f"bastion-{node_id}",
+            user_id=user_id,
+            pid=999,
         )
 
 

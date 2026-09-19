@@ -131,6 +131,45 @@ def submit_cmd(
     )
 
 
+@app.command("cancel")
+def cancel_run_cmd(
+    run_id: str = typer.Argument(..., help="Run ID to cancel"),
+    admin: bool = typer.Option(
+        False,
+        "--admin",
+        help="Assert explicit administrative elevation for cross-user cancellation",
+    ),
+    user: str = typer.Option(
+        "default",
+        "--user",
+        "-u",
+        help="Requesting user identity",
+    ),
+) -> None:
+    """Cancel an active pipeline run.
+
+    Args:
+        run_id: Pipeline run identifier.
+        admin: Explicit administrative elevation.
+        user: Requesting user identity.
+
+    Notes/Architectural Intent:
+        Enforces least privilege: administrative cancellation of runs submitted by other
+        users requires explicit positive elevation (--admin).
+    """
+
+    async def _cancel() -> None:
+        client = LocalClientAdapter()
+        try:
+            report = await client.cancel_run(run_id, user_id=user, elevate=admin)
+            console.print(f"[bold yellow]✓[/] Run '{report.run_id}' cancelled.")
+        except Exception as e:
+            console.print(f"[bold red]Error cancelling run '{run_id}':[/] {e}")
+            raise typer.Exit(code=1) from e
+
+    asyncio.run(_cancel())
+
+
 __all__ = [
     "app",
 ]

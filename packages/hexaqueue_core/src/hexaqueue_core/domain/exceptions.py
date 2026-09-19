@@ -25,12 +25,16 @@ class ChecksumMismatchError(HexaqueueError):
     """Exception raised when actual uploaded collateral SHA-256 does not match registered digest."""
 
 
-class QuotaExceededError(HexaqueueError):
-    """Exception raised when a user, team, or project exceeds allocated compute or budget quota."""
-
-
 class JobStateTransitionError(HexaqueueError):
     """Exception raised when an illegal job or run lifecycle state transition is attempted."""
+
+
+class PermissionDeniedError(HexaqueueError):
+    """Exception raised when an unauthorized user attempts an operation or unpermitted elevation."""
+
+
+class QuotaExceededError(HexaqueueError):
+    """Exception raised when a user, team, or project exceeds allocated compute or budget quota."""
 
 
 class GpuAllocationError(HexaqueueError):
@@ -56,6 +60,7 @@ __all__ = [
     "HexaqueueConfigError",
     "HexaqueueError",
     "JobStateTransitionError",
+    "PermissionDeniedError",
     "QuotaExceededError",
     "StorageVolumeError",
     "SuiteCompilationError",
