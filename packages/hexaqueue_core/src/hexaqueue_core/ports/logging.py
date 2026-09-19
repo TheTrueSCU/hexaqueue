@@ -73,3 +73,17 @@ class LogStreamPort(ABC):
         Yields:
             LogChunk instances in chronological order.
         """
+
+    @abstractmethod
+    async def close_stream(self, job_id: str) -> None:
+        """Signal that the active log stream for a job is closed.
+
+        Args:
+            job_id: Job identifier whose stream has completed.
+        """
+
+
+__all__ = [
+    "LogChunk",
+    "LogStreamPort",
+]
