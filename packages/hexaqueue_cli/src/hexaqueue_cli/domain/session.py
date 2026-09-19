@@ -7,7 +7,9 @@ Notes/Architectural Intent:
 
 import os
 
-from hexaqueue_core.adapters.logging.in_memory import InMemoryLogStreamAdapter
+from hexaqueue_core.adapters.logging.broadcast import (
+    BroadcastLogStreamAdapter,
+)
 from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
 from hexaqueue_core.adapters.storage.in_memory import InMemoryStorageVolumeAdapter
 from hexaqueue_core.domain.config import ExecutionMode
@@ -15,6 +17,8 @@ from hexaqueue_core.domain.freetier import FreeTierGovernor
 from hexaqueue_core.infra.notification import NotificationDispatcher
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
 from hexaqueue_worker.adapters.local import LocalSubprocessWorker
+from hexaqueue_worker.adapters.pty import LocalPtyBridgeAdapter
+from hexaqueue_worker.adapters.telemetry import LocalTelemetryCollector
 from hexaqueue_worker.domain.models import WorkerConfig
 
 
@@ -30,7 +34,9 @@ class LocalCliSession:
     ) -> None:
         self.queue = InMemoryJobQueueAdapter()
         self.storage = InMemoryStorageVolumeAdapter()
-        self.log_stream = InMemoryLogStreamAdapter()
+        self.log_stream = BroadcastLogStreamAdapter()
+        self.telemetry = LocalTelemetryCollector()
+        self.pty = LocalPtyBridgeAdapter()
         if notification_dispatcher is not None:
             self.notification_dispatcher = notification_dispatcher
         else:

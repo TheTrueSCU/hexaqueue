@@ -428,3 +428,146 @@ def test_render_run_status_free_tier_markdown() -> None:
     assert "[FREE TIER ACTIVE]" in out
     assert "Free-Tier Quota Burn" in out
     assert "2 cores" in out
+
+
+def test_render_cluster_stats_all_formats() -> None:
+    """Verify render_cluster_stats across JSON, Markdown, Plain, and Table formats."""
+    from hexaqueue_cli.domain.models import ClusterStatsReport
+
+    stats = ClusterStatsReport(
+        total_runs=2,
+        total_jobs=5,
+        running_jobs=1,
+        pending_jobs=2,
+        blocked_jobs=1,
+        completed_jobs=1,
+        failed_jobs=0,
+        active_workers=1,
+    )
+
+    # JSON format
+    buf_json = StringIO()
+    p_json = CliPresenter(console=Console(file=buf_json))
+    p_json.render_cluster_stats(stats, OutputFormat.JSON)
+    json_out = buf_json.getvalue()
+    data = json.loads(json_out)
+    res_runs = data["total_runs"]
+    assert res_runs == 2
+
+    # Markdown format
+    buf_md = StringIO()
+    p_md = CliPresenter(console=Console(file=buf_md))
+    p_md.render_cluster_stats(stats, OutputFormat.MARKDOWN)
+    md_out = buf_md.getvalue()
+    assert "Cluster State Summary" in md_out
+    assert "Total Runs" in md_out
+
+    # Plain format
+    buf_plain = StringIO()
+    p_plain = CliPresenter(console=Console(file=buf_plain))
+    p_plain.render_cluster_stats(stats, OutputFormat.PLAIN)
+    plain_out = buf_plain.getvalue()
+    assert "RUNS=2" in plain_out
+    assert "JOBS=5" in plain_out
+
+    # Table format
+    buf_tbl = StringIO()
+    p_tbl = CliPresenter(console=Console(file=buf_tbl))
+    p_tbl.render_cluster_stats(stats, OutputFormat.TABLE)
+    tbl_out = buf_tbl.getvalue()
+    assert "Hexaqueue Cluster Status" in tbl_out
+    assert "Running Jobs" in tbl_out
+
+
+def test_render_nodes_table_all_formats() -> None:
+    """Verify render_nodes_table across JSON, Markdown, Plain, and Table formats."""
+    from hexaqueue_worker.domain.telemetry import GpuTelemetry, NodeTelemetryPulse
+
+    gpu = GpuTelemetry(
+        index=0,
+        model="NVIDIA A100-SXM4-80GB",
+        utilization_pct=45.0,
+        vram_used_mb=32768,
+        vram_total_mb=81920,
+        temperature_c=55.0,
+    )
+    node = NodeTelemetryPulse(
+        worker_id="node-test-1",
+        cpu_utilization_pct=25.0,
+        load_average=(1.5, 1.2, 0.9),
+        memory_used_mb=16384,
+        memory_total_mb=65536,
+        scratch_used_mb=1024,
+        scratch_total_mb=10240,
+        active_jobs=2,
+        gpu_metrics=[gpu],
+    )
+
+    # JSON format
+    buf_json = StringIO()
+    p_json = CliPresenter(console=Console(file=buf_json))
+    p_json.render_nodes_table([node], OutputFormat.JSON)
+    json_out = buf_json.getvalue()
+    data = json.loads(json_out)
+    assert len(data) == 1
+    res_worker_id = data[0]["worker_id"]
+    assert res_worker_id == "node-test-1"
+
+    # Markdown format
+    buf_md = StringIO()
+    p_md = CliPresenter(console=Console(file=buf_md))
+    p_md.render_nodes_table([node], OutputFormat.MARKDOWN)
+    md_out = buf_md.getvalue()
+    assert "node-test-1" in md_out
+    assert "Node ID" in md_out
+
+    # Plain format
+    buf_plain = StringIO()
+    p_plain = CliPresenter(console=Console(file=buf_plain))
+    p_plain.render_nodes_table([node], OutputFormat.PLAIN)
+    plain_out = buf_plain.getvalue()
+    assert "NODE=node-test-1" in plain_out
+
+    # Table format
+    buf_tbl = StringIO()
+    p_tbl = CliPresenter(console=Console(file=buf_tbl, width=200))
+    p_tbl.render_nodes_table([node], OutputFormat.TABLE)
+    tbl_out = buf_tbl.getvalue()
+    assert "Compute Nodes Telemetry" in tbl_out
+    assert "node-test-1" in tbl_out
+
+
+def test_top_dashboard_rendering() -> None:
+    """Verify build_top_dashboard and render_top_dashboard."""
+    from hexaqueue_cli.domain.models import ClusterStatsReport
+    from hexaqueue_worker.domain.telemetry import NodeTelemetryPulse
+
+    stats = ClusterStatsReport(total_runs=1, total_jobs=2, running_jobs=1)
+    node = NodeTelemetryPulse(
+        worker_id="node-1",
+        cpu_utilization_pct=15.0,
+        load_average=(0.5, 0.4, 0.3),
+        memory_used_mb=4096,
+        memory_total_mb=16384,
+        scratch_used_mb=500,
+        scratch_total_mb=5000,
+        active_jobs=1,
+    )
+    job = JobSpec(
+        id="job-top-1",
+        run_id="run-1",
+        name="training",
+        command="python train.py",
+    )
+
+    buf = StringIO()
+    presenter = CliPresenter(console=Console(file=buf))
+    group = presenter.build_top_dashboard(stats, [node], [job])
+    assert group is not None
+
+    presenter.render_top_dashboard(stats, [node], [job])
+    out = buf.getvalue()
+    assert "Hexaqueue Cluster Summary" in out
+    assert "Worker Nodes" in out
+    assert "Active & Queued Jobs" in out
+    assert "job-top-1" in out

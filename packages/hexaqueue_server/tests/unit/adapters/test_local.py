@@ -500,3 +500,63 @@ async def test_local_scheduler_controller_free_tier_burn_report() -> None:
     assert burn.allocated_ram_mb == 1024
     assert burn.is_throttled is False
     assert burn.profile_name == LOCAL_FREE_TIER_PROFILE.name
+
+
+@pytest.mark.asyncio
+async def test_local_scheduler_controller_hold_and_release_job() -> None:
+    """Verify hold_job blocks pending job and release_job enqueues it back."""
+    queue = InMemoryJobQueueAdapter()
+    controller = LocalSchedulerControllerAdapter(queue=queue)
+
+    run = RunSpec(id="run-hold", name="hold-run")
+    j1 = JobSpec(id="j1-hold", run_id=run.id, name="job-hold", command="echo")
+    submission = RunSubmission(run_spec=run, jobs=[j1])
+    await controller.submit_run(submission)
+
+    # Hold job
+    held = await controller.hold_job(j1.id)
+    res_held_state = held.state
+    assert res_held_state == JobState.BLOCKED
+
+    # Re-holding already blocked job should return current spec
+    reheld = await controller.hold_job(j1.id)
+    res_reheld_state = reheld.state
+    assert res_reheld_state == JobState.BLOCKED
+
+    # Release job
+    released = await controller.release_job(j1.id)
+    res_rel_state = released.state
+    assert res_rel_state == JobState.PENDING
+
+    # Release again
+    re_rel = await controller.release_job(j1.id)
+    res_re_rel_state = re_rel.state
+    assert res_re_rel_state == JobState.PENDING
+
+
+@pytest.mark.asyncio
+async def test_local_scheduler_controller_cancel_job() -> None:
+    """Verify cancel_job sets CANCELLED outcome and removes job from queue."""
+    queue = InMemoryJobQueueAdapter()
+    controller = LocalSchedulerControllerAdapter(queue=queue)
+
+    run = RunSpec(id="run-cancel", name="cancel-run")
+    j1 = JobSpec(id="j1-cancel", run_id=run.id, name="job-cancel", command="echo")
+    submission = RunSubmission(run_spec=run, jobs=[j1])
+    await controller.submit_run(submission)
+
+    cancelled = await controller.cancel_job(j1.id)
+    res_state = cancelled.state
+    res_outcome = cancelled.outcome
+    assert res_state == JobState.DONE
+    assert res_outcome == TerminalOutcome.CANCELLED
+
+    # Cancelling non-existent job raises HexaqueueError
+    with pytest.raises(HexaqueueError, match="not found"):
+        await controller.cancel_job("non-existent")
+
+    with pytest.raises(HexaqueueError, match="not found"):
+        await controller.hold_job("non-existent")
+
+    with pytest.raises(HexaqueueError, match="not found"):
+        await controller.release_job("non-existent")

@@ -5,7 +5,9 @@ Notes/Architectural Intent:
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 
+from hexaqueue_cli.domain.models import ClusterStatsReport
 from hexaqueue_core.domain.explainability import (
     FairShareTreeReport,
     SchedulingDecisionReport,
@@ -13,6 +15,8 @@ from hexaqueue_core.domain.explainability import (
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.ports.logging import LogChunk
 from hexaqueue_server.domain.models import RunStatusReport, RunSubmission
+from hexaqueue_worker.domain.pty import PtySessionInfo, PtySessionRequest
+from hexaqueue_worker.domain.telemetry import NodeTelemetryPulse
 
 
 class ClientPort(ABC):
@@ -31,12 +35,42 @@ class ClientPort(ABC):
         """Get individual job status."""
 
     @abstractmethod
+    async def list_jobs(self) -> list[JobSpec]:
+        """List all registered jobs across runs."""
+
+    @abstractmethod
     async def cancel_run(self, run_id: str) -> RunStatusReport:
         """Cancel a pipeline run."""
 
     @abstractmethod
+    async def cancel_job(self, job_id: str) -> JobSpec:
+        """Cancel an individual job."""
+
+    @abstractmethod
+    async def hold_job(self, job_id: str) -> JobSpec:
+        """Place an administrative hold on a job."""
+
+    @abstractmethod
+    async def release_job(self, job_id: str) -> JobSpec:
+        """Release an administrative hold on a job."""
+
+    @abstractmethod
     async def get_logs(self, job_id: str) -> list[LogChunk]:
         """Retrieve historical logs for a job."""
+
+    @abstractmethod
+    def stream_logs(
+        self, job_id: str, follow: bool = False, tail: int | None = None
+    ) -> AsyncIterator[LogChunk]:
+        """Stream logs for a job with optional real-time tail follow."""
+
+    @abstractmethod
+    async def get_cluster_stats(self) -> ClusterStatsReport:
+        """Retrieve high-level cluster state and backlog statistics."""
+
+    @abstractmethod
+    async def get_nodes(self) -> list[NodeTelemetryPulse]:
+        """Retrieve telemetry pulses for registered compute worker nodes."""
 
     @abstractmethod
     async def explain_job(
@@ -54,6 +88,12 @@ class ClientPort(ABC):
         is_admin: bool = False,
     ) -> FairShareTreeReport:
         """Retrieve hierarchical fair-share tree diagnostic report."""
+
+    @abstractmethod
+    async def create_pty_session(
+        self, request: PtySessionRequest, job_owner: str = "default"
+    ) -> PtySessionInfo:
+        """Create an interactive terminal PTY session inside a running job."""
 
 
 __all__ = [

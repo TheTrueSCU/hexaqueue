@@ -87,6 +87,39 @@ class SchedulerControllerPort(ABC):
             List of all JobSpec instances.
         """
 
+    @abstractmethod
+    async def cancel_job(self, job_id: str) -> JobSpec:
+        """Cancel an individual job.
+
+        Args:
+            job_id: Unique job identifier.
+
+        Returns:
+            Updated JobSpec with CANCELLED outcome.
+        """
+
+    @abstractmethod
+    async def hold_job(self, job_id: str) -> JobSpec:
+        """Place an administrative hold on a job.
+
+        Args:
+            job_id: Unique job identifier.
+
+        Returns:
+            Updated JobSpec in BLOCKED state.
+        """
+
+    @abstractmethod
+    async def release_job(self, job_id: str) -> JobSpec:
+        """Release an administrative hold on a job.
+
+        Args:
+            job_id: Unique job identifier.
+
+        Returns:
+            Updated JobSpec returned to PENDING or appropriate state.
+        """
+
 
 __all__ = [
     "SchedulerControllerPort",
