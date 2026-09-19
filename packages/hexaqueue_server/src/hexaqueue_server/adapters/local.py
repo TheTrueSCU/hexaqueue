@@ -447,6 +447,133 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
 
         return await self.get_run_status(run_id)
 
+    async def cancel_job(self, job_id: str) -> JobSpec:
+        """Cancel an individual job and remove it from scheduling queue.
+
+        Args:
+            job_id: Identifier of the job to cancel.
+
+        Returns:
+            Updated JobSpec with CANCELLED terminal outcome.
+
+        Raises:
+            HexaqueueError: If job is not registered.
+        """
+        async with self._lock:
+            if job_id not in self._jobs:
+                msg = f"Job with ID '{job_id}' not found"
+                raise HexaqueueError(msg)
+
+            current = self._jobs[job_id]
+            if current.state != JobState.DONE:
+                await self._queue.remove(job_id)
+                cancelled_job = JobSpec(
+                    id=current.id,
+                    run_id=current.run_id,
+                    name=current.name,
+                    command=current.command,
+                    args=current.args,
+                    env=current.env,
+                    resources=current.resources,
+                    collateral_ids=current.collateral_ids,
+                    tags=current.tags,
+                    notifications=current.notifications,
+                    status=JobStatus(
+                        state=JobState.DONE,
+                        outcome=TerminalOutcome.CANCELLED,
+                        reason="Job cancelled by user request",
+                    ),
+                )
+                self._jobs[job_id] = cancelled_job
+                await self._dispatcher.async_dispatch_job_event(
+                    cancelled_job, NotificationTrigger.CANCELLED
+                )
+
+            return self._jobs[job_id]
+
+    async def hold_job(self, job_id: str) -> JobSpec:
+        """Place an administrative hold on a pending job.
+
+        Args:
+            job_id: Identifier of the job to hold.
+
+        Returns:
+            Updated JobSpec transitioned to BLOCKED state.
+
+        Raises:
+            HexaqueueError: If job is not registered.
+        """
+        async with self._lock:
+            if job_id not in self._jobs:
+                msg = f"Job with ID '{job_id}' not found"
+                raise HexaqueueError(msg)
+
+            current = self._jobs[job_id]
+            if current.state == JobState.PENDING:
+                await self._queue.remove(job_id)
+                held_job = JobSpec(
+                    id=current.id,
+                    run_id=current.run_id,
+                    name=current.name,
+                    command=current.command,
+                    args=current.args,
+                    env=current.env,
+                    resources=current.resources,
+                    collateral_ids=current.collateral_ids,
+                    tags=current.tags,
+                    notifications=current.notifications,
+                    status=JobStatus(
+                        state=JobState.BLOCKED,
+                        reason="Administratively held",
+                    ),
+                )
+                self._jobs[job_id] = held_job
+
+            return self._jobs[job_id]
+
+    async def release_job(self, job_id: str) -> JobSpec:
+        """Release an administrative hold on a blocked job and re-enqueue it.
+
+        Args:
+            job_id: Identifier of the job to release.
+
+        Returns:
+            Updated JobSpec transitioned back to PENDING state.
+
+        Raises:
+            HexaqueueError: If job is not registered.
+        """
+        async with self._lock:
+            if job_id not in self._jobs:
+                msg = f"Job with ID '{job_id}' not found"
+                raise HexaqueueError(msg)
+
+            current = self._jobs[job_id]
+            if (
+                current.state == JobState.BLOCKED
+                and current.status.reason == "Administratively held"
+            ):
+                released_job = JobSpec(
+                    id=current.id,
+                    run_id=current.run_id,
+                    name=current.name,
+                    command=current.command,
+                    args=current.args,
+                    env=current.env,
+                    resources=current.resources,
+                    collateral_ids=current.collateral_ids,
+                    tags=current.tags,
+                    notifications=current.notifications,
+                    status=JobStatus(
+                        state=JobState.PENDING,
+                        reason=None,
+                    ),
+                )
+                self._jobs[job_id] = released_job
+                await self._queue.enqueue(released_job)
+
+            return self._jobs[job_id]
+
 
 __all__ = [
     "LocalSchedulerControllerAdapter",

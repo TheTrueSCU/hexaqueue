@@ -7,6 +7,9 @@ Notes/Architectural Intent:
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+
+from hexaqueue_cli.domain.models import ClusterStatsReport
 from hexaqueue_cli.domain.session import LocalCliSession, get_default_session
 from hexaqueue_cli.ports.client import ClientPort
 from hexaqueue_core.domain.explainability import (
@@ -16,6 +19,8 @@ from hexaqueue_core.domain.explainability import (
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.ports.logging import LogChunk
 from hexaqueue_server.domain.models import RunStatusReport, RunSubmission
+from hexaqueue_worker.domain.pty import PtySessionInfo, PtySessionRequest
+from hexaqueue_worker.domain.telemetry import NodeTelemetryPulse
 
 
 class LocalClientAdapter(ClientPort):
@@ -36,15 +41,89 @@ class LocalClientAdapter(ClientPort):
         """Get job metadata from local in-process controller."""
         return await self._session.controller.get_job(job_id)
 
+    async def list_jobs(self) -> list[JobSpec]:
+        """List all registered jobs across runs."""
+        return await self._session.controller.list_jobs()
+
     async def cancel_run(self, run_id: str) -> RunStatusReport:
         """Cancel run in local in-process controller."""
         return await self._session.controller.cancel_run(run_id)
+
+    async def cancel_job(self, job_id: str) -> JobSpec:
+        """Cancel an individual job."""
+        return await self._session.controller.cancel_job(job_id)
+
+    async def hold_job(self, job_id: str) -> JobSpec:
+        """Place an administrative hold on a job."""
+        return await self._session.controller.hold_job(job_id)
+
+    async def release_job(self, job_id: str) -> JobSpec:
+        """Release an administrative hold on a job."""
+        return await self._session.controller.release_job(job_id)
 
     async def get_logs(self, job_id: str) -> list[LogChunk]:
         """Fetch captured logs from in-memory stream adapter."""
         return [
             c async for c in self._session.log_stream.stream_logs(job_id, follow=False)
         ]
+
+    async def stream_logs(
+        self, job_id: str, follow: bool = False, tail: int | None = None
+    ) -> AsyncIterator[LogChunk]:
+        """Stream logs for a job with optional real-time tail follow."""
+        async for chunk in self._session.log_stream.stream_logs(
+            job_id, follow=follow, tail=tail
+        ):
+            yield chunk
+
+    async def get_cluster_stats(self) -> ClusterStatsReport:
+        """Retrieve high-level cluster state and backlog statistics."""
+        from hexaqueue_core.domain.lifecycle import JobState
+
+        all_jobs = await self._session.controller.list_jobs()
+        running_cnt = sum(1 for j in all_jobs if j.state == JobState.RUNNING)
+        pending_cnt = sum(1 for j in all_jobs if j.state == JobState.PENDING)
+        blocked_cnt = sum(1 for j in all_jobs if j.state == JobState.BLOCKED)
+        completed_cnt = sum(
+            1
+            for j in all_jobs
+            if j.state == JobState.DONE and str(j.outcome) == "COMPLETED"
+        )
+        failed_cnt = sum(
+            1
+            for j in all_jobs
+            if j.state == JobState.DONE and str(j.outcome) != "COMPLETED"
+        )
+
+        total_runs = len(getattr(self._session.controller, "_runs", {}))
+        active_workers = 1 if getattr(self._session.worker, "_running", False) else 0
+
+        return ClusterStatsReport(
+            total_runs=total_runs,
+            total_jobs=len(all_jobs),
+            running_jobs=running_cnt,
+            pending_jobs=pending_cnt,
+            blocked_jobs=blocked_cnt,
+            completed_jobs=completed_cnt,
+            failed_jobs=failed_cnt,
+            active_workers=active_workers,
+        )
+
+    async def get_nodes(self) -> list[NodeTelemetryPulse]:
+        """Retrieve telemetry pulses for registered compute worker nodes."""
+        worker = self._session.worker
+        active_jobs = len(getattr(worker, "_active_jobs", set()))
+        worker_id = getattr(worker._config, "worker_id", "local-worker")
+        pulse = self._session.telemetry.collect_pulse(
+            worker_id=worker_id, active_jobs=active_jobs
+        )
+        return [pulse]
+
+    async def create_pty_session(
+        self, request: PtySessionRequest, job_owner: str = "default"
+    ) -> PtySessionInfo:
+        """Create an interactive terminal PTY session inside a running job."""
+        return await self._session.pty.create_session(request, job_owner=job_owner)
 
     async def explain_job(
         self,

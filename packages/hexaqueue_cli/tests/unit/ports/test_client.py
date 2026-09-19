@@ -112,6 +112,51 @@ class DummyClient(ClientPort):
             total_decayed_usage=0.0,
         )
 
+    async def cancel_job(self, job_id: str) -> JobSpec:
+        return JobSpec(id=job_id, run_id="r1", name="j1", command="echo 1")
+
+    async def hold_job(self, job_id: str) -> JobSpec:
+        return JobSpec(id=job_id, run_id="r1", name="j1", command="echo 1")
+
+    async def release_job(self, job_id: str) -> JobSpec:
+        return JobSpec(id=job_id, run_id="r1", name="j1", command="echo 1")
+
+    async def list_jobs(self) -> list[JobSpec]:
+        return [JobSpec(id="j1", run_id="r1", name="j1", command="echo 1")]
+
+    async def stream_logs(
+        self, job_id: str, follow: bool = False, tail: int | None = None
+    ):
+        yield LogChunk(job_id=job_id, content="hello", offset=0)
+
+    async def get_cluster_stats(self):
+        from hexaqueue_cli.domain.models import ClusterStatsReport
+
+        return ClusterStatsReport()
+
+    async def get_nodes(self):
+        from hexaqueue_worker.domain.telemetry import NodeTelemetryPulse
+
+        return [
+            NodeTelemetryPulse(
+                worker_id="w1",
+                memory_total_mb=1024,
+                memory_used_mb=256,
+                scratch_total_mb=1024,
+                scratch_used_mb=128,
+            )
+        ]
+
+    async def create_pty_session(self, request, job_owner: str = "default"):
+        from hexaqueue_worker.domain.pty import PtySessionInfo
+
+        return PtySessionInfo(
+            session_id=request.session_id,
+            job_id=request.job_id,
+            user_id=request.user_id,
+            pid=1234,
+        )
+
 
 def test_client_port_instantiation() -> None:
     """Verify concrete subclass can be instantiated."""

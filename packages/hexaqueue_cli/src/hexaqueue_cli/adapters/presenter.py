@@ -14,11 +14,12 @@ import sys
 from typing import Any
 
 from pydantic import BaseModel
-from rich.console import Console
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.tree import Tree
 
+from hexaqueue_cli.domain.models import ClusterStatsReport
 from hexaqueue_cli.domain.options import OutputFormat
 from hexaqueue_core.domain.explainability import (
     FairShareNodeReport,
@@ -28,6 +29,7 @@ from hexaqueue_core.domain.explainability import (
 from hexaqueue_core.domain.freetier import FreeTierBurnReport
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_server.domain.models import RunStatusReport
+from hexaqueue_worker.domain.telemetry import NodeTelemetryPulse
 
 __all__ = [
     "CliPresenter",
@@ -578,3 +580,267 @@ class CliPresenter:
             )
             child_tree = parent_tree.add(label)
             self._populate_rich_tree(child, child_tree)
+
+    def render_cluster_stats(
+        self,
+        stats: ClusterStatsReport,
+        format_type: str | OutputFormat = OutputFormat.TABLE,
+    ) -> None:
+        """Render cluster summary statistics in requested format.
+
+        Args:
+            stats: ClusterStatsReport instance.
+            format_type: Output format.
+
+        Notes/Architectural Intent:
+            Renders high-level queue metrics (running, pending, blocked, completed, failed)
+            with ANSI styling in interactive terminals and plain text when piped.
+        """
+        fmt = (
+            format_type.value
+            if isinstance(format_type, OutputFormat)
+            else str(format_type).lower().strip()
+        )
+        if fmt == OutputFormat.JSON.value:
+            self._console.print(stats.model_dump_json(indent=2))
+            return
+
+        if fmt == OutputFormat.MARKDOWN.value:
+            self._console.print(
+                f"# Cluster State Summary\n\n"
+                f"- **Total Runs:** {stats.total_runs}\n"
+                f"- **Total Jobs:** {stats.total_jobs}\n"
+                f"- **Running Jobs:** {stats.running_jobs}\n"
+                f"- **Pending Jobs:** {stats.pending_jobs}\n"
+                f"- **Blocked Jobs:** {stats.blocked_jobs}\n"
+                f"- **Completed Jobs:** {stats.completed_jobs}\n"
+                f"- **Failed Jobs:** {stats.failed_jobs}\n"
+                f"- **Active Workers:** {stats.active_workers}\n"
+            )
+            return
+
+        if fmt == OutputFormat.PLAIN.value:
+            self._console.print(
+                f"RUNS={stats.total_runs} JOBS={stats.total_jobs} RUNNING={stats.running_jobs} "
+                f"PENDING={stats.pending_jobs} BLOCKED={stats.blocked_jobs} "
+                f"COMPLETED={stats.completed_jobs} FAILED={stats.failed_jobs} "
+                f"WORKERS={stats.active_workers}"
+            )
+            return
+
+        table = Table(
+            title=f"Hexaqueue Cluster Status ({stats.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')})",
+            border_style="cyan",
+        )
+        table.add_column("Metric", style="bold")
+        table.add_column("Value", style="cyan")
+
+        table.add_row("Total Runs", str(stats.total_runs))
+        table.add_row("Total Jobs", str(stats.total_jobs))
+        table.add_row("Running Jobs", f"[green]{stats.running_jobs}[/]")
+        table.add_row("Pending Jobs", f"[yellow]{stats.pending_jobs}[/]")
+        table.add_row("Blocked Jobs", f"[magenta]{stats.blocked_jobs}[/]")
+        table.add_row("Completed Jobs", f"[bold green]{stats.completed_jobs}[/]")
+        table.add_row("Failed Jobs", f"[bold red]{stats.failed_jobs}[/]")
+        table.add_row("Active Workers", f"[blue]{stats.active_workers}[/]")
+        self._console.print(table)
+
+    def render_nodes_table(
+        self,
+        nodes: list[NodeTelemetryPulse],
+        format_type: str | OutputFormat = OutputFormat.TABLE,
+    ) -> None:
+        """Render compute worker nodes telemetry in requested format.
+
+        Args:
+            nodes: List of NodeTelemetryPulse instances.
+            format_type: Output format.
+
+        Notes/Architectural Intent:
+            Displays real-time hardware telemetry per worker compute node (CPU, RAM, scratch, GPUs).
+        """
+        fmt = (
+            format_type.value
+            if isinstance(format_type, OutputFormat)
+            else str(format_type).lower().strip()
+        )
+        if fmt == OutputFormat.JSON.value:
+            dumped = [
+                {
+                    **n.model_dump(mode="json"),
+                    "memory_utilization_pct": n.memory_utilization_pct,
+                    "scratch_utilization_pct": n.scratch_utilization_pct,
+                }
+                for n in nodes
+            ]
+            self._console.print(json.dumps(dumped, indent=2))
+            return
+
+        if fmt == OutputFormat.MARKDOWN.value:
+            lines = [
+                "| Node ID | Active Jobs | CPU % | Load Avg (1m) | RAM % | Scratch % | GPUs |",
+                "|---|---|---|---|---|---|---|",
+            ]
+            for n in nodes:
+                gpu_count = len(n.gpu_metrics)
+                lines.append(
+                    f"| {n.worker_id} | {n.active_jobs} | {n.cpu_utilization_pct}% | "
+                    f"{n.load_average[0]:.2f} | {n.memory_utilization_pct}% | {n.scratch_utilization_pct}% | {gpu_count} |"
+                )
+            self._console.print("\n".join(lines))
+            return
+
+        if fmt == OutputFormat.PLAIN.value:
+            for n in nodes:
+                self._console.print(
+                    f"NODE={n.worker_id} ACTIVE={n.active_jobs} CPU={n.cpu_utilization_pct}% "
+                    f"RAM={n.memory_utilization_pct}% SCRATCH={n.scratch_utilization_pct}%"
+                )
+            return
+
+        table = Table(title="Compute Nodes Telemetry", border_style="blue")
+        table.add_column("Node ID", style="bold cyan")
+        table.add_column("Active Jobs", justify="right")
+        table.add_column("CPU %", justify="right")
+        table.add_column("Load Avg", justify="right")
+        table.add_column("RAM Used / Total", justify="right")
+        table.add_column("Scratch Used / Total", justify="right")
+        table.add_column("GPUs", justify="center")
+
+        for n in nodes:
+            gpu_str = (
+                f"[green]{len(n.gpu_metrics)} ({n.gpu_metrics[0].model})[/]"
+                if n.gpu_metrics
+                else "[dim]none[/]"
+            )
+            table.add_row(
+                n.worker_id,
+                str(n.active_jobs),
+                f"{n.cpu_utilization_pct}%",
+                f"{n.load_average[0]:.2f}, {n.load_average[1]:.2f}",
+                f"{n.memory_used_mb}MB / {n.memory_total_mb}MB ({n.memory_utilization_pct}%)",
+                f"{n.scratch_used_mb}MB / {n.scratch_total_mb}MB ({n.scratch_utilization_pct}%)",
+                gpu_str,
+            )
+        self._console.print(table)
+
+    def build_top_dashboard(
+        self,
+        stats: ClusterStatsReport,
+        nodes: list[NodeTelemetryPulse],
+        jobs: list[JobSpec],
+    ) -> Group:
+        """Construct composite Rich renderable group for the hq top dashboard.
+
+        Args:
+            stats: High-level cluster queue statistics.
+            nodes: Telemetry pulses from active compute nodes.
+            jobs: List of currently tracked jobs across runs.
+
+        Returns:
+            Rich Group containing cluster summary, worker nodes, and active jobs.
+
+        Notes/Architectural Intent:
+            Composes multiple distinct tables into a single atomic renderable suitable
+            for Rich Live dynamic updates or one-off terminal inspection.
+        """
+        from hexaqueue_core.domain.lifecycle import JobState
+
+        stats_table = Table(
+            title=f"Hexaqueue Cluster Summary ({stats.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')})",
+            border_style="cyan",
+            expand=True,
+        )
+        stats_table.add_column("Runs", justify="center")
+        stats_table.add_column("Total Jobs", justify="center")
+        stats_table.add_column("Running", justify="center", style="green")
+        stats_table.add_column("Pending", justify="center", style="yellow")
+        stats_table.add_column("Blocked", justify="center", style="magenta")
+        stats_table.add_column("Completed", justify="center", style="bold green")
+        stats_table.add_column("Failed", justify="center", style="bold red")
+        stats_table.add_column("Active Workers", justify="center", style="blue")
+        stats_table.add_row(
+            str(stats.total_runs),
+            str(stats.total_jobs),
+            str(stats.running_jobs),
+            str(stats.pending_jobs),
+            str(stats.blocked_jobs),
+            str(stats.completed_jobs),
+            str(stats.failed_jobs),
+            str(stats.active_workers),
+        )
+
+        nodes_table = Table(title="Worker Nodes", border_style="blue", expand=True)
+        nodes_table.add_column("Node ID", style="bold cyan")
+        nodes_table.add_column("Active Jobs", justify="right")
+        nodes_table.add_column("CPU %", justify="right")
+        nodes_table.add_column("RAM %", justify="right")
+        nodes_table.add_column("Scratch %", justify="right")
+        nodes_table.add_column("GPUs", justify="center")
+        for n in nodes:
+            gpu_str = str(len(n.gpu_metrics)) if n.gpu_metrics else "none"
+            nodes_table.add_row(
+                n.worker_id,
+                str(n.active_jobs),
+                f"{n.cpu_utilization_pct}%",
+                f"{n.memory_utilization_pct}%",
+                f"{n.scratch_utilization_pct}%",
+                gpu_str,
+            )
+
+        jobs_table = Table(
+            title="Active & Queued Jobs (Top 10)", border_style="green", expand=True
+        )
+        jobs_table.add_column("Job ID", style="bold")
+        jobs_table.add_column("Run ID", style="dim")
+        jobs_table.add_column("Name")
+        jobs_table.add_column("State")
+        jobs_table.add_column("Command")
+
+        def _sort_key(j: JobSpec) -> int:
+            order = {
+                JobState.RUNNING: 0,
+                JobState.PENDING: 1,
+                JobState.BLOCKED: 2,
+                JobState.DONE: 3,
+            }
+            return order.get(j.state, 4)
+
+        sorted_jobs = sorted(jobs, key=_sort_key)[:10]
+        for j in sorted_jobs:
+            state_style = (
+                "green"
+                if j.state == JobState.RUNNING
+                else (
+                    "yellow"
+                    if j.state == JobState.PENDING
+                    else ("magenta" if j.state == JobState.BLOCKED else "dim")
+                )
+            )
+            jobs_table.add_row(
+                j.id,
+                j.run_id,
+                j.name,
+                f"[{state_style}]{j.state.value}[/]",
+                j.command,
+            )
+
+        return Group(stats_table, nodes_table, jobs_table)
+
+    def render_top_dashboard(
+        self,
+        stats: ClusterStatsReport,
+        nodes: list[NodeTelemetryPulse],
+        jobs: list[JobSpec],
+    ) -> None:
+        """Render composite top dashboard to the console.
+
+        Args:
+            stats: High-level cluster queue statistics.
+            nodes: Telemetry pulses from active compute nodes.
+            jobs: List of currently tracked jobs across runs.
+
+        Notes/Architectural Intent:
+            Directly outputs composite dashboard to configured console.
+        """
+        self._console.print(self.build_top_dashboard(stats, nodes, jobs))
