@@ -8,11 +8,17 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 
 from hexaqueue_cli.domain.models import ClusterStatsReport
+from hexaqueue_core.domain.collateral import (
+    CollateralBundle,
+    CollateralKind,
+    CollateralTier,
+)
 from hexaqueue_core.domain.explainability import (
     FairShareTreeReport,
     SchedulingDecisionReport,
 )
 from hexaqueue_core.domain.job import JobSpec
+from hexaqueue_core.domain.suite import SuiteSpec
 from hexaqueue_core.ports.logging import LogChunk
 from hexaqueue_server.domain.models import RunStatusReport, RunSubmission
 from hexaqueue_worker.domain.pty import PtySessionInfo, PtySessionRequest
@@ -27,6 +33,15 @@ class ClientPort(ABC):
         """Submit a pipeline run."""
 
     @abstractmethod
+    async def submit_suite(
+        self,
+        suite: SuiteSpec,
+        user_id: str = "default",
+        elevate: bool = False,
+    ) -> RunStatusReport:
+        """Submit a hierarchical suite pipeline run."""
+
+    @abstractmethod
     async def get_run_status(self, run_id: str) -> RunStatusReport:
         """Get aggregate run status."""
 
@@ -39,19 +54,27 @@ class ClientPort(ABC):
         """List all registered jobs across runs."""
 
     @abstractmethod
-    async def cancel_run(self, run_id: str) -> RunStatusReport:
+    async def cancel_run(
+        self, run_id: str, user_id: str = "default", elevate: bool = False
+    ) -> RunStatusReport:
         """Cancel a pipeline run."""
 
     @abstractmethod
-    async def cancel_job(self, job_id: str) -> JobSpec:
+    async def cancel_job(
+        self, job_id: str, user_id: str = "default", elevate: bool = False
+    ) -> JobSpec:
         """Cancel an individual job."""
 
     @abstractmethod
-    async def hold_job(self, job_id: str) -> JobSpec:
+    async def hold_job(
+        self, job_id: str, user_id: str = "default", elevate: bool = False
+    ) -> JobSpec:
         """Place an administrative hold on a job."""
 
     @abstractmethod
-    async def release_job(self, job_id: str) -> JobSpec:
+    async def release_job(
+        self, job_id: str, user_id: str = "default", elevate: bool = False
+    ) -> JobSpec:
         """Release an administrative hold on a job."""
 
     @abstractmethod
@@ -94,6 +117,30 @@ class ClientPort(ABC):
         self, request: PtySessionRequest, job_owner: str = "default"
     ) -> PtySessionInfo:
         """Create an interactive terminal PTY session inside a running job."""
+
+    @abstractmethod
+    async def register_collateral(
+        self,
+        name: str,
+        size_bytes: int,
+        checksum_sha256: str,
+        tier: CollateralTier = CollateralTier.TEMPORARY,
+        kind: CollateralKind = CollateralKind.BUNDLE,
+        target_path: str = "",
+        user_id: str = "default",
+        elevate: bool = False,
+    ) -> CollateralBundle:
+        """Register and stage a collateral asset."""
+
+    @abstractmethod
+    async def create_bastion_session(
+        self,
+        node_id: str,
+        session_id: str = "",
+        user_id: str = "default",
+        elevate: bool = False,
+    ) -> PtySessionInfo:
+        """Create an administrative bastion terminal session."""
 
 
 __all__ = [

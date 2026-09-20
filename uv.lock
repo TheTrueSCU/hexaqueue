@@ -856,7 +856,11 @@ version = "0.3.0"
 source = { editable = "packages/hexaqueue_dashboard" }
 dependencies = [
     { name = "hexaqueue-core" },
+    { name = "hexaqueue-server" },
+    { name = "hexaqueue-worker" },
     { name = "hexastack-auth" },
+    { name = "hexastack-core" },
+    { name = "hexastack-cqrs" },
     { name = "hexastack-fastapi" },
     { name = "hexastack-grpc" },
 ]
@@ -864,7 +868,11 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "hexaqueue-core", editable = "packages/hexaqueue_core" },
+    { name = "hexaqueue-server", editable = "packages/hexaqueue_server" },
+    { name = "hexaqueue-worker", editable = "packages/hexaqueue_worker" },
     { name = "hexastack-auth", specifier = ">=0.6.0" },
+    { name = "hexastack-core", specifier = ">=0.6.0" },
+    { name = "hexastack-cqrs", specifier = ">=0.6.0" },
     { name = "hexastack-fastapi", specifier = ">=0.6.0" },
     { name = "hexastack-grpc", specifier = ">=0.6.0" },
 ]

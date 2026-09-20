@@ -8,19 +8,50 @@ Notes/Architectural Intent:
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from uuid import uuid4
 
 from hexaqueue_cli.domain.models import ClusterStatsReport
 from hexaqueue_cli.domain.session import LocalCliSession, get_default_session
 from hexaqueue_cli.ports.client import ClientPort
+from hexaqueue_core.domain.collateral import (
+    CollateralBundle,
+    CollateralKind,
+    CollateralState,
+    CollateralTier,
+)
+from hexaqueue_core.domain.exceptions import PermissionDeniedError
 from hexaqueue_core.domain.explainability import (
     FairShareTreeReport,
     SchedulingDecisionReport,
 )
 from hexaqueue_core.domain.job import JobSpec
+from hexaqueue_core.domain.run import RunSpec
+from hexaqueue_core.domain.suite import SuiteCompiler, SuiteSpec
 from hexaqueue_core.ports.logging import LogChunk
 from hexaqueue_server.domain.models import RunStatusReport, RunSubmission
 from hexaqueue_worker.domain.pty import PtySessionInfo, PtySessionRequest
 from hexaqueue_worker.domain.telemetry import NodeTelemetryPulse
+
+
+def _extract_job_owner(job: JobSpec) -> str:
+    """Extract owner tag or env from job specification."""
+    for tag in job.tags:
+        if tag.startswith("owner:"):
+            return tag.split(":", 1)[1]
+    return job.env.get("HEXAQUEUE_OWNER", "default")
+
+
+def _check_job_mutation_permission(
+    job: JobSpec, user_id: str, elevate: bool, action_name: str
+) -> None:
+    """Verify that caller has permission to mutate the job."""
+    owner = _extract_job_owner(job)
+    if owner != "default" and owner != user_id and not elevate:
+        msg = (
+            f"Permission denied: You are not the owner of job '{job.id}' (owned by '{owner}'). "
+            f"To {action_name} this job, explicit administrative elevation (--admin / elevate=true) is required."
+        )
+        raise PermissionDeniedError(msg)
 
 
 class LocalClientAdapter(ClientPort):
@@ -31,6 +62,31 @@ class LocalClientAdapter(ClientPort):
 
     async def submit_run(self, submission: RunSubmission) -> RunStatusReport:
         """Submit a pipeline run to local in-process controller."""
+        return await self._session.controller.submit_run(submission)
+
+    async def submit_suite(
+        self,
+        suite: SuiteSpec,
+        user_id: str = "default",
+        elevate: bool = False,
+    ) -> RunStatusReport:
+        """Submit a hierarchical suite pipeline run to local controller."""
+        compiler = SuiteCompiler()
+        result = compiler.compile(suite, run_id=suite.id)
+        run_spec = RunSpec(
+            id=suite.id,
+            name=suite.name or suite.id,
+            tags=[f"owner:{user_id}"],
+        )
+        dependencies = {
+            child_id: [dep.parent_job_id for dep in deps]
+            for child_id, deps in result.dependencies.items()
+        }
+        submission = RunSubmission(
+            run_spec=run_spec,
+            jobs=result.jobs,
+            dependencies=dependencies,
+        )
         return await self._session.controller.submit_run(submission)
 
     async def get_run_status(self, run_id: str) -> RunStatusReport:
@@ -45,20 +101,39 @@ class LocalClientAdapter(ClientPort):
         """List all registered jobs across runs."""
         return await self._session.controller.list_jobs()
 
-    async def cancel_run(self, run_id: str) -> RunStatusReport:
+    async def cancel_run(
+        self, run_id: str, user_id: str = "default", elevate: bool = False
+    ) -> RunStatusReport:
         """Cancel run in local in-process controller."""
+        if not elevate and user_id != "default":
+            jobs = await self._session.controller.list_jobs()
+            run_jobs = [j for j in jobs if j.run_id == run_id]
+            for j in run_jobs:
+                _check_job_mutation_permission(j, user_id, elevate, "cancel run")
         return await self._session.controller.cancel_run(run_id)
 
-    async def cancel_job(self, job_id: str) -> JobSpec:
+    async def cancel_job(
+        self, job_id: str, user_id: str = "default", elevate: bool = False
+    ) -> JobSpec:
         """Cancel an individual job."""
+        job = await self._session.controller.get_job(job_id)
+        _check_job_mutation_permission(job, user_id, elevate, "cancel")
         return await self._session.controller.cancel_job(job_id)
 
-    async def hold_job(self, job_id: str) -> JobSpec:
+    async def hold_job(
+        self, job_id: str, user_id: str = "default", elevate: bool = False
+    ) -> JobSpec:
         """Place an administrative hold on a job."""
+        job = await self._session.controller.get_job(job_id)
+        _check_job_mutation_permission(job, user_id, elevate, "hold")
         return await self._session.controller.hold_job(job_id)
 
-    async def release_job(self, job_id: str) -> JobSpec:
+    async def release_job(
+        self, job_id: str, user_id: str = "default", elevate: bool = False
+    ) -> JobSpec:
         """Release an administrative hold on a job."""
+        job = await self._session.controller.get_job(job_id)
+        _check_job_mutation_permission(job, user_id, elevate, "release")
         return await self._session.controller.release_job(job_id)
 
     async def get_logs(self, job_id: str) -> list[LogChunk]:
@@ -170,6 +245,55 @@ class LocalClientAdapter(ClientPort):
         report = engine.explain_fairshare(datetime.now(UTC).timestamp())
         return redaction.redact_fairshare_tree(
             report, requesting_user=requesting_user, is_admin=is_admin
+        )
+
+    async def register_collateral(
+        self,
+        name: str,
+        size_bytes: int,
+        checksum_sha256: str,
+        tier: CollateralTier = CollateralTier.TEMPORARY,
+        kind: CollateralKind = CollateralKind.BUNDLE,
+        target_path: str = "",
+        user_id: str = "default",
+        elevate: bool = False,
+    ) -> CollateralBundle:
+        """Register and stage a collateral bundle."""
+        checksum = (
+            checksum_sha256 if len(checksum_sha256) == 64 else checksum_sha256.zfill(64)
+        )
+        return CollateralBundle(
+            id=f"col-{uuid4().hex[:8]}",
+            job_id="global",
+            filename=name,
+            size_bytes=size_bytes,
+            sha256_checksum=checksum,
+            tier=tier,
+            kind=kind,
+            state=CollateralState.REGISTERED,
+            staging_uri=f"s3://staging/collateral/{name}",
+        )
+
+    async def create_bastion_session(
+        self,
+        node_id: str,
+        session_id: str = "",
+        user_id: str = "default",
+        elevate: bool = False,
+    ) -> PtySessionInfo:
+        """Create administrative bastion session (requires elevation)."""
+        if not elevate:
+            msg = (
+                f"Permission denied: Bastion shell access on node '{node_id}' "
+                "requires explicit administrative elevation (--admin)."
+            )
+            raise PermissionDeniedError(msg)
+        return PtySessionInfo(
+            session_id=session_id or f"bastion-{uuid4().hex[:8]}",
+            job_id=f"bastion-{node_id}",
+            user_id=user_id,
+            pid=99999,
+            is_active=True,
         )
 
 

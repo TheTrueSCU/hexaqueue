@@ -132,3 +132,55 @@ def test_cli_run_submit_free_tier(tmp_path: Path) -> None:
     )
     assert res.exit_code == 0
     assert "submitted" in res.stdout
+
+
+def test_cli_permission_elevation_for_cross_user_mutations(tmp_path: Path) -> None:
+    """Verify that mutating another user's job requires explicit --admin elevation."""
+    data = {
+        "run": {"id": "run-owned", "tags": ["owner:alice"]},
+        "jobs": [
+            {
+                "id": "job-alice-1",
+                "command": "sleep 10",
+                "tags": ["owner:alice"],
+            }
+        ],
+    }
+    yaml_file = tmp_path / "owned_run.yaml"
+    with yaml_file.open("w") as f:
+        yaml.safe_dump(data, f)
+
+    submit_res = runner.invoke(app, ["run", "submit", str(yaml_file)])
+    assert submit_res.exit_code == 0
+
+    # 1. Bob attempts to hold Alice's job without --admin -> denied
+    bob_hold_denied = runner.invoke(app, ["hold", "job-alice-1", "--user", "bob"])
+    assert bob_hold_denied.exit_code == 1
+    assert "Permission denied" in bob_hold_denied.stdout
+    assert "--admin" in bob_hold_denied.stdout
+
+    # 2. Bob holds Alice's job with positive --admin elevation -> succeeds
+    bob_hold_elevated = runner.invoke(
+        app, ["hold", "job-alice-1", "--user", "bob", "--admin"]
+    )
+    assert bob_hold_elevated.exit_code == 0
+    assert "placed on administrative hold" in bob_hold_elevated.stdout
+
+    # 3. Bob releases Alice's job with positive --admin elevation -> succeeds
+    bob_rel_elevated = runner.invoke(
+        app, ["release", "job-alice-1", "--user", "bob", "--admin"]
+    )
+    assert bob_rel_elevated.exit_code == 0
+    assert "released from hold" in bob_rel_elevated.stdout
+
+    # 4. Bob cancels Alice's job without --admin -> denied
+    bob_cancel_denied = runner.invoke(app, ["cancel", "job-alice-1", "--user", "bob"])
+    assert bob_cancel_denied.exit_code == 1
+    assert "Permission denied" in bob_cancel_denied.stdout
+
+    # 5. Bob cancels Alice's job with --admin -> succeeds
+    bob_cancel_elevated = runner.invoke(
+        app, ["cancel", "job-alice-1", "--user", "bob", "--admin"]
+    )
+    assert bob_cancel_elevated.exit_code == 0
+    assert "cancelled" in bob_cancel_elevated.stdout
