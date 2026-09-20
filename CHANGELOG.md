@@ -1,5 +1,36 @@
 # CHANGELOG
 
+## v0.4.0 (2026-09-20)
+
+### Highlights & Features
+* **Comprehensive CLI Expansion & Administrative Elevation (`hexaqueue-cli`)**:
+  * Positive administrative elevation (`--admin`) required for privileged and destructive operations (`hq cancel`, `hq purge`, `hq workers drain`, `hq worker kill`).
+  * Added `hq why` explainability command inspecting root-cause waiting reasons and placement barriers.
+  * Added `hq top` real-time cluster telemetry console and interactive operator dashboard.
+  * Added `hq schedule` cron/interval management, `hq workers` pool inspection, and `hq node` status commands.
+  * Standardized surface parity and Rich formatting across all CLI subcommands.
+* **Cron, Interval & One-Shot Scheduling Engine (`hexaqueue-server`, `hexaqueue-core`)**:
+  * Persistent cron, interval, and deferred one-shot workload dispatchers.
+  * Misfire grace period handling, overlapping execution guards, and dynamic schedule lifecycle management.
+* **Dynamic Worker Pools, Autoscale & Draining (`hexaqueue-worker`, `hexaqueue-server`)**:
+  * Coordinated worker heartbeats, dynamic worker pool autoscaling, and graceful node draining.
+  * Workload eviction and reassignment on spot preemption or worker health failure.
+* **Real-Time SSE Log Streaming & Multiplexing (`hexaqueue-server`, `hexaqueue-cli`)**:
+  * Server-Sent Events (SSE) log streaming adapter with multi-consumer channel multiplexing.
+  * Live log tailing in the CLI via `hq logs --follow` with zero-delay chunk buffering.
+* **Containerized Execution Adapters (`hexaqueue-worker`)**:
+  * Pluggable container execution adapters for Docker, Podman, and Apptainer (Singularity).
+  * Enforced container rootless execution, user namespace mapping, and volume isolation.
+* **Vulnerability & Security Gate Scanner (`hexaqueue-scanner`)**:
+  * Integrated Trivy and Grype static vulnerability and secret analysis adapters.
+  * Automated security gating blocking compromised images and non-compliant execution collateral.
+* **Free-Tier Limits & Resource Clamping (`hexaqueue-core`)**:
+  * Enforced CPU, memory, and concurrency rate limits for unprivileged free-tier tenants.
+  * Clamped budget accounting preventing multi-tenant resource starvation.
+* **Universal Agent Guardrails Integration**:
+  * Upgraded governance engine to `hexaqual>=0.5.0` with universal `.agents/` rules, workflows, and skills synchronization.
+  * Configured positive administrative elevation rule (`.agents/rules/hexaqueue-elevation.md`).
+
 ## v0.3.0 (2026-09-17)
 
 ### Highlights & Features

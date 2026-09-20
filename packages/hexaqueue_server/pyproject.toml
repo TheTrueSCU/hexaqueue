@@ -1,6 +1,6 @@
 [project]
 name = "hexaqueue-server"
-version = "0.3.0"
+version = "0.4.0"
 description = "Hexaqueue Server - High-Availability Central Controller and Scheduler Engine"
 readme = "README.md"
 license = "Apache-2.0"

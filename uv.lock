@@ -715,7 +715,7 @@ wheels = [
 
 [[package]]
 name = "hexaqual"
-version = "0.4.2"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "complexipy" },
@@ -732,9 +732,9 @@ dependencies = [
     { name = "rich" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9a/8e/180a1c2c30534e59d149db12df01d952ec5f412639476481e1c255f3e247/hexaqual-0.4.2.tar.gz", hash = "sha256:ed8982ec4d3eb988ef29c6e5bf818ff67b53a818aaf0ffe172837f02b9a02b52", size = 310315, upload-time = "2026-09-17T15:35:10.685Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7a/b7/72c0499b88828ac0a144fefe7262aa197cee7becdd3709f45e53fba9261b/hexaqual-0.5.0.tar.gz", hash = "sha256:0396b1ca8ca88c842d0062f85b3c612d744cc309b1badf5e779c68ded5bc0fcf", size = 341852, upload-time = "2026-09-20T05:34:05.977Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8e/ef/14d81332f0613f38f5289b052ef840ef158df0f05acd1c8bdcfab144b73a/hexaqual-0.4.2-py3-none-any.whl", hash = "sha256:63f22cb1c257896144eacb052721b01eed3477794bd7e6338c8219ae505574c6", size = 220108, upload-time = "2026-09-17T15:35:09.426Z" },
+    { url = "https://files.pythonhosted.org/packages/fe/55/27f053f563b396d02f4d8a5329af47746f489c60fd1ecb96d240b422d6db/hexaqual-0.5.0-py3-none-any.whl", hash = "sha256:d4bf6ba830e2753e76d69ee037b329dbac34e944393628d4795f19191121c257", size = 252659, upload-time = "2026-09-20T05:34:04.42Z" },
 ]
 
 [package.optional-dependencies]
@@ -746,7 +746,7 @@ all = [
 
 [[package]]
 name = "hexaqueue"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "packages/hexaqueue" }
 dependencies = [
     { name = "hexaqueue-cli" },
@@ -781,7 +781,7 @@ requires-dist = [
 
 [[package]]
 name = "hexaqueue-cli"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "packages/hexaqueue_cli" }
 dependencies = [
     { name = "hexaqueue-core" },
@@ -814,7 +814,7 @@ requires-dist = [
 
 [[package]]
 name = "hexaqueue-collateral"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "packages/hexaqueue_collateral" }
 dependencies = [
     { name = "hexaqueue-core" },
@@ -835,7 +835,7 @@ requires-dist = [
 
 [[package]]
 name = "hexaqueue-core"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "packages/hexaqueue_core" }
 dependencies = [
     { name = "hexastack-core" },
@@ -852,7 +852,7 @@ requires-dist = [
 
 [[package]]
 name = "hexaqueue-dashboard"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "packages/hexaqueue_dashboard" }
 dependencies = [
     { name = "hexaqueue-core" },
@@ -879,7 +879,7 @@ requires-dist = [
 
 [[package]]
 name = "hexaqueue-github-runner"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "packages/hexaqueue_github_runner" }
 dependencies = [
     { name = "hexaqueue-core" },
@@ -890,7 +890,7 @@ requires-dist = [{ name = "hexaqueue-core", editable = "packages/hexaqueue_core"
 
 [[package]]
 name = "hexaqueue-gitlab-runner"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "packages/hexaqueue_gitlab_runner" }
 dependencies = [
     { name = "hexaqueue-core" },
@@ -901,7 +901,7 @@ requires-dist = [{ name = "hexaqueue-core", editable = "packages/hexaqueue_core"
 
 [[package]]
 name = "hexaqueue-kueue"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "packages/hexaqueue_kueue" }
 dependencies = [
     { name = "hexaqueue-core" },
@@ -912,7 +912,7 @@ requires-dist = [{ name = "hexaqueue-core", editable = "packages/hexaqueue_core"
 
 [[package]]
 name = "hexaqueue-monitor"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "packages/hexaqueue_monitor" }
 dependencies = [
     { name = "hexaqueue-core" },
@@ -931,7 +931,7 @@ requires-dist = [
 
 [[package]]
 name = "hexaqueue-scanner"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "packages/hexaqueue_scanner" }
 dependencies = [
     { name = "hexaqueue-core" },
@@ -952,7 +952,7 @@ requires-dist = [
 
 [[package]]
 name = "hexaqueue-server"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "packages/hexaqueue_server" }
 dependencies = [
     { name = "hexaqueue-core" },
@@ -981,7 +981,7 @@ requires-dist = [
 
 [[package]]
 name = "hexaqueue-worker"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "packages/hexaqueue_worker" }
 dependencies = [
     { name = "hexaqueue-core" },
@@ -1002,7 +1002,7 @@ requires-dist = [
 
 [[package]]
 name = "hexaqueue-workflow"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "packages/hexaqueue_workflow" }
 dependencies = [
     { name = "hexaflow" },
@@ -1027,7 +1027,7 @@ requires-dist = [
 
 [[package]]
 name = "hexaqueue-workspace"
-version = "0.3.0"
+version = "0.4.0"
 source = { virtual = "." }
 dependencies = [
     { name = "hexaqueue" },
@@ -1069,7 +1069,7 @@ dev = [
     { name = "deptry", specifier = ">=0.23.0" },
     { name = "detect-secrets", specifier = ">=1.5.0" },
     { name = "faker", specifier = ">=33.0.0" },
-    { name = "hexaqual", extras = ["all"], specifier = ">=0.4.2" },
+    { name = "hexaqual", extras = ["all"], specifier = ">=0.5.0" },
     { name = "hypothesis", specifier = ">=6.120.0" },
     { name = "import-linter", specifier = ">=2.13" },
     { name = "inline-snapshot", specifier = ">=0.35.0" },
