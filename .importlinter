@@ -1,0 +1,74 @@
+[importlinter]
+root_packages =
+    hexaqueue
+    hexaqueue_cli
+    hexaqueue_collateral
+    hexaqueue_core
+    hexaqueue_dashboard
+    hexaqueue_github_runner
+    hexaqueue_gitlab_runner
+    hexaqueue_kueue
+    hexaqueue_monitor
+    hexaqueue_scanner
+    hexaqueue_server
+    hexaqueue_worker
+    hexaqueue_workflow
+
+# ----------------------------------------------------------------------
+# 1. Package Dependency Hierarchy
+# ----------------------------------------------------------------------
+[importlinter:contract:package-hierarchy]
+name = Package dependency hierarchy
+type = layers
+layers =
+    hexaqueue_dashboard | hexaqueue_cli
+    hexaqueue_workflow
+    hexaqueue_github_runner | hexaqueue_gitlab_runner | hexaqueue_kueue
+    hexaqueue_server
+    hexaqueue_worker | hexaqueue_scanner | hexaqueue_monitor
+    hexaqueue_collateral
+    hexaqueue_core
+
+# ----------------------------------------------------------------------
+# 2. Core Isolation (hexaqueue_core must be completely independent)
+# ----------------------------------------------------------------------
+[importlinter:contract:core-isolation]
+name = hexaqueue_core must not import any other hexaqueue package
+type = forbidden
+source_modules =
+    hexaqueue_core
+forbidden_modules =
+    hexaqueue
+    hexaqueue_cli
+    hexaqueue_collateral
+    hexaqueue_dashboard
+    hexaqueue_github_runner
+    hexaqueue_gitlab_runner
+    hexaqueue_kueue
+    hexaqueue_monitor
+    hexaqueue_scanner
+    hexaqueue_server
+    hexaqueue_worker
+    hexaqueue_workflow
+
+# ----------------------------------------------------------------------
+# 3. Umbrella Package Isolation (No package imports from the umbrella)
+# ----------------------------------------------------------------------
+[importlinter:contract:umbrella-isolation]
+name = No subpackage should import from the umbrella hexaqueue package
+type = forbidden
+source_modules =
+    hexaqueue_cli
+    hexaqueue_collateral
+    hexaqueue_core
+    hexaqueue_dashboard
+    hexaqueue_github_runner
+    hexaqueue_gitlab_runner
+    hexaqueue_kueue
+    hexaqueue_monitor
+    hexaqueue_scanner
+    hexaqueue_server
+    hexaqueue_worker
+    hexaqueue_workflow
+forbidden_modules =
+    hexaqueue

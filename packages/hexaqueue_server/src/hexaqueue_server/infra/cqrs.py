@@ -22,7 +22,6 @@ from hexastack_cqrs.infra.registries.command import CommandRegistry
 from hexastack_cqrs.infra.registries.handler import HandlerRegistry
 from hexastack_cqrs.infra.registries.query import QueryRegistry
 
-from hexaqueue_cli.domain.models import ClusterStatsReport
 from hexaqueue_core.domain.collateral import (
     CollateralBundle,
     CollateralState,
@@ -30,6 +29,7 @@ from hexaqueue_core.domain.collateral import (
 from hexaqueue_core.domain.cqrs import (
     CancelJobCommand,
     CancelRunCommand,
+    ClusterStatsReport,
     CreateBastionSessionCommand,
     CreatePtySessionCommand,
     ExplainJobQuery,

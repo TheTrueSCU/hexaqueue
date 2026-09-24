@@ -36,3 +36,12 @@ repos:
       - id: hexaqual-architecture
       - id: hexaqual-agents
       - id: hexaqual-diagrams
+
+  - repo: local
+    hooks:
+      - id: import-linter
+        name: import-linter package hierarchy
+        entry: uv run lint-imports
+        language: system
+        pass_filenames: false
+        files: ^(packages/.*\.py|\.importlinter)$

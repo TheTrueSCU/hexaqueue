@@ -25,11 +25,11 @@ from hexastack_fastapi.adapters.dependencies import get_pipeline
 from hexastack_fastapi.infra import create_fastapi_app
 from rodi import Container
 
-from hexaqueue_cli.domain.models import ClusterStatsReport
 from hexaqueue_core.domain.collateral import CollateralBundle
 from hexaqueue_core.domain.cqrs import (
     CancelJobCommand,
     CancelRunCommand,
+    ClusterStatsReport,
     CreateBastionSessionCommand,
     CreatePtySessionCommand,
     ExplainJobQuery,

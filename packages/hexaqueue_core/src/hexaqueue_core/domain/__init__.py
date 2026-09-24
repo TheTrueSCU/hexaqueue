@@ -23,6 +23,7 @@ from hexaqueue_core.domain.container import (
 from hexaqueue_core.domain.cqrs import (
     CancelJobCommand,
     CancelRunCommand,
+    ClusterStatsReport,
     CreateBastionSessionCommand,
     CreatePtySessionCommand,
     ExplainJobQuery,
@@ -165,6 +166,7 @@ __all__ = [
     "CancelJobCommand",
     "CancelRunCommand",
     "ChecksumMismatchError",
+    "ClusterStatsReport",
     "CollateralBundle",
     "CollateralKind",
     "CollateralState",

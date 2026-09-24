@@ -9,8 +9,10 @@ Notes/Architectural Intent:
     (`elevate=True`) when mutating or inspecting cross-tenant resources.
 """
 
+from datetime import UTC, datetime
+
 from hexastack_core.domain import Command, Query
-from pydantic import ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from hexaqueue_core.domain.collateral import CollateralKind, CollateralTier
 from hexaqueue_core.domain.job import JobSpec
@@ -335,6 +337,43 @@ class GetFairShareTreeQuery(Query):
     )
 
 
+class ClusterStatsReport(BaseModel):
+    """Aggregate cluster state, backlog, and worker capacity metrics.
+
+    Args:
+        active_workers: Count of active worker daemons.
+        blocked_jobs: Count of blocked jobs.
+        completed_jobs: Count of completed jobs.
+        failed_jobs: Count of failed jobs.
+        pending_jobs: Count of pending jobs.
+        running_jobs: Count of running jobs.
+        timestamp: Stats snapshot timestamp.
+        total_jobs: Total jobs count.
+        total_runs: Total runs count.
+
+    Notes/Architectural Intent:
+        Represents aggregate queue backlog and compute capacity snapshot returned
+        by GetQueueStatsQuery.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    active_workers: int = Field(
+        default=1, ge=0, description="Active worker daemons count"
+    )
+    blocked_jobs: int = Field(default=0, ge=0, description="Blocked jobs count")
+    completed_jobs: int = Field(default=0, ge=0, description="Completed jobs count")
+    failed_jobs: int = Field(default=0, ge=0, description="Failed jobs count")
+    pending_jobs: int = Field(default=0, ge=0, description="Pending jobs count")
+    running_jobs: int = Field(default=0, ge=0, description="Running jobs count")
+    timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        description="Stats snapshot timestamp",
+    )
+    total_jobs: int = Field(default=0, ge=0, description="Total jobs count")
+    total_runs: int = Field(default=0, ge=0, description="Total runs count")
+
+
 class GetQueueStatsQuery(Query):
     """Query to retrieve aggregate cluster queue backlog and utilization statistics.
 
@@ -412,6 +451,7 @@ class StreamLogsQuery(Query):
 __all__ = [
     "CancelJobCommand",
     "CancelRunCommand",
+    "ClusterStatsReport",
     "CreateBastionSessionCommand",
     "CreatePtySessionCommand",
     "ExplainJobQuery",

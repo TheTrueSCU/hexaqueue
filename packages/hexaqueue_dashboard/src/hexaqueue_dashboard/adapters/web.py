@@ -13,11 +13,11 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from hexastack_cqrs.infra.pipeline import ExecutionPipeline
 
-from hexaqueue_cli.domain.models import ClusterStatsReport
 from hexaqueue_core.domain.collateral import CollateralBundle
 from hexaqueue_core.domain.cqrs import (
     CancelJobCommand,
     CancelRunCommand,
+    ClusterStatsReport,
     CreateBastionSessionCommand,
     CreatePtySessionCommand,
     ExplainJobQuery,
