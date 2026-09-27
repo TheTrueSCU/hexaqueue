@@ -100,6 +100,10 @@ async def test_gpu_allocation_by_model_and_vram(sample_gpus: list[GpuDevice]) ->
     indices = alloc_h100.device_indices
     assert indices == [2]
 
+    # Request with exact VRAM requirement matching available devices
+    alloc_exact = await mgr.allocate_gpus("job-exact", count=1, min_vram_mb=81920)
+    assert len(alloc_exact.device_indices) == 1
+
     # Request with high VRAM requirement exceeding available devices
     with pytest.raises(GpuAllocationError, match="Insufficient GPU capacity"):
         await mgr.allocate_gpus("job-oversized", count=1, min_vram_mb=100_000)
@@ -115,6 +119,15 @@ async def test_gpu_allocation_zero_count(sample_gpus: list[GpuDevice]) -> None:
 
     assert indices == []
     assert env == ""
+    assert "job-cpu" not in mgr._allocations
+
+    # Second allocation with count=0 for same job succeeds because not registered
+    alloc2 = await mgr.allocate_gpus("job-cpu", count=0)
+    assert alloc2.device_indices == []
+
+    # Negative count returns empty allocation as well
+    alloc_neg = await mgr.allocate_gpus("job-neg", count=-1)
+    assert alloc_neg.device_indices == []
 
 
 @pytest.mark.asyncio
@@ -166,8 +179,17 @@ def test_nvml_adapter_discover_devices_success(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(shutil, "which", lambda cmd: "/usr/bin/nvidia-smi")
 
-    csv_output = "0, NVIDIA RTX 4090, GPU-test-uuid, 24576, 20480\n"
-    monkeypatch.setattr(subprocess, "check_output", lambda *args, **kwargs: csv_output)
+    # Incomplete line with 4 columns must be skipped, 5 columns parsed
+    csv_output = (
+        "0, GPU-incomplete, uuid, 1000\n"
+        "0, NVIDIA RTX 4090, GPU-test-uuid, 24576, 20480\n"
+    )
+
+    def mock_check_output(*args, **kwargs):
+        assert kwargs.get("text") is True
+        return csv_output
+
+    monkeypatch.setattr(subprocess, "check_output", mock_check_output)
 
     devices = NvmlGpuDeviceManagerAdapter._discover_devices()
     count = len(devices)
@@ -181,13 +203,20 @@ def test_nvml_adapter_discover_devices_success(monkeypatch: pytest.MonkeyPatch) 
     assert name == "NVIDIA RTX 4090"
     assert total == 24576
     assert free == 20480
+    assert d.is_healthy is True
 
 
 def test_nvml_adapter_discover_devices_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify graceful handling when nvidia-smi command raises error."""
+    """Verify graceful handling when nvidia-smi command raises error or is missing."""
     import shutil
     import subprocess
 
+    # 1. Missing executable -> returns []
+    monkeypatch.setattr(shutil, "which", lambda cmd: None)
+    devices_none = NvmlGpuDeviceManagerAdapter._discover_devices()
+    assert devices_none == []
+
+    # 2. Subprocess error -> returns []
     monkeypatch.setattr(shutil, "which", lambda cmd: "/usr/bin/nvidia-smi")
 
     def mock_fail(*args, **kwargs):

@@ -42,6 +42,8 @@ def test_node_telemetry_pulse_utilization_properties() -> None:
     assert scratch_pct == 25.0
     active = pulse.active_jobs
     assert active == 3
+    validator = NodeTelemetryPulse.__dict__["validate_invariants"]
+    assert validator(pulse) is pulse
 
 
 def test_node_telemetry_pulse_empty_worker_id() -> None:

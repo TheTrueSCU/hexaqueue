@@ -115,7 +115,7 @@ class NvmeScratchStorageVolumeAdapter(StorageVolumePort):
                 and mount_path != self.collateral_cache_dir
                 and mount_path.exists()
             ):
-                shutil.rmtree(mount_path, ignore_errors=True)
+                shutil.rmtree(mount_path)
 
     def validate_shared_mounts(self) -> list[SharedVolumeMount]:
         """Verify that configured shared volume mounts exist on the host filesystem.

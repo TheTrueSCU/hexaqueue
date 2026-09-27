@@ -128,3 +128,116 @@ async def test_scratch_allocation_os_error(monkeypatch: pytest.MonkeyPatch) -> N
 
         with pytest.raises(StorageVolumeError, match="Failed to verify scratch quota"):
             await adapter.allocate_scratch(job_id="err-job", size_mb=10)
+
+
+@pytest.mark.asyncio
+async def test_scratch_cache_and_root_mkdir_exist_ok() -> None:
+    """Verify mkdir(exist_ok=True) behavior for cache_dir and allocate_scratch."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        adapter = NvmeScratchStorageVolumeAdapter(base_scratch_dir=tmp_dir)
+
+        # 1. Accessing collateral_cache_dir repeatedly succeeds
+        d1 = adapter.collateral_cache_dir
+        d2 = adapter.collateral_cache_dir
+        assert d1 == d2
+        assert d1.exists() is True
+
+        # 2. Repeated allocations with explicit base_dir succeed (exist_ok=True)
+        v1 = await adapter.allocate_scratch("j1", size_mb=1, base_dir=tmp_dir)
+        v2 = await adapter.allocate_scratch("j2", size_mb=1, base_dir=tmp_dir)
+        assert v1.mount_path != v2.mount_path
+
+
+@pytest.mark.asyncio
+async def test_scratch_exact_quota_match(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify allocation succeeds when requested size matches available capacity exactly."""
+    import shutil
+    from collections import namedtuple
+
+    Usage = namedtuple("Usage", ["total", "used", "free"])
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        adapter = NvmeScratchStorageVolumeAdapter(base_scratch_dir=tmp_dir)
+
+        # Exactly 500 MB free
+        monkeypatch.setattr(
+            shutil,
+            "disk_usage",
+            lambda p: Usage(
+                total=1000 * 1024 * 1024,
+                used=500 * 1024 * 1024,
+                free=500 * 1024 * 1024,
+            ),
+        )
+
+        vol = await adapter.allocate_scratch("j-exact", size_mb=500)
+        assert vol.size_mb == 500
+
+
+@pytest.mark.asyncio
+async def test_scratch_cleanup_guards_base_and_cache_dirs() -> None:
+    """Verify cleanup_scratch never deletes base directory or warm cache directory."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        adapter = NvmeScratchStorageVolumeAdapter(base_scratch_dir=tmp_dir)
+        cache_dir = adapter.collateral_cache_dir
+        assert cache_dir.exists() is True
+
+        # Maliciously map a volume to base_dir
+        adapter._allocations["vol-base"] = adapter._base_dir
+        await adapter.cleanup_scratch("vol-base")
+        assert adapter._base_dir.exists() is True
+
+        # Maliciously map a volume to cache_dir
+        adapter._allocations["vol-cache"] = cache_dir
+        await adapter.cleanup_scratch("vol-cache")
+        assert cache_dir.exists() is True
+
+
+def test_collateral_cache_dir_nested_and_exist_ok(tmp_path: Path) -> None:
+    """Verify collateral_cache_dir handles deep nested paths and repeated calls."""
+    deep_base = tmp_path / "deep" / "nested" / "base"
+    adapter = NvmeScratchStorageVolumeAdapter(base_scratch_dir=str(deep_base))
+    c1 = adapter.collateral_cache_dir
+    assert c1.exists() is True
+    # Repeated access with directory already existing (exist_ok=True)
+    c2 = adapter.collateral_cache_dir
+    assert c2 == c1
+
+
+@pytest.mark.asyncio
+async def test_allocate_scratch_nested_base_dir_and_exist_ok(tmp_path: Path) -> None:
+    """Verify allocate_scratch creates parents and succeeds if directory exists."""
+    adapter = NvmeScratchStorageVolumeAdapter(base_scratch_dir=str(tmp_path))
+    nested_override = tmp_path / "sub" / "scratch"
+    vol1 = await adapter.allocate_scratch(
+        job_id="j1", size_mb=10, base_dir=str(nested_override)
+    )
+    assert Path(vol1.mount_path).exists() is True
+    vol2 = await adapter.allocate_scratch(
+        job_id="j2", size_mb=10, base_dir=str(nested_override)
+    )
+    assert Path(vol2.mount_path).exists() is True
+
+
+@pytest.mark.asyncio
+async def test_scratch_quota_exceeded_integer_division(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Verify free_mb is computed with integer division and reported in error message."""
+    import shutil
+    from collections import namedtuple
+
+    Usage = namedtuple("Usage", ["total", "used", "free"])
+    monkeypatch.setattr(
+        shutil,
+        "disk_usage",
+        lambda p: Usage(
+            total=10000 * 1024 * 1024,
+            used=8500 * 1024 * 1024,
+            free=1500 * 1024 * 1024 + 500,  # 1500 MB + remainder
+        ),
+    )
+    adapter = NvmeScratchStorageVolumeAdapter(base_scratch_dir=str(tmp_path))
+    with pytest.raises(StorageVolumeError) as exc_info:
+        await adapter.allocate_scratch("j-div", size_mb=2000)
+    assert "available 1500 MB" in str(exc_info.value)

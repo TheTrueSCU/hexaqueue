@@ -77,3 +77,56 @@ def test_cgroup_config_defaults_and_validation() -> None:
 
     with pytest.raises(ValidationError):
         CgroupConfig(cgroup_name_prefix="")
+
+
+def test_cgroup_limits_zero_and_boundary_conditions() -> None:
+    """Verify exact zero and equality boundary conditions for CgroupLimits."""
+    val_limits = CgroupLimits.__dict__["validate_invariants"]
+    val_config = CgroupConfig.__dict__["validate_invariants"]
+
+    # 1. Zero values should format as '0', not 'max'
+    limits_zero = CgroupLimits(
+        cpu_quota_us=0,
+        cpu_period_us=100000,
+        memory_max_bytes=0,
+        memory_high_bytes=0,
+    )
+    assert limits_zero.cpu_max_str == "0 100000"
+    assert limits_zero.memory_max_str == "0"
+    assert limits_zero.memory_high_str == "0"
+    assert val_limits(limits_zero) is limits_zero
+
+    # 2. memory_high == memory_max is valid (not exceeding)
+    limits_eq = CgroupLimits(
+        cpu_quota_us=100000,
+        memory_max_bytes=1000,
+        memory_high_bytes=1000,
+    )
+    assert val_limits(limits_eq) is limits_eq
+
+    # 3. memory_high == -1 (unlimited) with positive memory_max is valid
+    limits_neg_high = CgroupLimits(
+        cpu_quota_us=100000,
+        memory_max_bytes=1000,
+        memory_high_bytes=-1,
+    )
+    assert val_limits(limits_neg_high) is limits_neg_high
+
+    # 4. positive memory_high with memory_max == -1 (unlimited) is valid
+    limits_neg_max = CgroupLimits(
+        cpu_quota_us=100000,
+        memory_max_bytes=-1,
+        memory_high_bytes=1000,
+    )
+    assert val_limits(limits_neg_max) is limits_neg_max
+
+    # 5. memory_high == memory_max + 1 triggers validation error
+    with pytest.raises(ValidationError):
+        CgroupLimits(
+            cpu_quota_us=100000,
+            memory_max_bytes=1000,
+            memory_high_bytes=1001,
+        )
+
+    config = CgroupConfig()
+    assert val_config(config) is config

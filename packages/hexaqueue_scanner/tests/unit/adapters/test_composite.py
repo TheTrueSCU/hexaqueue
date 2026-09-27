@@ -147,7 +147,26 @@ async def test_composite_generate_report(tmp_path: Path) -> None:
     has_entropy = "HighEntropyPayload" in reason
     assert has_entropy is True
     dur = report.duration_seconds
-    assert dur >= 0.0
+    assert 0.0 <= dur < 60.0
+
+
+@pytest.mark.asyncio
+async def test_composite_generate_report_all_clean(tmp_path: Path) -> None:
+    """Verify generate_report when all engines report clean."""
+    f = tmp_path / "clean_pkg.whl"
+    f.write_text("clean binary data")
+    bundle = _make_bundle(f)
+
+    e1 = MockEngine("EngineA", is_clean=True)
+    e2 = MockEngine("EngineB", is_clean=True)
+    adapter = CompositeQuarantineScannerAdapter(engines=[e1, e2])
+
+    report = await adapter.generate_report(bundle)
+    assert report.collateral_id == bundle.id
+    assert report.is_clean is True
+    assert report.quarantine_reason is None
+    assert len(report.results) == 2
+    assert 0.0 <= report.duration_seconds < 60.0
 
 
 @pytest.mark.asyncio

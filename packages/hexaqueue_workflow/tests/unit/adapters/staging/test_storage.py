@@ -193,8 +193,46 @@ def test_deserialize_payload_fallbacks() -> None:
     """Verify fallback paths in _deserialize_payload."""
     storage = InMemoryStorage()
     adapter = StoragePortArtifactStagingAdapter(storage=storage)
-
     # Unknown MIME type with JSON-compatible payload
     json_bytes = b'{"fallback": true}'
     decoded = adapter._deserialize_payload(json_bytes, "application/unknown")
     assert decoded == {"fallback": True}
+
+
+def test_staging_exact_threshold_boundary() -> None:
+    """Verify exact threshold boundary for should_stage and stage_artifact."""
+    storage = InMemoryStorage()
+    adapter = StoragePortArtifactStagingAdapter(storage=storage)
+    payload = "exact_bytes"
+    raw_bytes, _ = adapter._serialize_payload(payload)
+    exact_len = len(raw_bytes)
+
+    # Set threshold to exact len
+    config = DistributedWorkflowConfig(artifact_threshold_bytes=exact_len)
+    adapter = StoragePortArtifactStagingAdapter(storage=storage, config=config)
+
+    assert adapter.should_stage(payload) is True
+    res = adapter.stage_artifact("run-exact", "step-exact", payload)
+    assert isinstance(res, ArtifactReference)
+    assert res.size_bytes == exact_len
+
+
+def test_staging_canonical_uri_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify fallback to storage_key when storage.put returns empty/None."""
+    storage = InMemoryStorage()
+    config = DistributedWorkflowConfig(artifact_threshold_bytes=5)
+    adapter = StoragePortArtifactStagingAdapter(storage=storage, config=config)
+
+    monkeypatch.setattr(storage, "put", lambda key, data: "")
+    res = adapter.stage_artifact("run-fallback", "step-fb", "some large payload data")
+    assert isinstance(res, ArtifactReference)
+    assert res.storage_uri == "artifacts/run-fallback/step-fb.payload"
+
+
+def test_serialize_payload_allow_nan_false() -> None:
+    """Verify float('nan') is rejected by JSON (allow_nan=False) and falls back to pickle."""
+    storage = InMemoryStorage()
+    adapter = StoragePortArtifactStagingAdapter(storage=storage)
+
+    _, mime = adapter._serialize_payload(float("nan"))
+    assert mime == "application/x-python-pickle"

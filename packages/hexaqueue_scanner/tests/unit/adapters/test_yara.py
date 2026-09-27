@@ -123,6 +123,8 @@ async def test_yara_native_rules_mock(tmp_path: Path) -> None:
     mock_rules.match.return_value = []
     clean_res = await adapter.scan_file(test_file)
     assert clean_res.is_clean is True
+    assert clean_res.scanner_engine == "YARA-native"
+    assert clean_res.threat_name is None
 
     # Error case
     mock_rules.match.side_effect = RuntimeError("YARA match timeout")
@@ -138,17 +140,45 @@ def test_yara_initialization_with_mock_yara() -> None:
     mock_yara = MagicMock()
     mock_yara.compile = MagicMock(return_value="compiled_rules_handle")
 
+    # 1. Both inline and path
     cfg = YaraRuleConfig(
         inline_rules=['rule r { strings: $a = "test" condition: $a }'],
         rule_paths=["/etc/rules.yar"],
     )
-
     with patch("importlib.import_module", return_value=mock_yara):
         adapter = YaraRuleScannerAdapter(config=cfg)
+    assert adapter._compiled_yara_rules == "compiled_rules_handle"
+    assert mock_yara.compile.call_count == 1
 
-    compiled = adapter._compiled_yara_rules
-    assert compiled == "compiled_rules_handle"
-    mock_yara.compile.assert_called_once()
+    # 2. Only inline rules
+    mock_yara.compile.reset_mock()
+    cfg_inline = YaraRuleConfig(
+        inline_rules=['rule r { strings: $a = "test" condition: $a }'],
+        rule_paths=[],
+    )
+    with patch("importlib.import_module", return_value=mock_yara):
+        adapter_inline = YaraRuleScannerAdapter(config=cfg_inline)
+    assert adapter_inline._compiled_yara_rules == "compiled_rules_handle"
+    assert mock_yara.compile.call_count == 1
+
+    # 3. Only rule paths
+    mock_yara.compile.reset_mock()
+    cfg_paths = YaraRuleConfig(
+        inline_rules=[],
+        rule_paths=["/etc/rules.yar"],
+    )
+    with patch("importlib.import_module", return_value=mock_yara):
+        adapter_paths = YaraRuleScannerAdapter(config=cfg_paths)
+    assert adapter_paths._compiled_yara_rules == "compiled_rules_handle"
+    assert mock_yara.compile.call_count == 1
+
+    # 4. Neither inline nor paths
+    mock_yara.compile.reset_mock()
+    cfg_empty = YaraRuleConfig(inline_rules=[], rule_paths=[])
+    with patch("importlib.import_module", return_value=mock_yara):
+        adapter_empty = YaraRuleScannerAdapter(config=cfg_empty)
+    assert adapter_empty._compiled_yara_rules is None
+    mock_yara.compile.assert_not_called()
 
 
 @pytest.mark.asyncio

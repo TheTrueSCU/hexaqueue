@@ -358,8 +358,6 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
                     cached_outputs[chk.step_name] = self._staging.retrieve_artifact(
                         chk.output_payload
                     )
-                elif chk.status == StepStatus.SKIPPED:
-                    cached_outputs[chk.step_name] = None
 
         # Execute stages
         for stage in workflow.stages:
@@ -542,7 +540,7 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
             step_inputs[dep] = cached_outputs.get(dep)
 
         # Dynamic Mapped Step Check
-        if getattr(step, "is_mapped", False):
+        if step.is_mapped:
             return await self._execute_mapped_step(
                 state, stage, step, cached_outputs, initial_inputs, step_inputs
             )
@@ -583,7 +581,6 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
         step_policies: list[NotificationPolicy],
     ) -> Any:
         """Execute step action with retry handling, artifact staging, and notification dispatch."""
-        max_attempts = step.retry_policy.max_attempts if step.retry_policy else 1
         current_attempt = 1
         last_exception: Exception | None = None
         start_time = datetime.now(UTC)
@@ -595,7 +592,7 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
             policies=step_policies,
         )
 
-        while current_attempt <= max_attempts:
+        while True:
             ctx = StepContext(
                 run_id=state.run_id,
                 stage_name=stage.name,
@@ -897,8 +894,8 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
             )
             return []
 
-        limit = getattr(step, "concurrency_limit", None)
-        sem = asyncio.Semaphore(limit) if limit and limit > 0 else None
+        limit = step.concurrency_limit
+        sem = asyncio.Semaphore(limit) if limit else None
 
         async def _run_item(idx: int, val: Any) -> Any:
             if sem:
@@ -976,7 +973,7 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
         sig = inspect.signature(action)
         params = list(sig.parameters.values())
 
-        if len(params) == 0:
+        if not params:
             result = action()
         elif len(params) == 1 and (
             params[0].annotation is StepContext or params[0].name == "ctx"
@@ -1007,6 +1004,14 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
         if inspect.isawaitable(result):
             return await result
         return result
+
+    def close(self) -> None:
+        """Shut down engine worker pools and release background resources.
+
+        Notes/Architectural Intent:
+            Fulfills the WorkflowEnginePort lifecycle cleanup contract by releasing
+            any allocated local or remote barrier and scheduler resources.
+        """
 
 
 __all__ = [

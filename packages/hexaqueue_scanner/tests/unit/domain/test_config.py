@@ -25,6 +25,9 @@ def test_clamav_config_defaults() -> None:
     assert chunk == 262144
     max_bytes = cfg.max_stream_bytes
     assert max_bytes == 104857600
+    validator = ClamAvConfig.__dict__["validate_connection_target"]
+    validated = validator(cfg)
+    assert validated is cfg
 
 
 def test_clamav_config_tcp_mode() -> None:

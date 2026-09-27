@@ -1,6 +1,7 @@
 """Unit tests for collateral domain models."""
 
 import pytest
+from pydantic import ValidationError
 
 from hexaqueue_collateral.domain.models import IngestionRequest, StagedUploadDescriptor
 from hexaqueue_core.domain.collateral import CollateralBundle
@@ -17,6 +18,11 @@ def test_ingestion_request_valid():
     assert req.job_id == "job-1"
     assert req.filename == "model.bin"
     assert req.size_bytes == 1024
+    assert isinstance(req, IngestionRequest)
+    validator = IngestionRequest.__dict__["validate_invariants"]
+    assert validator(req) is req
+    with pytest.raises(ValidationError):
+        setattr(req, "filename", "other.bin")  # noqa: B010
 
 
 def test_ingestion_request_invalid():
@@ -55,3 +61,5 @@ def test_staged_upload_descriptor():
     )
     assert desc.bundle.id == "col-1"
     assert desc.upload_url.startswith("file://")
+    with pytest.raises(ValidationError):
+        setattr(desc, "upload_url", "file:///other")  # noqa: B010

@@ -1,8 +1,9 @@
 """Tests for HexaqueueDistributedEngine."""
 
 import asyncio
+from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from hexaflow.adapters.storage.in_memory import InMemoryStateStore
@@ -16,8 +17,10 @@ from hexaflow.domain.models import (
     WorkflowDefinition,
 )
 from hexaflow.domain.state import (
+    CheckpointRecord,
     StepContext,
     StepStatus,
+    WorkflowExecutionState,
     WorkflowStatus,
 )
 from hexastack_core.adapters.storage.in_memory import InMemoryStorage
@@ -30,11 +33,17 @@ from hexaqueue_core.domain.notification import (
 )
 from hexaqueue_core.infra.notification import NotificationDispatcher
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
+from hexaqueue_workflow.adapters.barrier.grpc import GrpcSplitJoinBarrierAdapter
 from hexaqueue_workflow.adapters.engines.distributed import (
     HexaqueueDistributedEngine,
 )
 from hexaqueue_workflow.adapters.staging.storage import (
     StoragePortArtifactStagingAdapter,
+)
+from hexaqueue_workflow.domain.barrier import (
+    BarrierPartition,
+    BarrierResolutionSummary,
+    BarrierState,
 )
 from hexaqueue_workflow.domain.models import (
     ArtifactReference,
@@ -831,3 +840,546 @@ async def test_distributed_engine_step_notifications_failure() -> None:
     titles = [call[1]["title"] for call in mock_port.notify.call_args_list]
     has_failed = any("FAILED" in t and "task_fail" in t for t in titles)
     assert has_failed is True
+
+
+def test_hexaqueue_distributed_engine_close() -> None:
+    """Verify close cleanly shuts down engine resources without error."""
+    engine = HexaqueueDistributedEngine()
+    engine.close()
+
+
+@pytest.mark.asyncio
+async def test_invoke_callable_signature_permutations() -> None:
+    """Verify _invoke_callable parameter matching across all supported signatures."""
+    engine = HexaqueueDistributedEngine()
+    ctx = StepContext(
+        run_id="run-sig",
+        stage_name="stage-sig",
+        step_name="step-sig",
+        inputs={"item": 42, "k": "val_k", "a": 10},
+    )
+
+    # 1. Zero arguments
+    res_zero = await engine._invoke_callable(lambda: "zero", ctx)
+    assert res_zero == "zero"
+
+    # 2. Single argument annotated as StepContext (name != 'ctx')
+    def action_annotated(my_ctx: StepContext) -> str:
+        return f"annotated_{my_ctx.step_name}"
+
+    res_ann = await engine._invoke_callable(action_annotated, ctx)
+    assert res_ann == "annotated_step-sig"
+
+    # 3. Single argument named 'ctx' without annotation
+    def action_ctx_name(ctx) -> str:
+        return f"named_{ctx.step_name}"
+
+    res_name = await engine._invoke_callable(action_ctx_name, ctx)
+    assert res_name == "named_step-sig"
+
+    # 4. Single argument named 'inputs'
+    def action_inputs(inputs) -> str:
+        return f"in_{inputs['k']}"
+
+    res_in = await engine._invoke_callable(action_inputs, ctx)
+    assert res_in == "in_val_k"
+
+    # 5. Single argument named 'data'
+    def action_data(data) -> str:
+        return f"data_{data['k']}"
+
+    res_data = await engine._invoke_callable(action_data, ctx)
+    assert res_data == "data_val_k"
+
+    # 6. Single argument unpacking item (name not in inputs)
+    def action_item(x) -> int:
+        return x * 2
+
+    res_item = await engine._invoke_callable(action_item, ctx)
+    assert res_item == 84
+
+    # 7. Keyword arguments with defaults and context mapping
+    def action_kwargs(a: int, b: int = 5, ctx=None) -> int:
+        assert ctx is not None
+        return a + b
+
+    res_kw = await engine._invoke_callable(action_kwargs, ctx)
+    assert res_kw == 15
+
+
+def test_sequential_stage_execution_order_and_dependencies(test_setup) -> None:
+    """Verify sequential stages execute steps in order passing outputs."""
+    engine, storage, store = test_setup
+    order = []
+
+    def s1(ctx: StepContext) -> str:
+        order.append("s1")
+        return "out1"
+
+    def s2(ctx: StepContext) -> str:
+        order.append("s2")
+        assert ctx.inputs.get("s1") == "out1"
+        return "out2"
+
+    wf = WorkflowDefinition(
+        name="seq_order",
+        stages=[
+            StageDefinition(
+                name="stage_seq",
+                execution_mode=StageExecutionMode.SEQUENTIAL,
+                steps=[
+                    StepDefinition(name="s1", action=s1),
+                    StepDefinition(name="s2", action=s2, depends_on=["s1"]),
+                ],
+            )
+        ],
+    )
+    res = engine.run(wf)
+    assert res.status == WorkflowStatus.COMPLETED
+    assert order == ["s1", "s2"]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_stage_zip_strict(test_setup: tuple[Any, Any, Any]) -> None:
+    """Verify zip strict=True raises ValueError on length mismatch during concurrent gather."""
+    engine, storage, store = test_setup
+    wf = WorkflowDefinition(
+        name="gather_strict",
+        stages=[
+            StageDefinition(
+                name="stg_conc",
+                execution_mode=StageExecutionMode.CONCURRENT_ALL,
+                steps=[
+                    StepDefinition(name="s1", action=lambda ctx: 1),
+                    StepDefinition(name="s2", action=lambda ctx: 2),
+                ],
+            )
+        ],
+    )
+    state = WorkflowExecutionState(run_id="run-strict", workflow_name="gather_strict")
+
+    # Mock gather returning length mismatch (1 result for 2 steps)
+    fut = asyncio.Future()
+    fut.set_result([1])
+    fut_step = asyncio.Future()
+    fut_step.set_result(None)
+    with (
+        patch("asyncio.gather", return_value=fut),
+        patch.object(engine, "_execute_step", new=MagicMock(return_value=fut_step)),
+        pytest.raises(ValueError),
+    ):
+        await engine._execute_stage(
+            state=state,
+            stage=wf.stages[0],
+            workflow=wf,
+            cached_outputs={},
+            initial_inputs={},
+            skipped_steps=set(),
+        )
+
+
+def test_step_retry_max_attempts_exact_bound(test_setup) -> None:
+    """Verify retry policy breaks immediately when current_attempt == max_attempts."""
+    engine, storage, store = test_setup
+    attempts = 0
+
+    def fail_action(ctx: StepContext) -> None:
+        nonlocal attempts
+        attempts += 1
+        raise RuntimeError("simulated error")
+
+    wf = WorkflowDefinition(
+        name="retry_bound_wf",
+        stages=[
+            StageDefinition(
+                name="stg_retry",
+                steps=[
+                    StepDefinition(
+                        name="fail_step",
+                        action=fail_action,
+                        retry_policy=RetryPolicy(
+                            max_attempts=1, initial_delay_seconds=0.01
+                        ),
+                    )
+                ],
+            )
+        ],
+    )
+    res = engine.run(wf)
+    assert res.status == WorkflowStatus.SUSPENDED
+    assert attempts == 1
+
+
+@pytest.mark.asyncio
+async def test_mapped_step_concurrency_and_empty_items(test_setup) -> None:
+    """Verify mapped step concurrency limits, empty items return, and partition node_id modulo."""
+    from hexaflow.domain.state import WorkflowExecutionState
+
+    engine, storage, store = test_setup
+    state = WorkflowExecutionState(run_id="run-map-limits", workflow_name="mapped_wf")
+    stage = StageDefinition(name="stg_map", steps=[])
+
+    # 1. Empty items returns []
+    step_empty = StepDefinition(
+        name="m_empty", action=lambda x: x, is_mapped=True, map_over="items"
+    )
+    res_empty = await engine._execute_mapped_step(
+        state=state,
+        stage=stage,
+        step=step_empty,
+        cached_outputs={},
+        initial_inputs={},
+        step_inputs={"items": []},
+    )
+    assert res_empty == []
+
+    # 2. Concurrency limit = 1 and limit <= 0
+    step_limit_1 = StepDefinition(
+        name="m_lim1",
+        action=lambda x: x * 2,
+        is_mapped=True,
+        map_over="items",
+        concurrency_limit=1,
+    )
+    res_lim1 = await engine._execute_mapped_step(
+        state=state,
+        stage=stage,
+        step=step_limit_1,
+        cached_outputs={},
+        initial_inputs={},
+        step_inputs={"items": [10, 20]},
+    )
+    assert res_lim1 == [20, 40]
+
+    # 3. Concurrency limit = 0 (no semaphore)
+    step_limit_0 = StepDefinition(
+        name="m_lim0",
+        action=lambda x: x + 1,
+        is_mapped=True,
+        map_over="items",
+        concurrency_limit=0,
+    )
+    res_lim0 = await engine._execute_mapped_step(
+        state=state,
+        stage=stage,
+        step=step_limit_0,
+        cached_outputs={},
+        initial_inputs={},
+        step_inputs={"items": [5]},
+    )
+    assert res_lim0 == [6]
+
+    # 4. Verify sub-step partition node_id modulo (node-1 for idx=1)
+    chk_sub = state.step_checkpoints.get("m_lim1[1]")
+    assert chk_sub is not None
+    assert chk_sub.status == StepStatus.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_resumption_and_barrier_trigger_evaluation(
+    test_setup: tuple[Any, Any, Any],
+) -> None:
+    """Verify restart bypasses checkpoints and trigger rule failure returns False."""
+    engine, storage, store = test_setup
+    state = WorkflowExecutionState(run_id="run-res-test", workflow_name="wf-res")
+
+    now = datetime.now(UTC)
+    chk_completed = CheckpointRecord(
+        run_id="run-res-test",
+        stage_name="s1",
+        step_name="step_comp",
+        status=StepStatus.COMPLETED,
+        output_payload="cached_value",
+        started_at=now,
+        completed_at=now,
+    )
+    chk_skipped = CheckpointRecord(
+        run_id="run-res-test",
+        stage_name="s1",
+        step_name="step_skip",
+        status=StepStatus.SKIPPED,
+        started_at=now,
+        completed_at=now,
+    )
+    store.save_checkpoint(chk_completed)
+    store.save_checkpoint(chk_skipped)
+
+    stage = StageDefinition(name="s1", steps=[])
+    step_c = StepDefinition(name="step_comp", action=lambda ctx: "new_val")
+
+    # When not restart -> cached output returned
+    handled, val = engine._check_step_cached_or_skipped(
+        state, stage, step_c, {}, set(), is_restart=False
+    )
+    assert handled is True
+    assert val == "cached_value"
+
+    # When is_restart -> not cached
+    handled_re, val_re = engine._check_step_cached_or_skipped(
+        state, stage, step_c, {}, set(), is_restart=True
+    )
+    assert handled_re is False
+
+    # Check _execute_step returning cached value directly (line 534)
+    step_val = await engine._execute_step(
+        state, stage, step_c, {}, {}, set(), is_restart=False
+    )
+    assert step_val == "cached_value"
+
+    # End-to-end resumption through _execute_workflow
+    step_downstream = StepDefinition(
+        name="s_down",
+        action=lambda ctx: str(ctx.inputs.get("step_comp")) + "_done",
+        depends_on=["step_comp"],
+    )
+    wf_res = WorkflowDefinition(
+        name="wf_res_e2e",
+        stages=[
+            StageDefinition(name="stg1", steps=[step_c]),
+            StageDefinition(name="stg2", steps=[step_downstream]),
+        ],
+    )
+    store.save_run(state)
+    res_e2e = await engine.resume_async("run-res-test", wf_res)
+    assert res_e2e.status == WorkflowStatus.COMPLETED
+    assert res_e2e.step_checkpoints["s_down"].output_payload == "cached_value_done"
+
+    # Check barrier trigger rule returning False
+    step_trigger_none = StepDefinition(
+        name="step_fail_trig",
+        action=lambda ctx: None,
+        depends_on=["step_skip"],
+        trigger_rule=TriggerRule.ALL_SUCCESS,  # parent was SKIPPED, so trigger rule fails
+    )
+    res_trig = engine._check_barrier_and_trigger(state, stage, step_trigger_none, {})
+    assert res_trig is False
+
+    # Barrier trigger rule fallback to _store when state.step_checkpoints is empty
+    state_empty_chk = WorkflowExecutionState(
+        run_id="run-res-test", workflow_name="wf-res"
+    )
+    step_dep_store = StepDefinition(
+        name="step_dep_store",
+        action=lambda ctx: None,
+        depends_on=["step_comp"],
+        trigger_rule=TriggerRule.ALL_SUCCESS,
+    )
+    can_run = engine._check_barrier_and_trigger(
+        state_empty_chk, stage, step_dep_store, {}
+    )
+    assert can_run is True
+
+
+@pytest.mark.asyncio
+async def test_mapped_sub_step_resumption_and_node_modulo(
+    test_setup: tuple[Any, Any, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify sub-step resumption, direct return value, and partition node_id modulo."""
+    engine, storage, store = test_setup
+    state = WorkflowExecutionState(run_id="run-sub-map", workflow_name="sub_wf")
+    stage = StageDefinition(name="stg_map", steps=[])
+    now = datetime.now(UTC)
+
+    # 1. Pre-checkpoint sub-step [0]
+    sub_chk = CheckpointRecord(
+        run_id="run-sub-map",
+        stage_name="stg_map",
+        step_name="m_sub_res[0]",
+        status=StepStatus.COMPLETED,
+        output_payload=999,
+        started_at=now,
+        completed_at=now,
+    )
+    store.save_checkpoint(sub_chk)
+
+    called_items: list[int] = []
+
+    def track_action(x: int) -> int:
+        called_items.append(x)
+        return x * 10
+
+    step_sub_res = StepDefinition(
+        name="m_sub_res", action=track_action, is_mapped=True, map_over="items"
+    )
+    res_sub = await engine._execute_mapped_step(
+        state=state,
+        stage=stage,
+        step=step_sub_res,
+        cached_outputs={},
+        initial_inputs={},
+        step_inputs={"items": [10, 20]},
+    )
+    # Item 0 was loaded from checkpoint (999), Item 1 was executed (200)
+    assert res_sub == [999, 200]
+    assert called_items == [20]
+
+    # 2. Direct _execute_mapped_sub_step returns output
+    res_single = await engine._execute_mapped_sub_step(
+        state=state,
+        stage_name="stg_map",
+        step=step_sub_res,
+        step_inputs={"items": [10, 20]},
+        idx=2,
+        item_val=50,
+    )
+    assert res_single == 500
+
+    # 3. Custom remote_executor to verify partition.node_id is node-{idx % 4}
+    dispatched_nodes: list[tuple[int, str]] = []
+
+    def record_rpc(run_id: str, step_name: str, part: Any, payload: Any) -> Any:
+        dispatched_nodes.append((part.partition_id, part.node_id))
+        return payload
+
+    engine._barrier = GrpcSplitJoinBarrierAdapter(remote_executor=record_rpc)
+    await engine._execute_mapped_sub_step(
+        state=state,
+        stage_name="stg_map",
+        step=step_sub_res,
+        step_inputs={"items": [10, 20]},
+        idx=3,
+        item_val=77,
+    )
+    assert dispatched_nodes[-1] == (3, "node-3")
+
+    # 4. Verify node_id modulo in _execute_mapped_step barrier dispatch
+    captured_dispatched: list[Any] = []
+
+    async def fake_await_barrier(
+        run_id: str,
+        step_name: str,
+        partitions: list[BarrierPartition],
+        timeout_seconds: float | None = None,
+    ) -> BarrierResolutionSummary:
+        captured_dispatched.extend(partitions)
+        return BarrierResolutionSummary(
+            step_name=step_name,
+            total_partitions=len(partitions),
+            completed_partitions=len(partitions),
+            failed_partitions=0,
+            state=BarrierState.RESOLVED,
+            outputs=[p.payload for p in partitions],
+            duration_seconds=0.1,
+        )
+
+    monkeypatch.setattr(engine._barrier, "await_barrier", fake_await_barrier)
+    await engine._execute_mapped_step(
+        state=state,
+        stage=stage,
+        step=StepDefinition(
+            name="m_nodes", action=lambda x: x, is_mapped=True, map_over="items"
+        ),
+        cached_outputs={},
+        initial_inputs={},
+        step_inputs={"items": [1, 2, 3]},
+    )
+    assert [p.node_id for p in captured_dispatched] == ["node-0", "node-1", "node-2"]
+
+
+def test_distributed_engine_default_storage_fallback() -> None:
+    """Verify DistributedWorkflowEngine initializes InMemoryStorage when storage=None."""
+    engine = HexaqueueDistributedEngine(storage=None, staging=None)
+    staging = engine._staging
+    assert isinstance(staging, StoragePortArtifactStagingAdapter)
+    assert isinstance(staging._storage, InMemoryStorage)
+
+
+@pytest.mark.asyncio
+async def test_execute_workflow_resumption_and_restart_cached_outputs(
+    test_setup: tuple[Any, Any, Any],
+) -> None:
+    """Verify that resumption populates cached_outputs only for COMPLETED checkpoints and restart does not."""
+    engine, storage, store = test_setup
+    run_id = "test-cached-outputs-run"
+    now = datetime.now(UTC)
+
+    # Save existing checkpoints from a previous run
+    chk_completed = CheckpointRecord(
+        run_id=run_id,
+        stage_name="s0",
+        step_name="step_prior",
+        status=StepStatus.COMPLETED,
+        attempt_number=1,
+        input_payload={},
+        output_payload="payload_from_prior",
+        started_at=now,
+        completed_at=now,
+        duration_seconds=0.1,
+    )
+    chk_failed = CheckpointRecord(
+        run_id=run_id,
+        stage_name="s0",
+        step_name="step_failed_prior",
+        status=StepStatus.FAILED,
+        attempt_number=1,
+        input_payload={},
+        output_payload="bad_payload",
+        started_at=now,
+        completed_at=now,
+        duration_seconds=0.1,
+    )
+    store.save_checkpoint(chk_completed)
+    store.save_checkpoint(chk_failed)
+
+    state = WorkflowExecutionState(
+        run_id=run_id,
+        workflow_name="wf_cached",
+        status=WorkflowStatus.RUNNING,
+    )
+    store.save_run(state)
+
+    wf = WorkflowDefinition(
+        name="wf_cached",
+        stages=[
+            StageDefinition(
+                name="stage_dummy",
+                steps=[
+                    StepDefinition(name="step_dummy", action=lambda: "dummy_out"),
+                ],
+            ),
+        ],
+    )
+
+    captured_cached: dict[str, Any] = {}
+
+    async def fake_execute_stage(
+        state_arg: Any,
+        stage_arg: Any,
+        workflow_arg: Any,
+        cached_outputs_arg: dict[str, Any],
+        inputs_arg: Any,
+        skipped_steps_arg: Any,
+        is_restart: bool = False,
+    ) -> None:
+        captured_cached.update(cached_outputs_arg)
+
+    # 1. Resumption path (is_restart=False): must load COMPLETED output and ignore FAILED
+    with patch.object(engine, "_execute_stage", new=fake_execute_stage):
+        state_res = WorkflowExecutionState(
+            run_id=run_id,
+            workflow_name="wf_cached",
+            status=WorkflowStatus.RUNNING,
+        )
+        res_state = await engine._execute_workflow(state_res, wf, {}, is_restart=False)
+
+    assert res_state.status == WorkflowStatus.COMPLETED
+    assert captured_cached.get("step_prior") == "payload_from_prior"
+    assert "step_failed_prior" not in captured_cached
+    assert res_state.step_checkpoints["step_prior"] == chk_completed
+    assert res_state.step_checkpoints["step_failed_prior"] == chk_failed
+
+    # 2. Restart path (is_restart=True): must NOT populate prior checkpoints or cached outputs
+    captured_cached.clear()
+    with patch.object(engine, "_execute_stage", new=fake_execute_stage):
+        state_re = WorkflowExecutionState(
+            run_id=run_id,
+            workflow_name="wf_cached",
+            status=WorkflowStatus.RUNNING,
+        )
+        re_state = await engine._execute_workflow(state_re, wf, {}, is_restart=True)
+
+    assert re_state.status == WorkflowStatus.COMPLETED
+    assert captured_cached == {}
+    assert "step_prior" not in re_state.step_checkpoints
+    assert "step_failed_prior" not in re_state.step_checkpoints

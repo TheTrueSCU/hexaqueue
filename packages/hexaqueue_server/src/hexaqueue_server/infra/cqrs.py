@@ -259,11 +259,7 @@ class HexaqueueCqrsService:
         Returns:
             Registered CollateralBundle.
         """
-        checksum = (
-            cmd.checksum_sha256
-            if len(cmd.checksum_sha256) == 64
-            else cmd.checksum_sha256.zfill(64)
-        )
+        checksum = cmd.checksum_sha256.zfill(64)
         return CollateralBundle(
             id=f"col-{uuid4().hex[:8]}",
             job_id="global",
@@ -497,7 +493,7 @@ class HexaqueueCqrsService:
             List of LogChunk entries.
         """
         chunks = self.log_store.get(qry.job_id, [])
-        if qry.tail is not None and qry.tail < len(chunks):
+        if qry.tail is not None:
             return chunks[-qry.tail :]
         return chunks
 

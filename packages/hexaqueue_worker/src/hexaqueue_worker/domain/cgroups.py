@@ -101,8 +101,8 @@ class CgroupLimits(BaseModel):
         """Validate cgroup limit consistency."""
         if (
             self.memory_high_bytes is not None
-            and self.memory_high_bytes > 0
-            and self.memory_max_bytes > 0
+            and self.memory_high_bytes != -1
+            and self.memory_max_bytes != -1
             and self.memory_high_bytes > self.memory_max_bytes
         ):
             msg = (

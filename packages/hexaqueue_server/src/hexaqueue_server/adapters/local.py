@@ -354,7 +354,6 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                     )
                     self._jobs[j_id] = ready_job
                     await self._queue.enqueue(ready_job)
-                    changed = True
                 elif dag.is_job_blocked(j_id, outcomes):
                     blocked_job = JobSpec(
                         id=stored.id,

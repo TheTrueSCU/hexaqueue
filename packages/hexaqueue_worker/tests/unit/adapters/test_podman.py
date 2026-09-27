@@ -1,5 +1,6 @@
 """Unit tests for PodmanExecutionRuntimeAdapter (Issue #30)."""
 
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -12,6 +13,7 @@ from hexaqueue_core.domain.lifecycle import TerminalOutcome
 from hexaqueue_core.domain.resources import ResourceRequirements
 from hexaqueue_core.ports.storage import VolumeAllocation
 from hexaqueue_worker.adapters.podman import PodmanExecutionRuntimeAdapter
+from hexaqueue_worker.domain.container import PodmanConfig
 
 
 def test_podman_build_command_defaults() -> None:
@@ -297,3 +299,143 @@ async def test_podman_terminate_fallback_sigkill() -> None:
 
     kill_called = mock_killpg.called
     assert kill_called is True
+
+
+def test_podman_resource_flag_variations() -> None:
+    """Verify resource slice flags (cpus, ram, gpus) under permutation."""
+    adapter = PodmanExecutionRuntimeAdapter()
+
+    # 1. cpus=0, ram_mb=0 -> no --cpus, no -m
+    j_zero = JobSpec(
+        id="jz",
+        run_id="r1",
+        name="jz",
+        command="true",
+        resources=ResourceRequirements.model_construct(cpus=0, ram_mb=0, gpus=0),
+    )
+    cmd_zero = " ".join(adapter.build_command(j_zero))
+    assert "--cpus" not in cmd_zero
+    assert "-m " not in cmd_zero
+    assert "--gpus" not in cmd_zero
+
+    # 2. cpus=1, ram_mb=1 -> has --cpus 1, has -m 1m
+    j_one = JobSpec(
+        id="j1",
+        run_id="r1",
+        name="j1",
+        command="true",
+        resources=ResourceRequirements.model_construct(cpus=1, ram_mb=1, gpus=0),
+    )
+    cmd_one = " ".join(adapter.build_command(j_one))
+    assert "--cpus 1" in cmd_one
+    assert "-m 1m" in cmd_one
+
+    # 3. gpus=1, container with gpu_enabled=False -> has --gpus all
+    j_gpu_res = JobSpec(
+        id="jg1",
+        run_id="r1",
+        name="jg1",
+        command="true",
+        resources=ResourceRequirements(gpus=1),
+        container=ContainerSpec(image="alpine", gpu_enabled=False),
+    )
+    cmd_gpu_res = " ".join(adapter.build_command(j_gpu_res))
+    assert "--gpus all" in cmd_gpu_res
+
+    # 4. gpus=0, container with gpu_enabled=True -> has --gpus all
+    j_gpu_cont = JobSpec(
+        id="jg2",
+        run_id="r1",
+        name="jg2",
+        command="true",
+        resources=ResourceRequirements(gpus=0),
+        container=ContainerSpec(image="alpine", gpu_enabled=True),
+    )
+    cmd_gpu_cont = " ".join(adapter.build_command(j_gpu_cont))
+    assert "--gpus all" in cmd_gpu_cont
+
+    # 5. has_gpu=True but config.gpu_flag="" -> no gpu flags
+    adapter_no_gpu_flag = PodmanExecutionRuntimeAdapter(
+        config=PodmanConfig(gpu_flag="")
+    )
+    cmd_no_flag = " ".join(adapter_no_gpu_flag.build_command(j_gpu_res))
+    assert "--gpus" not in cmd_no_flag
+
+
+@pytest.mark.asyncio
+async def test_podman_walltime_limit_variations() -> None:
+    """Verify walltime limit parameter to asyncio.wait_for under different resources."""
+    adapter = PodmanExecutionRuntimeAdapter()
+
+    captured_timeouts: list[float | None] = []
+
+    async def fake_wait_for(coro, timeout=None):
+        captured_timeouts.append(timeout)
+        return (b"ok", b"")
+
+    fut = asyncio.Future()
+    fut.set_result((b"ok", b""))
+    mock_proc = MagicMock()
+    mock_proc.communicate = MagicMock(return_value=fut)
+    mock_proc.returncode = 0
+
+    with (
+        patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+        patch("asyncio.wait_for", side_effect=fake_wait_for),
+    ):
+        # 1. walltime_seconds = 0 -> timeout=None
+        j0 = JobSpec(
+            id="j0",
+            run_id="r-1",
+            name="j0",
+            command="true",
+            resources=ResourceRequirements.model_construct(walltime_seconds=0),
+        )
+        await adapter.execute(j0)
+
+        # 2. walltime_seconds = 1 -> timeout=1
+        j1 = JobSpec(
+            id="j1",
+            run_id="r-1",
+            name="j1",
+            command="true",
+            resources=ResourceRequirements.model_construct(walltime_seconds=1),
+        )
+        await adapter.execute(j1)
+
+    assert captured_timeouts == [None, 1]
+
+
+@pytest.mark.asyncio
+async def test_podman_terminate_clean_stop_no_killpg() -> None:
+    """Verify clean container stop does not issue SIGKILL."""
+    adapter = PodmanExecutionRuntimeAdapter()
+    mock_proc = MagicMock()
+    mock_proc.returncode = 0  # Process has exited cleanly
+    mock_proc.pid = 4321
+    adapter._active_processes["j-clean"] = mock_proc
+
+    mock_stop_proc = MagicMock()
+    captured_timeout: list[float] = []
+
+    async def fake_wait_for(coro, timeout=None):
+        if timeout:
+            captured_timeout.append(timeout)
+        return 0
+
+    fut_stop = asyncio.Future()
+    fut_stop.set_result(0)
+    mock_stop_proc.wait = MagicMock(return_value=fut_stop)
+
+    with (
+        patch("asyncio.create_subprocess_exec", return_value=mock_stop_proc),
+        patch("asyncio.wait_for", side_effect=fake_wait_for),
+        patch("os.getpgid", return_value=4321),
+        patch("os.getpgrp", return_value=1111),
+        patch("os.killpg") as mock_killpg,
+    ):
+        await adapter.terminate("j-clean", grace_period_seconds=2)
+
+    assert captured_timeout == [7.0]  # 2 + 5 = 7.0
+    assert mock_killpg.called is False
+    assert mock_proc.kill.called is False

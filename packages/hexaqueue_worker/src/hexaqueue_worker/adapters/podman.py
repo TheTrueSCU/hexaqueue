@@ -288,9 +288,13 @@ class PodmanExecutionRuntimeAdapter(ExecutionRuntimePort):
                 stop_proc.wait(), timeout=float(grace_period_seconds + 5)
             )
 
-        if process.returncode is None:
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+        if process.returncode is None and process.pid is not None:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                pgid = os.getpgid(process.pid)
+                if pgid != os.getpgrp():
+                    os.killpg(pgid, signal.SIGKILL)
+                else:
+                    process.kill()
             with contextlib.suppress(Exception):
                 await process.wait()
 

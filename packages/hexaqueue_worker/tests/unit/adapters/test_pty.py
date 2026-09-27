@@ -55,6 +55,7 @@ async def test_pty_session_lifecycle_and_io() -> None:
     info = await bridge.create_session(req, job_owner="alice")
     pid = info.pid
     assert pid > 0
+    assert info.is_active is True
 
     await bridge.resize("sess-io", rows=35, cols=90)
     await bridge.write_stdin("sess-io", b"\n")
@@ -67,6 +68,39 @@ async def test_pty_session_lifecycle_and_io() -> None:
     assert "hello_from_pty" in all_output
 
     await bridge.terminate_session("sess-io")
+
+
+@pytest.mark.asyncio
+async def test_pty_spawn_configuration_parameters() -> None:
+    """Verify close_fds and non-blocking flags during PTY spawn."""
+    import asyncio
+    import os
+    from unittest.mock import patch
+
+    bridge = LocalPtyBridgeAdapter()
+    req = PtySessionRequest(
+        session_id="sess-cfg",
+        job_id="job-cfg",
+        user_id="alice",
+        roles=["admin"],
+        command=["/bin/echo", "configured"],
+    )
+
+    with (
+        patch("os.set_blocking", wraps=os.set_blocking) as mock_sb,
+        patch(
+            "asyncio.create_subprocess_exec", wraps=asyncio.create_subprocess_exec
+        ) as mock_exec,
+    ):
+        info = await bridge.create_session(req, job_owner="alice")
+        try:
+            assert info.is_active is True
+            # Verify close_fds was explicitly set to True
+            assert mock_exec.call_args[1]["close_fds"] is True
+            # Verify os.set_blocking was called with False
+            assert any(call[0][1] is False for call in mock_sb.call_args_list)
+        finally:
+            await bridge.terminate_session("sess-cfg")
 
 
 @pytest.mark.asyncio

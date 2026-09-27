@@ -254,3 +254,50 @@ async def test_worker_execute_job_gpu_released_on_failure() -> None:
     active_allocs = await gpu_mgr.get_active_allocations()
     count = len(active_allocs)
     assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_worker_init_and_resource_branching() -> None:
+    """Verify storage instance preservation and zero-gpu/non-ephemeral scratch branches."""
+    from hexaqueue_core.ports.storage import VolumeAllocation
+
+    queue = InMemoryJobQueueAdapter()
+    storage = InMemoryStorageVolumeAdapter()
+    gpu_mgr = AsyncMock()
+
+    worker = LocalSubprocessWorker(
+        queue=queue,
+        storage=storage,
+        gpu_manager=gpu_mgr,
+    )
+    # Storage instance preserved (or to and)
+    assert worker._storage is storage
+
+    # 1. Job with gpus=0 -> gpu_manager is NOT invoked
+    job_no_gpu = JobSpec(
+        id="j-no-gpu",
+        run_id="r1",
+        name="no-gpu",
+        command="true",
+        resources=ResourceRequirements(gpus=0),
+    )
+    await worker.execute_job(job_no_gpu)
+    assert gpu_mgr.allocate_gpus.called is False
+    assert gpu_mgr.release_gpus.called is False
+
+    # 2. Non-ephemeral scratch volume -> cleanup_scratch is NOT called
+    mock_storage = AsyncMock()
+    mock_vol = VolumeAllocation(
+        volume_id="vol-persist",
+        mount_path="/tmp",
+        size_mb=10,
+        is_ephemeral=False,
+    )
+    mock_storage.allocate_scratch.return_value = mock_vol
+
+    worker_persist = LocalSubprocessWorker(
+        queue=queue,
+        storage=mock_storage,
+    )
+    await worker_persist.execute_job(job_no_gpu)
+    assert mock_storage.cleanup_scratch.called is False

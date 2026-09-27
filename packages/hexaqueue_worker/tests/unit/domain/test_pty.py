@@ -30,6 +30,8 @@ def test_pty_session_request_valid() -> None:
     assert rows == 30
     cols = req.cols
     assert cols == 100
+    validator = PtySessionRequest.__dict__["validate_invariants"]
+    assert validator(req) is req
 
 
 def test_pty_session_request_empty_fields() -> None:

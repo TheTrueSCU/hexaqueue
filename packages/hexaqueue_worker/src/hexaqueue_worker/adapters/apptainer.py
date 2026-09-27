@@ -257,14 +257,22 @@ class ApptainerExecutionRuntimeAdapter(ExecutionRuntimePort):
         if process is None:
             return
 
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            pgid = os.getpgid(process.pid)
+            if pgid != os.getpgrp():
+                os.killpg(pgid, signal.SIGTERM)
+            else:
+                process.terminate()
 
         try:
             await asyncio.wait_for(process.wait(), timeout=float(grace_period_seconds))
         except TimeoutError:
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                pgid = os.getpgid(process.pid)
+                if pgid != os.getpgrp():
+                    os.killpg(pgid, signal.SIGKILL)
+                else:
+                    process.kill()
             with contextlib.suppress(Exception):
                 await process.wait()
 

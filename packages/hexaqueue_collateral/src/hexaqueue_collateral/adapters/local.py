@@ -47,9 +47,10 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
         self._active_dir = self._base_dir / "active"
         self._quarantine_dir = self._base_dir / "quarantine"
 
-        self._staging_dir.mkdir(parents=True, exist_ok=True)
-        self._active_dir.mkdir(parents=True, exist_ok=True)
-        self._quarantine_dir.mkdir(parents=True, exist_ok=True)
+        self._base_dir.mkdir(parents=True, exist_ok=True)
+        self._staging_dir.mkdir(exist_ok=True)
+        self._active_dir.mkdir(exist_ok=True)
+        self._quarantine_dir.mkdir(exist_ok=True)
 
         self._security_port = security_port
         self._bundles: dict[str, CollateralBundle] = {}
@@ -91,7 +92,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
             raise HexaqueueError(msg)
 
         dest_path = Path(bundle.staging_uri)
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        dest_path.parent.mkdir(exist_ok=True)
 
         hasher = hashlib.sha256()
         actual_size = 0
@@ -129,7 +130,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
         actual_sha = hasher.hexdigest()
         if actual_sha.lower() != bundle.sha256_checksum.lower():
             # Checksum mismatch: reject bundle and cleanup staging
-            dest_path.unlink(missing_ok=True)
+            dest_path.unlink()
             rejected_bundle = CollateralBundle(
                 id=bundle.id,
                 job_id=bundle.job_id,
@@ -193,7 +194,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
         if next_state == CollateralState.APPROVED:
             # Promote to CAS active storage: active/<sha256>/<filename>
             active_target_dir = self._active_dir / bundle.sha256_checksum
-            active_target_dir.mkdir(parents=True, exist_ok=True)
+            active_target_dir.mkdir(exist_ok=True)
             active_path = active_target_dir / bundle.filename
             shutil.copy2(staged_path, active_path)
 
@@ -214,7 +215,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
 
         if next_state == CollateralState.QUARANTINED:
             quarantine_target_dir = self._quarantine_dir / bundle.id
-            quarantine_target_dir.mkdir(parents=True, exist_ok=True)
+            quarantine_target_dir.mkdir(exist_ok=True)
             quarantine_path = quarantine_target_dir / bundle.filename
             shutil.move(staged_path, quarantine_path)
 

@@ -75,24 +75,27 @@ def get_pipeline(request: Request) -> ExecutionPipeline:
     return pipeline
 
 
-def _resolve_auth(
-    header_user: str | None,
-    header_elevate: bool,
-    query_elevate: bool,
+def get_auth_context(
+    x_hexaqueue_user: Annotated[str | None, Header()] = None,
+    x_hexaqueue_elevate: Annotated[bool, Header()] = False,
+    elevate: Annotated[bool, Query()] = False,
 ) -> tuple[str, bool]:
     """Resolve requesting user identity and elevation status.
 
     Args:
-        header_user: User identity from header.
-        header_elevate: Elevation flag from header.
-        query_elevate: Elevation flag from query string.
+        x_hexaqueue_user: User identity from header.
+        x_hexaqueue_elevate: Elevation flag from header.
+        elevate: Elevation flag from query string.
 
     Returns:
         Tuple of (user_id, is_elevated).
+
+    Notes/Architectural Intent:
+        Centralized authentication resolution dependency for Web Dashboard endpoints.
     """
-    user_id = header_user if header_user else "default"
-    elevate = bool(header_elevate or query_elevate)
-    return user_id, elevate
+    user_id = x_hexaqueue_user if x_hexaqueue_user else "default"
+    is_elevated = bool(x_hexaqueue_elevate or elevate)
+    return user_id, is_elevated
 
 
 def _dispatch[T](pipeline: ExecutionPipeline, msg: Any) -> T:
@@ -189,13 +192,9 @@ def create_dashboard_router(
     )
     def get_fairshare(
         pip: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
-        elevate: Annotated[bool, Query()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> FairShareTreeReport:
-        user_id, is_elevated = _resolve_auth(
-            x_hexaqueue_user, x_hexaqueue_elevate, elevate
-        )
+        user_id, is_elevated = auth
         return _dispatch(
             pip, GetFairShareTreeQuery(requesting_user=user_id, is_admin=is_elevated)
         )
@@ -210,18 +209,15 @@ def create_dashboard_router(
     def submit_run(
         cmd: SubmitRunCommand,
         pip: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> RunStatusReport:
-        user_id, is_elevated = _resolve_auth(
-            x_hexaqueue_user, x_hexaqueue_elevate, False
-        )
+        user_id, is_elevated = auth
         effective_cmd = SubmitRunCommand(
             run_spec=cmd.run_spec,
             jobs=cmd.jobs,
             dependencies=cmd.dependencies,
             user_id=cmd.user_id if cmd.user_id != "default" else user_id,
-            elevate=cmd.elevate or is_elevated,
+            elevate=bool(cmd.elevate or is_elevated),
         )
         return _dispatch(pip, effective_cmd)
 
@@ -235,16 +231,13 @@ def create_dashboard_router(
     def submit_suite(
         cmd: SubmitSuiteCommand,
         pip: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> RunStatusReport:
-        user_id, is_elevated = _resolve_auth(
-            x_hexaqueue_user, x_hexaqueue_elevate, False
-        )
+        user_id, is_elevated = auth
         effective_cmd = SubmitSuiteCommand(
             suite_spec=cmd.suite_spec,
             user_id=cmd.user_id if cmd.user_id != "default" else user_id,
-            elevate=cmd.elevate or is_elevated,
+            elevate=bool(cmd.elevate or is_elevated),
         )
         return _dispatch(pip, effective_cmd)
 
@@ -256,14 +249,10 @@ def create_dashboard_router(
     )
     def list_jobs(
         pip: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
         run_id: Annotated[str | None, Query()] = None,
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
-        elevate: Annotated[bool, Query()] = False,
     ) -> list[JobSpec]:
-        user_id, is_elevated = _resolve_auth(
-            x_hexaqueue_user, x_hexaqueue_elevate, elevate
-        )
+        user_id, is_elevated = auth
         return _dispatch(
             pip,
             ListJobsQuery(run_id=run_id, user_id=user_id, elevate=is_elevated),
@@ -278,13 +267,9 @@ def create_dashboard_router(
     def get_job(
         job_id: str,
         pip: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
-        elevate: Annotated[bool, Query()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> JobSpec:
-        user_id, is_elevated = _resolve_auth(
-            x_hexaqueue_user, x_hexaqueue_elevate, elevate
-        )
+        user_id, is_elevated = auth
         return _dispatch(
             pip,
             GetJobQuery(job_id=job_id, user_id=user_id, elevate=is_elevated),
@@ -299,13 +284,9 @@ def create_dashboard_router(
     def explain_job(
         job_id: str,
         pip: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
-        elevate: Annotated[bool, Query()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> SchedulingDecisionReport:
-        user_id, is_elevated = _resolve_auth(
-            x_hexaqueue_user, x_hexaqueue_elevate, elevate
-        )
+        user_id, is_elevated = auth
         return _dispatch(
             pip,
             ExplainJobQuery(
@@ -322,14 +303,10 @@ def create_dashboard_router(
     def get_logs(
         job_id: str,
         pip: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
         tail: Annotated[int | None, Query()] = None,
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
-        elevate: Annotated[bool, Query()] = False,
     ) -> list[LogChunk]:
-        user_id, is_elevated = _resolve_auth(
-            x_hexaqueue_user, x_hexaqueue_elevate, elevate
-        )
+        user_id, is_elevated = auth
         return _dispatch(
             pip,
             GetLogsQuery(
@@ -347,13 +324,10 @@ def create_dashboard_router(
         job_id: str,
         action_req: DashboardJobAction,
         pip: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> JobSpec:
-        user_id, header_elevate = _resolve_auth(
-            x_hexaqueue_user, x_hexaqueue_elevate, False
-        )
-        is_elevated = action_req.elevate or header_elevate
+        user_id, header_elevate = auth
+        is_elevated = bool(action_req.elevate or header_elevate)
         action = action_req.action.lower()
 
         if action == "hold":
@@ -385,18 +359,15 @@ def create_dashboard_router(
         job_id: str,
         cmd: CreatePtySessionCommand,
         pip: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> PtySessionInfo:
-        user_id, is_elevated = _resolve_auth(
-            x_hexaqueue_user, x_hexaqueue_elevate, cmd.elevate
-        )
+        user_id, is_elevated = auth
         effective_cmd = CreatePtySessionCommand(
             job_id=job_id,
             session_id=cmd.session_id or f"pty-{uuid4().hex[:8]}",
             command=cmd.command,
             user_id=cmd.user_id if cmd.user_id != "default" else user_id,
-            elevate=is_elevated,
+            elevate=bool(is_elevated or cmd.elevate),
             rows=cmd.rows,
             cols=cmd.cols,
             term_type=cmd.term_type,
@@ -412,12 +383,9 @@ def create_dashboard_router(
     def upload_collateral(
         req: DashboardCollateralRequest,
         pip: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> CollateralBundle:
-        user_id, is_elevated = _resolve_auth(
-            x_hexaqueue_user, x_hexaqueue_elevate, False
-        )
+        user_id, is_elevated = auth
         cmd = RegisterCollateralCommand(
             name=req.name,
             size_bytes=req.size_bytes,
@@ -440,13 +408,10 @@ def create_dashboard_router(
         node_id: str,
         req: DashboardBastionRequest,
         pip: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> PtySessionInfo:
-        user_id, header_elevate = _resolve_auth(
-            x_hexaqueue_user, x_hexaqueue_elevate, False
-        )
-        is_elevated = req.elevate or header_elevate
+        user_id, header_elevate = auth
+        is_elevated = bool(req.elevate or header_elevate)
         session_id = req.session_id or f"bastion-{uuid4().hex[:8]}"
         cmd = CreateBastionSessionCommand(
             node_id=node_id,
@@ -465,13 +430,9 @@ def create_dashboard_router(
     def cancel_run(
         run_id: str,
         pip: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
-        elevate: Annotated[bool, Query()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> RunStatusReport:
-        user_id, is_elevated = _resolve_auth(
-            x_hexaqueue_user, x_hexaqueue_elevate, elevate
-        )
+        user_id, is_elevated = auth
         return _dispatch(
             pip,
             CancelRunCommand(run_id=run_id, user_id=user_id, elevate=is_elevated),
@@ -482,5 +443,6 @@ def create_dashboard_router(
 
 __all__ = [
     "create_dashboard_router",
+    "get_auth_context",
     "get_pipeline",
 ]

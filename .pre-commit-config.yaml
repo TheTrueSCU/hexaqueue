@@ -30,11 +30,16 @@ repos:
       - id: validate-pyproject
 
   - repo: https://github.com/TheTrueSCU/hexaqual
-    rev: v0.7.0
+    rev: v0.8.0
     hooks:
       - id: hexaqual-sanity
       - id: hexaqual-architecture
       - id: hexaqual-agents
+      - id: hexaqual-extras
+      - id: hexaqual-usage-docs
+      - id: hexaqual-commit-msg
+      - id: hexaqual-pre-push
+      - id: hexaqual-agents-sync
 
   - repo: local
     hooks:

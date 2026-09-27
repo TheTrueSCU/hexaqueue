@@ -24,7 +24,7 @@ jobs:
         run: cargo install jscpd --locked
 
       - name: Run Quality Gate via Hexaqual
-        uses: TheTrueSCU/hexaqual@v0.7.0
+        uses: TheTrueSCU/hexaqual@v0.8.0
         with:
           sync-args: "--all-packages --all-extras --all-groups"
 
@@ -136,7 +136,37 @@ jobs:
         run: uv run hexaqual test run -A -P --no-cov
 
   # =========================================================================
-  # Stage 4: Unified CI Success Status Check (Branch Protection Gate)
+  # Stage 4: Mutation Testing Verification (PR Quality Fortification)
+  # Runs pytest-gremlins mutation testing on affected packages
+  # =========================================================================
+  mutation-verification:
+    name: Mutation Testing Verification
+    needs: [test-suite]
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --all-packages --all-extras --all-groups
+
+      - name: Run Affected Mutation Testing Verification
+        run: uv run hexaqual mutate run -A -e gremlins -w auto --batch-size 10 -n auto
+
+  # =========================================================================
+  # Stage 5: Unified CI Success Status Check (Branch Protection Gate)
   # Aggregates results of all upstream stages, handling skipped conditional jobs
   # =========================================================================
   ci-success:
@@ -146,6 +176,7 @@ jobs:
       - test-suite
       - architecture-diagrams
       - hypothesis-fuzzing
+      - mutation-verification
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
@@ -156,12 +187,14 @@ jobs:
           echo "  Unit & Integration Tests:     ${{ needs.test-suite.result }}"
           echo "  Architecture Diagrams:        ${{ needs.architecture-diagrams.result }}"
           echo "  Property-Based Fuzzing:       ${{ needs.hypothesis-fuzzing.result }}"
+          echo "  Mutation Verification:        ${{ needs.mutation-verification.result }}"
 
           results=(
             "${{ needs.quality-gate.result }}"
             "${{ needs.test-suite.result }}"
             "${{ needs.architecture-diagrams.result }}"
             "${{ needs.hypothesis-fuzzing.result }}"
+            "${{ needs.mutation-verification.result }}"
           )
 
           for res in "${results[@]}"; do

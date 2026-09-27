@@ -521,16 +521,6 @@ Try 'hq --help' for help.
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
-### `hq sessions`
-
-```text
-Usage: hq [OPTIONS] COMMAND [ARGS]...
-Try 'hq --help' for help.
-╭─ Error ──────────────────────────────────────────────────────────────────────╮
-│ No such command 'sessions'.                                                  │
-╰──────────────────────────────────────────────────────────────────────────────╯
-```
-
 ### `hq stat`
 
 ```text
@@ -647,16 +637,6 @@ Usage: hq suite run [OPTIONS] {suite_file}
 │                          rich, plain, auto).                                 │
 │                          [default: table]                                    │
 │ --help                   Show this message and exit.                         │
-╰──────────────────────────────────────────────────────────────────────────────╯
-```
-
-### `hq sweeps`
-
-```text
-Usage: hq [OPTIONS] COMMAND [ARGS]...
-Try 'hq --help' for help.
-╭─ Error ──────────────────────────────────────────────────────────────────────╮
-│ No such command 'sweeps'.                                                    │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 

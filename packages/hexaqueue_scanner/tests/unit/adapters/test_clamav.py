@@ -192,3 +192,53 @@ async def test_clamav_open_connection_invalid_config(tmp_path: Path) -> None:
     assert clean is False
     has_daemon_err = "DaemonConnectionError" in (res.threat_name or "")
     assert has_daemon_err is True
+
+
+@pytest.mark.asyncio
+async def test_clamav_scan_tcp_connection_default_port(tmp_path: Path) -> None:
+    """Verify TCP socket connection uses default port 3310 when port is None."""
+    test_file = tmp_path / "tcp_default.txt"
+    test_file.write_text("tcp test")
+
+    cfg = ClamAvConfig(socket_path=None, host="127.0.0.1", port=None)
+    reader, writer = _create_mock_streams(b"stream: OK\x00")
+    adapter = ClamAvDaemonAdapter(config=cfg)
+
+    with patch("asyncio.open_connection", return_value=(reader, writer)) as mock_tcp:
+        res = await adapter.scan_file(test_file)
+
+    mock_tcp.assert_called_once_with("127.0.0.1", 3310)
+    assert res.is_clean is True
+
+
+@pytest.mark.asyncio
+async def test_clamav_scan_stream_size_exact_boundary(tmp_path: Path) -> None:
+    """Verify streaming exactly max_stream_bytes is permitted and not aborted."""
+    test_file = tmp_path / "exact.bin"
+    test_file.write_bytes(b"X" * 2048)
+
+    cfg = ClamAvConfig(chunk_size_bytes=1024, max_stream_bytes=2048)
+    reader, writer = _create_mock_streams(b"stream: OK\x00")
+    adapter = ClamAvDaemonAdapter(config=cfg)
+
+    with patch("asyncio.open_unix_connection", return_value=(reader, writer)):
+        res = await adapter.scan_file(test_file)
+
+    assert res.is_clean is True
+    assert res.threat_name is None
+
+
+@pytest.mark.asyncio
+async def test_clamav_scan_file_infected_no_colon_fallback(tmp_path: Path) -> None:
+    """Verify daemon FOUND response without colon delimiter falls back to UnknownVirus."""
+    test_file = tmp_path / "eicar_raw.com"
+    test_file.write_bytes(b"bad-signature")
+
+    reader, writer = _create_mock_streams(b"FOUND\x00")
+    adapter = ClamAvDaemonAdapter()
+
+    with patch("asyncio.open_unix_connection", return_value=(reader, writer)):
+        res = await adapter.scan_file(test_file)
+
+    assert res.is_clean is False
+    assert res.threat_name == "UnknownVirus"

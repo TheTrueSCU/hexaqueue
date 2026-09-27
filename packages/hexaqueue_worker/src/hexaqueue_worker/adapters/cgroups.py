@@ -36,7 +36,7 @@ class CgroupsV2ProcessAdapter(ExecutionRuntimePort):
         self,
         cgroup_config: CgroupConfig | None = None,
         log_port: LogStreamPort | None = None,
-        grace_period_seconds: int = 15,
+        grace_period_seconds: float = 15.0,
     ) -> None:
         self._cgroup_config = cgroup_config or CgroupConfig()
         self._log_port = log_port
@@ -94,10 +94,10 @@ class CgroupsV2ProcessAdapter(ExecutionRuntimePort):
             return
         with contextlib.suppress(OSError):
             if cgroup_path.exists():
-                shutil.rmtree(cgroup_path, ignore_errors=True)
+                shutil.rmtree(cgroup_path)
 
     async def _kill_process_group(
-        self, proc: asyncio.subprocess.Process, grace_period_seconds: int
+        self, proc: asyncio.subprocess.Process, grace_period_seconds: float
     ) -> None:
         """Terminate entire process group with SIGTERM escalating to SIGKILL.
 
@@ -110,7 +110,11 @@ class CgroupsV2ProcessAdapter(ExecutionRuntimePort):
             return
 
         with contextlib.suppress(ProcessLookupError, PermissionError):
-            os.killpg(os.getpgid(pid), signal.SIGTERM)
+            pgid = os.getpgid(pid)
+            if pgid != os.getpgrp():
+                os.killpg(pgid, signal.SIGTERM)
+            else:
+                proc.terminate()
 
         wait_count = int(grace_period_seconds * 10)
         for _ in range(max(1, wait_count)):
@@ -120,7 +124,11 @@ class CgroupsV2ProcessAdapter(ExecutionRuntimePort):
 
         if proc.returncode is None:
             with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(os.getpgid(pid), signal.SIGKILL)
+                pgid = os.getpgid(pid)
+                if pgid != os.getpgrp():
+                    os.killpg(pgid, signal.SIGKILL)
+                else:
+                    proc.kill()
 
     async def execute(
         self,
@@ -229,7 +237,7 @@ class CgroupsV2ProcessAdapter(ExecutionRuntimePort):
                 )
             )
 
-    async def terminate(self, job_id: str, grace_period_seconds: int = 15) -> None:
+    async def terminate(self, job_id: str, grace_period_seconds: float = 15.0) -> None:
         """Forcibly terminate running job and release its cgroup enclosure."""
         proc = self._active_processes.get(job_id)
         if proc:

@@ -254,3 +254,215 @@ def test_api_diagnostics_and_monitoring(hermetic_api_client: TestClient) -> None
     )
     assert pty_resp.status_code == 200
     assert pty_resp.json()["session_id"] == "pty-test-1"
+
+
+def test_get_auth_context_unit() -> None:
+    """Verify get_auth_context resolution across headers and query params."""
+    from hexaqueue_server.adapters.api import get_auth_context
+
+    # 1. Defaults
+    assert get_auth_context() == ("default", False)
+    assert get_auth_context(None, None, False, False, False) == (
+        "default",
+        False,
+    )
+
+    # 2. User resolution (header takes precedence over query)
+    assert get_auth_context(x_hexaqueue_user="alice") == ("alice", False)
+    assert get_auth_context(user="bob") == ("bob", False)
+    assert get_auth_context(x_hexaqueue_user="alice", user="bob") == (
+        "alice",
+        False,
+    )
+
+    # 3. Elevation resolution
+    assert get_auth_context(x_hexaqueue_elevate=True) == ("default", True)
+    assert get_auth_context(elevate=True) == ("default", True)
+    assert get_auth_context(admin=True) == ("default", True)
+    assert get_auth_context(x_hexaqueue_elevate=False, elevate=False) == (
+        "default",
+        False,
+    )
+    assert get_auth_context(x_hexaqueue_elevate=True, elevate=True) == (
+        "default",
+        True,
+    )
+
+
+def test_api_command_elevation_and_user_mapping() -> None:
+    """Verify endpoint dispatch mapping for user identity and elevation in REST API.
+
+    Notes/Architectural Intent:
+        Guarantees that user identity fallback to authenticated principal
+        and elevation boolean composition (OR logic) behave correctly across
+        run submissions, suite submissions, collateral uploads, and budget settlements.
+    """
+    from unittest.mock import MagicMock
+
+    from fastapi.routing import APIRoute
+
+    from hexaqueue_core.domain.cqrs import (
+        CreatePtySessionCommand,
+        RegisterCollateralCommand,
+        SettleBudgetCommand,
+        SubmitRunCommand,
+        SubmitSuiteCommand,
+    )
+    from hexaqueue_core.domain.job import JobSpec
+    from hexaqueue_core.domain.resources import ResourceRequirements
+    from hexaqueue_core.domain.run import RunSpec
+    from hexaqueue_core.domain.suite import SuiteSpec, TaskSpec
+    from hexaqueue_server.adapters.api import create_server_api_router
+
+    router = create_server_api_router()
+    routes = {r.path: r.endpoint for r in router.routes if isinstance(r, APIRoute)}
+    submit_run = routes["/v1/runs"]
+    submit_suite = routes["/v1/suites"]
+    register_col = routes["/v1/collateral/upload"]
+    settle_bud = routes["/v1/budget/settle"]
+    create_pty = routes["/v1/jobs/{job_id}/pty"]
+
+    mock_pip = MagicMock()
+    job = JobSpec(
+        id="j1",
+        run_id="r1",
+        name="j1",
+        command="echo",
+        resources=ResourceRequirements(cpus=1, ram_mb=512),
+    )
+
+    # 1. submit_run: user_id fallback and elevation
+    cmd_default = SubmitRunCommand(
+        run_spec=RunSpec(id="r1", name="r1"),
+        jobs=[job],
+        user_id="default",
+        elevate=False,
+    )
+    submit_run(cmd=cmd_default, pipeline=mock_pip, auth=("alice", False))
+    dispatched = mock_pip.execute.call_args[0][0]
+    assert dispatched.user_id == "alice"
+    assert dispatched.elevate is False
+
+    cmd_explicit = SubmitRunCommand(
+        run_spec=RunSpec(id="r1", name="r1"),
+        jobs=[job],
+        user_id="bob",
+        elevate=False,
+    )
+    submit_run(cmd=cmd_explicit, pipeline=mock_pip, auth=("alice", False))
+    dispatched = mock_pip.execute.call_args[0][0]
+    assert dispatched.user_id == "bob"
+    assert dispatched.elevate is False
+
+    submit_run(cmd=cmd_default, pipeline=mock_pip, auth=("alice", True))
+    dispatched = mock_pip.execute.call_args[0][0]
+    assert dispatched.elevate is True
+
+    # 2. submit_suite: user_id fallback and elevation
+    suite_cmd_default = SubmitSuiteCommand(
+        suite_spec=SuiteSpec(
+            id="s1",
+            name="s1",
+            tasks=[
+                TaskSpec(
+                    id="t1",
+                    command="echo",
+                    resources=ResourceRequirements(cpus=1, ram_mb=512),
+                )
+            ],
+        ),
+        user_id="default",
+        elevate=False,
+    )
+    submit_suite(cmd=suite_cmd_default, pipeline=mock_pip, auth=("alice", False))
+    dispatched = mock_pip.execute.call_args[0][0]
+    assert dispatched.user_id == "alice"
+    assert dispatched.elevate is False
+
+    suite_cmd_explicit = SubmitSuiteCommand(
+        suite_spec=SuiteSpec(
+            id="s1",
+            name="s1",
+            tasks=[
+                TaskSpec(
+                    id="t1",
+                    command="echo",
+                    resources=ResourceRequirements(cpus=1, ram_mb=512),
+                )
+            ],
+        ),
+        user_id="bob",
+        elevate=False,
+    )
+    submit_suite(cmd=suite_cmd_explicit, pipeline=mock_pip, auth=("alice", False))
+    dispatched = mock_pip.execute.call_args[0][0]
+    assert dispatched.user_id == "bob"
+    assert dispatched.elevate is False
+
+    submit_suite(cmd=suite_cmd_default, pipeline=mock_pip, auth=("alice", True))
+    dispatched = mock_pip.execute.call_args[0][0]
+    assert dispatched.elevate is True
+
+    # 3. register_collateral: user_id fallback and elevation
+    col_cmd = RegisterCollateralCommand(
+        name="test.tar",
+        checksum_sha256="c" * 64,
+        size_bytes=100,
+        user_id="default",
+        elevate=False,
+    )
+    register_col(cmd=col_cmd, pipeline=mock_pip, auth=("alice", False))
+    dispatched = mock_pip.execute.call_args[0][0]
+    assert dispatched.user_id == "alice"
+    assert dispatched.elevate is False
+
+    col_cmd_explicit = RegisterCollateralCommand(
+        name="test.tar",
+        checksum_sha256="c" * 64,
+        size_bytes=100,
+        user_id="bob",
+        elevate=False,
+    )
+    register_col(cmd=col_cmd_explicit, pipeline=mock_pip, auth=("alice", False))
+    dispatched = mock_pip.execute.call_args[0][0]
+    assert dispatched.user_id == "bob"
+
+    register_col(cmd=col_cmd, pipeline=mock_pip, auth=("alice", True))
+    dispatched = mock_pip.execute.call_args[0][0]
+    assert dispatched.elevate is True
+
+    # 4. settle_budget: user_id fallback and elevation
+    bud_cmd = SettleBudgetCommand(
+        project_id="p1", amount_cents=100, user_id="default", elevate=False
+    )
+    settle_bud(cmd=bud_cmd, pipeline=mock_pip, auth=("alice", False))
+    dispatched = mock_pip.execute.call_args[0][0]
+    assert dispatched.user_id == "alice"
+    assert dispatched.elevate is False
+
+    bud_cmd_explicit = SettleBudgetCommand(
+        project_id="p1", amount_cents=100, user_id="bob", elevate=False
+    )
+    settle_bud(cmd=bud_cmd_explicit, pipeline=mock_pip, auth=("alice", False))
+    dispatched = mock_pip.execute.call_args[0][0]
+    assert dispatched.user_id == "bob"
+
+    settle_bud(cmd=bud_cmd, pipeline=mock_pip, auth=("alice", True))
+    dispatched = mock_pip.execute.call_args[0][0]
+    assert dispatched.elevate is True
+
+    # 5. create_pty: elevation OR composition
+    pty_cmd = CreatePtySessionCommand(
+        job_id="j1",
+        session_id="pty-test",
+        command=["/bin/sh"],
+        user_id="default",
+        elevate=False,
+    )
+    create_pty(job_id="j1", cmd=pty_cmd, pipeline=mock_pip, auth=("alice", False))
+    dispatched = mock_pip.execute.call_args[0][0]
+    assert dispatched.elevate is False
+
+    create_pty(job_id="j1", cmd=pty_cmd, pipeline=mock_pip, auth=("alice", True))
+    dispatched = mock_pip.execute.call_args[0][0]
+    assert dispatched.elevate is True

@@ -34,6 +34,8 @@ def test_artifact_reference_creation_and_envelope() -> None:
     assert restored.size_bytes == ref.size_bytes
     assert restored.content_hash == ref.content_hash
     assert restored.mime_type == ref.mime_type
+    validator = ArtifactReference.__dict__["validate_invariants"]
+    assert validator(ref) is ref
 
 
 def test_artifact_reference_validation() -> None:

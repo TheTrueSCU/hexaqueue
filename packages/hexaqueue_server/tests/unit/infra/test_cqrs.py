@@ -105,6 +105,17 @@ def test_submit_suite_command(hermetic_cqrs_pipeline: tuple[Any, Any]) -> None:
     assert report.run_id == "suite-alpha"
     assert report.total_jobs == 1
 
+    # Suite without explicit name falls back to suite ID
+    suite_unnamed = SuiteSpec(
+        id="suite-beta",
+        name=None,
+        tasks=[TaskSpec(id="task-2", command="echo beta")],
+    )
+    cmd2 = SubmitSuiteCommand(suite_spec=suite_unnamed, user_id="bob", elevate=False)
+    report2 = pipeline.execute(cmd2)
+    assert report2.run_id == "suite-beta"
+    assert report2.total_jobs == 1
+
 
 def test_permission_elevation_for_job_mutation(
     hermetic_cqrs_pipeline: tuple[Any, Any],
@@ -154,6 +165,21 @@ def test_permission_elevation_for_job_mutation(
     )
     assert elevated_cancel.id == "job-201"
 
+    # 5. Create PTY session on job
+    from hexaqueue_core.domain.cqrs import CreatePtySessionCommand
+
+    pty = pipeline.execute(
+        CreatePtySessionCommand(
+            job_id="job-201",
+            session_id="pty-job-201",
+            command=["/bin/sh"],
+            user_id="alice",
+            elevate=False,
+        )
+    )
+    assert pty.is_active is True
+    assert pty.job_id == "job-201"
+
 
 def test_bastion_elevation_enforcement(hermetic_cqrs_pipeline: tuple[Any, Any]) -> None:
     """Verify that node bastion SSH sessions strictly require administrative elevation."""
@@ -182,6 +208,7 @@ def test_bastion_elevation_enforcement(hermetic_cqrs_pipeline: tuple[Any, Any]) 
     )
     assert pty_info.session_id == "bastion-1"
     assert pty_info.job_id == "bastion-worker-node-1"
+    assert pty_info.is_active is True
 
 
 def test_query_operations(hermetic_cqrs_pipeline: tuple[Any, Any]) -> None:
@@ -208,8 +235,20 @@ def test_query_operations(hermetic_cqrs_pipeline: tuple[Any, Any]) -> None:
     assert len(logs) == 1
     assert "Execution complete" in logs[0].content
 
+    # Full and oversized log tailing
+    logs_full = pipeline.execute(GetLogsQuery(job_id="job-log-1", tail=None))
+    assert len(logs_full) == 2
+
+    logs_over = pipeline.execute(GetLogsQuery(job_id="job-log-1", tail=10))
+    assert len(logs_over) == 2
+
     stats = pipeline.execute(GetQueueStatsQuery())
     assert stats.active_workers >= 1
+    assert stats.running_jobs == 0
+    assert stats.pending_jobs >= 1
+    assert stats.blocked_jobs == 0
+    assert stats.completed_jobs == 0
+    assert stats.failed_jobs == 0
 
     nodes = pipeline.execute(GetNodesQuery())
     assert len(nodes) >= 1
@@ -219,10 +258,22 @@ def test_query_operations(hermetic_cqrs_pipeline: tuple[Any, Any]) -> None:
     )
     assert tree.root.id == "root"
 
-    explanation = pipeline.execute(
+    # Redaction checks on explainability
+    explanation_owner = pipeline.execute(
+        ExplainJobQuery(job_id="job-log-1", requesting_user="default", is_admin=False)
+    )
+    assert explanation_owner.job_id == "job-log-1"
+    assert explanation_owner.is_redacted is False
+
+    explanation_other = pipeline.execute(
         ExplainJobQuery(job_id="job-log-1", requesting_user="alice", is_admin=False)
     )
-    assert explanation.job_id == "job-log-1"
+    assert explanation_other.is_redacted is True
+
+    explanation_admin = pipeline.execute(
+        ExplainJobQuery(job_id="job-log-1", requesting_user="alice", is_admin=True)
+    )
+    assert explanation_admin.is_redacted is False
 
 
 def test_collateral_and_budget_commands(
@@ -238,6 +289,18 @@ def test_collateral_and_budget_commands(
         )
     )
     assert col_bundle.filename == "model.pt"
+    assert col_bundle.sha256_checksum == "a" * 64
+
+    # Short checksum triggering zfill(64)
+    col_short = pipeline.execute(
+        RegisterCollateralCommand(
+            name="weights.bin",
+            checksum_sha256="abc",
+            size_bytes=1024,
+        )
+    )
+    assert len(col_short.sha256_checksum) == 64
+    assert col_short.sha256_checksum == "abc".zfill(64)
 
     budget_res = pipeline.execute(
         SettleBudgetCommand(project_id="proj-hpc", amount_cents=1500)

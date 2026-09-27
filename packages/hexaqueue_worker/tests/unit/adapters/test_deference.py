@@ -93,6 +93,7 @@ async def test_native_deference_timeout(monkeypatch: pytest.MonkeyPatch) -> None
     )
 
     async def mock_wait_for(fut, timeout):
+        fut.close()
         raise TimeoutError
 
     monkeypatch.setattr(asyncio, "wait_for", mock_wait_for)
@@ -120,3 +121,36 @@ async def test_native_deference_terminate_active() -> None:
 
     # Test terminate on non-running job safely completes
     await adapter.terminate("non-existent-job")
+
+
+@pytest.mark.asyncio
+async def test_native_deference_error_message_and_stderr() -> None:
+    """Verify error_message is only populated on non-zero exit code when stderr is non-empty."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    adapter = NativeDeferenceRuntimeAdapter()
+    job = JobSpec(id="j-err", run_id="r1", name="j-err", command="true")
+
+    # 1. Exit code 1 with stderr -> error_message set
+    proc_fail = MagicMock()
+    proc_fail.pid = 1234
+    proc_fail.returncode = 1
+    proc_fail.communicate = AsyncMock(return_value=(b"", b"def failure reason"))
+
+    with patch("asyncio.create_subprocess_shell", return_value=proc_fail):
+        res_fail = await adapter.execute(job)
+        assert res_fail.exit_code == 1
+        assert res_fail.outcome == TerminalOutcome.FAILED
+        assert res_fail.error_message == "def failure reason"
+
+    # 2. Exit code 0 with stderr -> error_message is None, outcome is COMPLETED
+    proc_ok_stderr = MagicMock()
+    proc_ok_stderr.pid = 1234
+    proc_ok_stderr.returncode = 0
+    proc_ok_stderr.communicate = AsyncMock(return_value=(b"stdout", b"warning banner"))
+
+    with patch("asyncio.create_subprocess_shell", return_value=proc_ok_stderr):
+        res_ok = await adapter.execute(job)
+        assert res_ok.exit_code == 0
+        assert res_ok.outcome == TerminalOutcome.COMPLETED
+        assert res_ok.error_message is None

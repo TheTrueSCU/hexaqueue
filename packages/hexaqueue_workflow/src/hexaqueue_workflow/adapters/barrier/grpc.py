@@ -135,7 +135,7 @@ class GrpcSplitJoinBarrierAdapter(SplitJoinBarrierPort):
 
             return outputs, completed, failed
 
-        if timeout_seconds and timeout_seconds > 0:
+        if timeout_seconds is not None and timeout_seconds > 0:
             outputs, completed, failed = await asyncio.wait_for(
                 _collect(), timeout=timeout_seconds
             )

@@ -1,5 +1,6 @@
 """Unit tests for ApptainerExecutionRuntimeAdapter (Issue #30)."""
 
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -289,3 +290,93 @@ async def test_apptainer_terminate_sigkill_timeout() -> None:
 
     calls = mock_killpg.call_args_list
     assert len(calls) >= 2
+
+
+def test_apptainer_gpu_flag_variations() -> None:
+    """Verify GPU flag generation under different resource and container permutations."""
+    adapter = ApptainerExecutionRuntimeAdapter(
+        config=ApptainerConfig(nv_gpu=True, rocm_gpu=True)
+    )
+
+    # 1. gpus=1, container without gpu_enabled -> has --nv and --rocm
+    job_gpu_res = JobSpec(
+        id="j-res",
+        run_id="r-1",
+        name="job-res",
+        command="true",
+        resources=ResourceRequirements(gpus=1),
+        container=ContainerSpec(image="cuda.sif", gpu_enabled=False),
+    )
+    cmd_res = " ".join(adapter.build_command(job_gpu_res))
+    assert "--nv" in cmd_res
+    assert "--rocm" in cmd_res
+
+    # 2. gpus=0, container with gpu_enabled=True -> has --nv and --rocm
+    job_gpu_cont = JobSpec(
+        id="j-cont",
+        run_id="r-1",
+        name="job-cont",
+        command="true",
+        resources=ResourceRequirements(gpus=0),
+        container=ContainerSpec(image="cuda.sif", gpu_enabled=True),
+    )
+    cmd_cont = " ".join(adapter.build_command(job_gpu_cont))
+    assert "--nv" in cmd_cont
+    assert "--rocm" in cmd_cont
+
+    # 3. gpus=0, container with gpu_enabled=False -> NO --nv and NO --rocm
+    job_no_gpu = JobSpec(
+        id="j-nogpu",
+        run_id="r-1",
+        name="job-nogpu",
+        command="true",
+        resources=ResourceRequirements(gpus=0),
+        container=ContainerSpec(image="cuda.sif", gpu_enabled=False),
+    )
+    cmd_nogpu = " ".join(adapter.build_command(job_no_gpu))
+    assert "--nv" not in cmd_nogpu
+    assert "--rocm" not in cmd_nogpu
+
+
+@pytest.mark.asyncio
+async def test_apptainer_walltime_limit_variations() -> None:
+    """Verify walltime limit parameter to asyncio.wait_for under different resources."""
+    adapter = ApptainerExecutionRuntimeAdapter()
+
+    captured_timeouts: list[float | None] = []
+
+    async def fake_wait_for(coro, timeout=None):
+        captured_timeouts.append(timeout)
+        return (b"ok", b"")
+
+    fut = asyncio.Future()
+    fut.set_result((b"ok", b""))
+    mock_proc = MagicMock()
+    mock_proc.communicate = MagicMock(return_value=fut)
+    mock_proc.returncode = 0
+
+    with (
+        patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+        patch("asyncio.wait_for", side_effect=fake_wait_for),
+    ):
+        # 1. walltime_seconds = 0 -> timeout=None
+        j0 = JobSpec(
+            id="j0",
+            run_id="r-1",
+            name="j0",
+            command="true",
+            resources=ResourceRequirements.model_construct(walltime_seconds=0),
+        )
+        await adapter.execute(j0)
+
+        # 2. walltime_seconds = 1 -> timeout=1
+        j1 = JobSpec(
+            id="j1",
+            run_id="r-1",
+            name="j1",
+            command="true",
+            resources=ResourceRequirements.model_construct(walltime_seconds=1),
+        )
+        await adapter.execute(j1)
+
+    assert captured_timeouts == [None, 1]

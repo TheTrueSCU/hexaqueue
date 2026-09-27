@@ -259,6 +259,8 @@ async def test_local_scheduler_controller_notifications_submit_and_complete() ->
     assert j1.name in job_title
     assert "COMPLETED" in run_title
     assert run.name in run_title
+    assert "**Completed Jobs:** 1" in second_call["body"]
+    assert "**Failed Jobs:** 0" in second_call["body"]
 
 
 @pytest.mark.asyncio
@@ -309,6 +311,8 @@ async def test_local_scheduler_controller_notifications_job_failure() -> None:
     assert j1.name in job_title
     assert "FAILED" in run_title
     assert run.name in run_title
+    assert "**Completed Jobs:** 0" in run_call["body"]
+    assert "**Failed Jobs:** 1" in run_call["body"]
 
 
 @pytest.mark.asyncio
@@ -560,3 +564,169 @@ async def test_local_scheduler_controller_cancel_job() -> None:
 
     with pytest.raises(HexaqueueError, match="not found"):
         await controller.release_job("non-existent")
+
+
+@pytest.mark.asyncio
+async def test_local_scheduler_controller_mode_and_governor_initialization() -> None:
+    """Verify cluster execution mode and governor initialization behavior."""
+    queue = InMemoryJobQueueAdapter()
+
+    # 1. No governor and DEVELOPMENT mode -> stays DEVELOPMENT, governor is None
+    c_dev = LocalSchedulerControllerAdapter(
+        queue=queue,
+        governor=None,
+        mode=ExecutionMode.DEVELOPMENT,
+    )
+    assert c_dev._mode == ExecutionMode.DEVELOPMENT
+    assert c_dev._governor is None
+
+    # 2. Governor provided with DEVELOPMENT mode -> promoted to FREE_TIER
+    gov = FreeTierGovernor()
+    c_promoted = LocalSchedulerControllerAdapter(
+        queue=queue,
+        governor=gov,
+        mode=ExecutionMode.DEVELOPMENT,
+    )
+    assert c_promoted._mode == ExecutionMode.FREE_TIER
+    assert c_promoted._governor is gov
+
+
+@pytest.mark.asyncio
+async def test_local_scheduler_controller_production_mode_ignores_free_tier() -> None:
+    """Verify PRODUCTION mode disables free tier evaluation even if governor is passed."""
+    queue = InMemoryJobQueueAdapter()
+    gov = FreeTierGovernor()
+    controller = LocalSchedulerControllerAdapter(
+        queue=queue,
+        governor=gov,
+        mode=ExecutionMode.PRODUCTION,
+    )
+    assert controller._mode == ExecutionMode.PRODUCTION
+
+    run = RunSpec(id="run-prod", name="prod-run")
+    j1 = JobSpec(
+        id="j1-prod",
+        run_id=run.id,
+        name="job-prod",
+        command="echo",
+        resources=ResourceRequirements(gpus=4),  # Exceeds free tier limits
+    )
+    submission = RunSubmission(run_spec=run, jobs=[j1])
+
+    # Direct check of _evaluate_free_tier_violations
+    violations = controller._evaluate_free_tier_violations([j1])
+    assert violations == {}
+
+    report = await controller.submit_run(submission)
+    assert report.free_tier_active is False
+    assert report.burn_report is None
+    assert report.state == RunState.RUNNING
+
+
+@pytest.mark.asyncio
+async def test_local_scheduler_controller_multi_hop_dag_failure_cascade() -> None:
+    """Verify failure of root job cascades across multi-hop dependencies (A -> B -> C)."""
+    queue = InMemoryJobQueueAdapter()
+    controller = LocalSchedulerControllerAdapter(queue=queue)
+
+    run = RunSpec(id="run-cascade", name="cascade-run")
+    j_a = JobSpec(id="ja", run_id=run.id, name="job-a", command="echo a")
+    j_b = JobSpec(id="jb", run_id=run.id, name="job-b", command="echo b")
+    j_c = JobSpec(id="jc", run_id=run.id, name="job-c", command="echo c")
+
+    submission = RunSubmission(
+        run_spec=run,
+        jobs=[j_c, j_b, j_a],
+        dependencies={
+            j_b.id: [j_a.id],
+            j_c.id: [j_b.id],
+        },
+    )
+    await controller.submit_run(submission)
+
+    # Fail root job ja -> should cascade and mark jb and jc as BLOCKED
+    await controller.update_job_outcome(j_a.id, TerminalOutcome.FAILED)
+
+    job_b = await controller.get_job(j_b.id)
+    assert job_b.state == JobState.BLOCKED
+    assert job_b.status.reason == "Upstream prerequisite task failed"
+
+    job_c = await controller.get_job(j_c.id)
+    assert job_c.state == JobState.BLOCKED
+    assert job_c.status.reason == "Upstream prerequisite task failed"
+
+
+@pytest.mark.asyncio
+async def test_local_scheduler_controller_release_non_held_job_noop() -> None:
+    """Verify release_job on non-held jobs (prereq blocked or pending) is a no-op."""
+    queue = InMemoryJobQueueAdapter()
+    controller = LocalSchedulerControllerAdapter(queue=queue)
+
+    run = RunSpec(id="run-release-noop", name="noop-run")
+    j_a = JobSpec(id="ja-noop", run_id=run.id, name="job-a", command="echo a")
+    j_b = JobSpec(id="jb-noop", run_id=run.id, name="job-b", command="echo b")
+
+    submission = RunSubmission(
+        run_spec=run,
+        jobs=[j_a, j_b],
+        dependencies={j_b.id: [j_a.id]},
+    )
+    await controller.submit_run(submission)
+
+    # 1. Release pending job (ja) -> remains PENDING, not re-enqueued
+    res_pending = await controller.release_job(j_a.id)
+    assert res_pending.state == JobState.PENDING
+
+    # 2. Fail ja so jb becomes BLOCKED with 'Upstream prerequisite task failed'
+    await controller.update_job_outcome(j_a.id, TerminalOutcome.FAILED)
+    jb_blocked = await controller.get_job(j_b.id)
+    assert jb_blocked.state == JobState.BLOCKED
+    assert jb_blocked.status.reason == "Upstream prerequisite task failed"
+
+    # Releasing jb should NOT unblock it because reason != 'Administratively held'
+    res_unheld = await controller.release_job(j_b.id)
+    assert res_unheld.state == JobState.BLOCKED
+    assert res_unheld.status.reason == "Upstream prerequisite task failed"
+
+
+@pytest.mark.asyncio
+async def test_local_scheduler_controller_notifications_job_timed_out() -> None:
+    """Verify TIMED_OUT outcome increments failed_jobs in run notification."""
+    mock_port = MagicMock(spec=NotificationPort)
+    mock_port.notify.return_value = True
+    dispatcher = NotificationDispatcher(notification_port=mock_port)
+
+    queue = InMemoryJobQueueAdapter()
+    controller = LocalSchedulerControllerAdapter(
+        queue=queue,
+        notification_dispatcher=dispatcher,
+    )
+
+    policy = NotificationPolicy(
+        targets=["slack://alerts"],
+        triggers=NotificationTrigger.ERRORS,
+    )
+
+    run = RunSpec(
+        id="run-timeout",
+        name="timeout-run",
+        notifications=[policy],
+    )
+    j1 = JobSpec(
+        id="j1-timeout",
+        run_id=run.id,
+        name="job-timeout",
+        command="sleep 100",
+        notifications=[policy],
+    )
+
+    submission = RunSubmission(run_spec=run, jobs=[j1])
+    await controller.submit_run(submission)
+    mock_port.notify.reset_mock()
+
+    await controller.update_job_outcome(
+        j1.id, TerminalOutcome.TIMED_OUT, reason="Execution deadline exceeded"
+    )
+    assert mock_port.notify.call_count == 2
+    run_call = mock_port.notify.call_args_list[1][1]
+    assert "**Failed Jobs:** 1" in run_call["body"]

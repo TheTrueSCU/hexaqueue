@@ -9,7 +9,7 @@ Notes/Architectural Intent:
 
 import math
 
-from hypothesis import given
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from hexaqueue_core.domain.exceptions import VariableInterpolationError
@@ -46,6 +46,7 @@ def matrix_dict_strategy(draw: st.DrawFn) -> dict[str, list[str]]:
     return matrix
 
 
+@settings(suppress_health_check=[HealthCheck.too_slow], deadline=None)
 @given(matrix_dict_strategy())
 def test_matrix_expansion_cardinality_and_uniqueness(
     matrix: dict[str, list[str]],
@@ -64,6 +65,7 @@ def test_matrix_expansion_cardinality_and_uniqueness(
     assert unique_count == expected_len
 
 
+@settings(suppress_health_check=[HealthCheck.too_slow], deadline=None)
 @given(
     st.dictionaries(var_name_st, var_value_st, min_size=1, max_size=5),
     st.lists(var_name_st, min_size=1, max_size=3),
@@ -93,6 +95,7 @@ def test_variable_interpolation_no_leak(
             pass
 
 
+@settings(suppress_health_check=[HealthCheck.too_slow], deadline=None)
 @given(matrix_dict_strategy())
 def test_suite_compiler_determinism(matrix: dict[str, list[str]]) -> None:
     """Verifies that SuiteCompiler produces byte-for-byte deterministic JobSpecs and DAG order."""

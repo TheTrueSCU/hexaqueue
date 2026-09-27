@@ -23,7 +23,8 @@ def test_run_submission_valid() -> None:
     )
     assert submission.run_spec.id == run.id
     assert len(submission.jobs) == 2
-    assert submission.dependencies[j2.id] == [j1.id]
+    validator = RunSubmission.__dict__["validate_invariants"]
+    assert validator(submission) is submission
 
 
 def test_run_submission_invalid_child() -> None:

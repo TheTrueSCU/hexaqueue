@@ -64,26 +64,31 @@ from hexaqueue_worker.domain.pty import PtySessionInfo
 from hexaqueue_worker.domain.telemetry import NodeTelemetryPulse
 
 
-def _resolve_auth(
-    header_user: str | None,
-    query_user: str | None,
-    header_elevate: bool,
-    query_elevate: bool,
+def get_auth_context(
+    x_hexaqueue_user: Annotated[str | None, Header()] = None,
+    user: Annotated[str | None, Query()] = None,
+    x_hexaqueue_elevate: Annotated[bool, Header()] = False,
+    elevate: Annotated[bool, Query()] = False,
+    admin: Annotated[bool, Query()] = False,
 ) -> tuple[str, bool]:
     """Resolve requesting user identity and elevation status.
 
     Args:
-        header_user: User identity from X-Hexaqueue-User header.
-        query_user: User identity from user query parameter.
-        header_elevate: Elevation flag from X-Hexaqueue-Elevate header.
-        query_elevate: Elevation flag from elevate query parameter.
+        x_hexaqueue_user: User identity from X-Hexaqueue-User header.
+        user: User identity from user query parameter.
+        x_hexaqueue_elevate: Elevation flag from X-Hexaqueue-Elevate header.
+        elevate: Elevation flag from elevate query parameter.
+        admin: Administrative elevation flag from admin query parameter.
 
     Returns:
         Tuple of (resolved_user_id, is_elevated).
+
+    Notes/Architectural Intent:
+        Centralized authentication and elevation resolution dependency for REST endpoints.
     """
-    user_id = header_user or query_user or "default"
-    elevate = header_elevate or query_elevate
-    return user_id, elevate
+    user_id = x_hexaqueue_user or user or "default"
+    is_elevated = bool(x_hexaqueue_elevate or elevate or admin)
+    return user_id, is_elevated
 
 
 def _dispatch(pipeline: ExecutionPipeline, message: Any) -> Any:
@@ -129,18 +134,15 @@ def create_server_api_router() -> APIRouter:
     def submit_run(
         cmd: SubmitRunCommand,
         pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> RunStatusReport:
-        user_id, elevate = _resolve_auth(
-            x_hexaqueue_user, None, x_hexaqueue_elevate, False
-        )
+        user_id, is_elevated = auth
         effective_cmd = SubmitRunCommand(
             run_spec=cmd.run_spec,
             jobs=cmd.jobs,
             dependencies=cmd.dependencies,
             user_id=cmd.user_id if cmd.user_id != "default" else user_id,
-            elevate=cmd.elevate or elevate,
+            elevate=bool(cmd.elevate or is_elevated),
         )
         return _dispatch(pipeline, effective_cmd)
 
@@ -153,13 +155,9 @@ def create_server_api_router() -> APIRouter:
     def get_run_status(
         run_id: str,
         pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
-        elevate: Annotated[bool, Query()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> RunStatusReport:
-        user_id, is_elevated = _resolve_auth(
-            x_hexaqueue_user, None, x_hexaqueue_elevate, elevate
-        )
+        user_id, is_elevated = auth
         qry = GetRunStatusQuery(run_id=run_id, user_id=user_id, elevate=is_elevated)
         return _dispatch(pipeline, qry)
 
@@ -172,13 +170,9 @@ def create_server_api_router() -> APIRouter:
     def cancel_run(
         run_id: str,
         pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
-        elevate: Annotated[bool, Query()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> RunStatusReport:
-        user_id, is_elevated = _resolve_auth(
-            x_hexaqueue_user, None, x_hexaqueue_elevate, elevate
-        )
+        user_id, is_elevated = auth
         cmd = CancelRunCommand(run_id=run_id, user_id=user_id, elevate=is_elevated)
         return _dispatch(pipeline, cmd)
 
@@ -192,16 +186,13 @@ def create_server_api_router() -> APIRouter:
     def submit_suite(
         cmd: SubmitSuiteCommand,
         pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> RunStatusReport:
-        user_id, elevate = _resolve_auth(
-            x_hexaqueue_user, None, x_hexaqueue_elevate, False
-        )
+        user_id, is_elevated = auth
         effective_cmd = SubmitSuiteCommand(
             suite_spec=cmd.suite_spec,
             user_id=cmd.user_id if cmd.user_id != "default" else user_id,
-            elevate=cmd.elevate or elevate,
+            elevate=bool(cmd.elevate or is_elevated),
         )
         return _dispatch(pipeline, effective_cmd)
 
@@ -213,14 +204,10 @@ def create_server_api_router() -> APIRouter:
     )
     def list_jobs(
         pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
         run_id: Annotated[str | None, Query()] = None,
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
-        elevate: Annotated[bool, Query()] = False,
     ) -> list[JobSpec]:
-        user_id, is_elevated = _resolve_auth(
-            x_hexaqueue_user, None, x_hexaqueue_elevate, elevate
-        )
+        user_id, is_elevated = auth
         qry = ListJobsQuery(run_id=run_id, user_id=user_id, elevate=is_elevated)
         return _dispatch(pipeline, qry)
 
@@ -233,13 +220,9 @@ def create_server_api_router() -> APIRouter:
     def get_job(
         job_id: str,
         pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
-        elevate: Annotated[bool, Query()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> JobSpec:
-        user_id, is_elevated = _resolve_auth(
-            x_hexaqueue_user, None, x_hexaqueue_elevate, elevate
-        )
+        user_id, is_elevated = auth
         qry = GetJobQuery(job_id=job_id, user_id=user_id, elevate=is_elevated)
         return _dispatch(pipeline, qry)
 
@@ -252,13 +235,9 @@ def create_server_api_router() -> APIRouter:
     def hold_job(
         job_id: str,
         pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
-        elevate: Annotated[bool, Query()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> JobSpec:
-        user_id, is_elevated = _resolve_auth(
-            x_hexaqueue_user, None, x_hexaqueue_elevate, elevate
-        )
+        user_id, is_elevated = auth
         cmd = HoldJobCommand(job_id=job_id, user_id=user_id, elevate=is_elevated)
         return _dispatch(pipeline, cmd)
 
@@ -270,13 +249,9 @@ def create_server_api_router() -> APIRouter:
     def release_job(
         job_id: str,
         pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
-        elevate: Annotated[bool, Query()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> JobSpec:
-        user_id, is_elevated = _resolve_auth(
-            x_hexaqueue_user, None, x_hexaqueue_elevate, elevate
-        )
+        user_id, is_elevated = auth
         cmd = ReleaseJobCommand(job_id=job_id, user_id=user_id, elevate=is_elevated)
         return _dispatch(pipeline, cmd)
 
@@ -288,13 +263,9 @@ def create_server_api_router() -> APIRouter:
     def cancel_job(
         job_id: str,
         pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
-        elevate: Annotated[bool, Query()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> JobSpec:
-        user_id, is_elevated = _resolve_auth(
-            x_hexaqueue_user, None, x_hexaqueue_elevate, elevate
-        )
+        user_id, is_elevated = auth
         cmd = CancelJobCommand(job_id=job_id, user_id=user_id, elevate=is_elevated)
         return _dispatch(pipeline, cmd)
 
@@ -307,13 +278,9 @@ def create_server_api_router() -> APIRouter:
     def explain_job(
         job_id: str,
         pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
-        admin: Annotated[bool, Query()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> SchedulingDecisionReport:
-        user_id, is_elevated = _resolve_auth(
-            x_hexaqueue_user, None, x_hexaqueue_elevate, admin
-        )
+        user_id, is_elevated = auth
         qry = ExplainJobQuery(
             job_id=job_id, requesting_user=user_id, is_admin=is_elevated
         )
@@ -328,13 +295,10 @@ def create_server_api_router() -> APIRouter:
     def get_logs(
         job_id: str,
         pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
         tail: Annotated[int | None, Query()] = None,
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
     ) -> list[LogChunk]:
-        user_id, is_elevated = _resolve_auth(
-            x_hexaqueue_user, None, x_hexaqueue_elevate, False
-        )
+        user_id, is_elevated = auth
         qry = GetLogsQuery(
             job_id=job_id, tail=tail, user_id=user_id, elevate=is_elevated
         )
@@ -350,18 +314,15 @@ def create_server_api_router() -> APIRouter:
         job_id: str,
         cmd: CreatePtySessionCommand,
         pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> PtySessionInfo:
-        user_id, is_elevated = _resolve_auth(
-            x_hexaqueue_user, None, x_hexaqueue_elevate, cmd.elevate
-        )
+        user_id, is_elevated = auth
         effective_cmd = CreatePtySessionCommand(
             job_id=job_id,
             session_id=cmd.session_id or f"pty-{uuid4().hex[:8]}",
             command=cmd.command,
             user_id=cmd.user_id if cmd.user_id != "default" else user_id,
-            elevate=is_elevated,
+            elevate=bool(cmd.elevate or is_elevated),
             rows=cmd.rows,
             cols=cmd.cols,
             term_type=cmd.term_type,
@@ -376,13 +337,9 @@ def create_server_api_router() -> APIRouter:
     )
     def get_fairshare_tree(
         pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
-        admin: Annotated[bool, Query()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> FairShareTreeReport:
-        user_id, is_elevated = _resolve_auth(
-            x_hexaqueue_user, None, x_hexaqueue_elevate, admin
-        )
+        user_id, is_elevated = auth
         qry = GetFairShareTreeQuery(requesting_user=user_id, is_admin=is_elevated)
         return _dispatch(pipeline, qry)
 
@@ -394,13 +351,9 @@ def create_server_api_router() -> APIRouter:
     )
     def get_nodes(
         pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
-        elevate: Annotated[bool, Query()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> list[NodeTelemetryPulse]:
-        user_id, is_elevated = _resolve_auth(
-            x_hexaqueue_user, None, x_hexaqueue_elevate, elevate
-        )
+        user_id, is_elevated = auth
         qry = GetNodesQuery(user_id=user_id, elevate=is_elevated)
         return _dispatch(pipeline, qry)
 
@@ -412,13 +365,9 @@ def create_server_api_router() -> APIRouter:
     )
     def get_stats(
         pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
-        elevate: Annotated[bool, Query()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> ClusterStatsReport:
-        user_id, is_elevated = _resolve_auth(
-            x_hexaqueue_user, None, x_hexaqueue_elevate, elevate
-        )
+        user_id, is_elevated = auth
         qry = GetQueueStatsQuery(user_id=user_id, elevate=is_elevated)
         return _dispatch(pipeline, qry)
 
@@ -431,13 +380,9 @@ def create_server_api_router() -> APIRouter:
     def create_bastion_ssh(
         node_id: str,
         pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
-        elevate: Annotated[bool, Query()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> PtySessionInfo:
-        user_id, is_elevated = _resolve_auth(
-            x_hexaqueue_user, None, x_hexaqueue_elevate, elevate
-        )
+        user_id, is_elevated = auth
         cmd = CreateBastionSessionCommand(
             node_id=node_id,
             session_id=f"bastion-{uuid4().hex[:8]}",
@@ -455,12 +400,9 @@ def create_server_api_router() -> APIRouter:
     def register_collateral(
         cmd: RegisterCollateralCommand,
         pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> CollateralBundle:
-        user_id, elevate = _resolve_auth(
-            x_hexaqueue_user, None, x_hexaqueue_elevate, False
-        )
+        user_id, is_elevated = auth
         effective_cmd = RegisterCollateralCommand(
             name=cmd.name,
             version=cmd.version,
@@ -470,7 +412,7 @@ def create_server_api_router() -> APIRouter:
             kind=cmd.kind,
             target_path=cmd.target_path,
             user_id=cmd.user_id if cmd.user_id != "default" else user_id,
-            elevate=cmd.elevate or elevate,
+            elevate=bool(cmd.elevate or is_elevated),
         )
         return _dispatch(pipeline, effective_cmd)
 
@@ -483,17 +425,14 @@ def create_server_api_router() -> APIRouter:
     def settle_budget(
         cmd: SettleBudgetCommand,
         pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
-        x_hexaqueue_user: Annotated[str | None, Header()] = None,
-        x_hexaqueue_elevate: Annotated[bool, Header()] = False,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> dict[str, Any]:
-        user_id, elevate = _resolve_auth(
-            x_hexaqueue_user, None, x_hexaqueue_elevate, False
-        )
+        user_id, is_elevated = auth
         effective_cmd = SettleBudgetCommand(
             project_id=cmd.project_id,
             amount_cents=cmd.amount_cents,
             user_id=cmd.user_id if cmd.user_id != "default" else user_id,
-            elevate=cmd.elevate or elevate,
+            elevate=bool(cmd.elevate or is_elevated),
         )
         return _dispatch(pipeline, effective_cmd)
 
@@ -531,4 +470,5 @@ def create_server_app(
 __all__ = [
     "create_server_api_router",
     "create_server_app",
+    "get_auth_context",
 ]

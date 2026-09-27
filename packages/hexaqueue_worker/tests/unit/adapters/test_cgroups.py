@@ -1,6 +1,7 @@
 """Unit tests for Linux Cgroups v2 compute execution runtime adapter."""
 
 import asyncio
+import signal
 import sys
 import tempfile
 from pathlib import Path
@@ -13,7 +14,7 @@ from hexaqueue_core.domain.lifecycle import TerminalOutcome
 from hexaqueue_core.domain.resources import ResourceRequirements
 from hexaqueue_core.ports.storage import VolumeAllocation
 from hexaqueue_worker.adapters.cgroups import CgroupsV2ProcessAdapter
-from hexaqueue_worker.domain.cgroups import CgroupConfig
+from hexaqueue_worker.domain.cgroups import CgroupConfig, CgroupLimits
 
 
 @pytest.mark.asyncio
@@ -112,6 +113,7 @@ async def test_cgroups_adapter_walltime_timeout(
 
         # Monkeypatch asyncio.wait_for to raise TimeoutError immediately
         async def mock_wait_for(fut, timeout):
+            fut.close()
             raise TimeoutError
 
         monkeypatch.setattr(asyncio, "wait_for", mock_wait_for)
@@ -203,3 +205,148 @@ async def test_cgroups_adapter_helper_null_cases() -> None:
     mock_proc = MagicMock()
     mock_proc.pid = None
     await adapter._kill_process_group(mock_proc, grace_period_seconds=1)
+
+
+def test_cgroups_adapter_setup_exist_ok(tmp_path: Path) -> None:
+    """Verify _setup_cgroup succeeds even if directory already exists."""
+    config = CgroupConfig(cgroup_fs_root=str(tmp_path))
+    adapter = CgroupsV2ProcessAdapter(cgroup_config=config)
+    limits = CgroupLimits.from_resources(cpus=1, ram_mb=512)
+
+    # First setup creates the dir
+    p1 = adapter._setup_cgroup("j-exist", limits)
+    assert p1 is not None
+    assert p1.exists() is True
+
+    # Second setup with same ID should not raise FileExistsError (exist_ok=True)
+    p2 = adapter._setup_cgroup("j-exist", limits)
+    assert p2 is not None
+    assert p2 == p1
+
+
+@pytest.mark.asyncio
+async def test_cgroups_adapter_kill_process_group_guards() -> None:
+    """Verify process termination guards against self-termination and escalates to SIGKILL."""
+    from unittest.mock import MagicMock, patch
+
+    adapter = CgroupsV2ProcessAdapter()
+
+    # 1. Distinct PGID -> uses os.killpg
+    proc_external = MagicMock()
+    proc_external.pid = 9999
+    proc_external.returncode = 0
+
+    with (
+        patch("os.getpgid", return_value=9999),
+        patch("os.getpgrp", return_value=1111),
+        patch("os.killpg") as mock_killpg,
+    ):
+        await adapter._kill_process_group(proc_external, grace_period_seconds=0)
+        assert mock_killpg.called is True
+        assert mock_killpg.call_args_list[0][0] == (9999, signal.SIGTERM)
+
+    # 2. Same PGID as test runner -> uses proc.terminate(), NEVER os.killpg
+    proc_own = MagicMock()
+    proc_own.pid = 2222
+    proc_own.returncode = 0
+    proc_own.terminate = MagicMock()
+
+    with (
+        patch("os.getpgid", return_value=1111),
+        patch("os.getpgrp", return_value=1111),
+        patch("os.killpg") as mock_killpg_own,
+    ):
+        await adapter._kill_process_group(proc_own, grace_period_seconds=0)
+        assert mock_killpg_own.called is False
+        assert proc_own.terminate.called is True
+
+    # 3. Grace period sleep and SIGKILL escalation when returncode remains None
+    proc_stubborn = MagicMock()
+    proc_stubborn.pid = 8888
+    proc_stubborn.returncode = None
+    proc_stubborn.kill = MagicMock()
+
+    sleep_calls: list[float] = []
+
+    async def mock_sleep(secs):
+        sleep_calls.append(secs)
+
+    with (
+        patch("os.getpgid", return_value=8888),
+        patch("os.getpgrp", return_value=1111),
+        patch("os.killpg") as mock_killpg_stubborn,
+        patch("asyncio.sleep", side_effect=mock_sleep),
+    ):
+        await adapter._kill_process_group(proc_stubborn, grace_period_seconds=0.2)
+        # 0.2 * 10 = 2 sleep cycles
+        assert len(sleep_calls) == 2
+        assert mock_killpg_stubborn.call_count == 2
+        assert mock_killpg_stubborn.call_args_list[1][0] == (8888, signal.SIGKILL)
+
+
+@pytest.mark.asyncio
+async def test_cgroups_adapter_error_message_and_stderr() -> None:
+    """Verify error_message is only populated on non-zero exit code when stderr is non-empty."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    adapter = CgroupsV2ProcessAdapter()
+    job = JobSpec(id="j-err", run_id="r1", name="j-err", command="true")
+
+    # 1. Exit code 1 with stderr -> error_message set
+    proc_fail = MagicMock()
+    proc_fail.pid = 1234
+    proc_fail.returncode = 1
+    proc_fail.communicate = AsyncMock(return_value=(b"", b"failure reason"))
+
+    with (
+        patch("asyncio.create_subprocess_shell", return_value=proc_fail),
+        patch.object(adapter, "_setup_cgroup", return_value=None),
+        patch.object(adapter, "_teardown_cgroup"),
+    ):
+        res_fail = await adapter.execute(job)
+        assert res_fail.exit_code == 1
+        assert res_fail.outcome == TerminalOutcome.FAILED
+        assert res_fail.error_message == "failure reason"
+
+    # 2. Exit code 0 with stderr -> error_message is None, outcome is COMPLETED
+    proc_ok_stderr = MagicMock()
+    proc_ok_stderr.pid = 1234
+    proc_ok_stderr.returncode = 0
+    proc_ok_stderr.communicate = AsyncMock(return_value=(b"stdout", b"warning banner"))
+
+    with (
+        patch("asyncio.create_subprocess_shell", return_value=proc_ok_stderr),
+        patch.object(adapter, "_setup_cgroup", return_value=None),
+        patch.object(adapter, "_teardown_cgroup"),
+    ):
+        res_ok = await adapter.execute(job)
+        assert res_ok.exit_code == 0
+        assert res_ok.outcome == TerminalOutcome.COMPLETED
+        assert res_ok.error_message is None
+
+
+def test_cgroups_adapter_setup_nested_parents(tmp_path: Path) -> None:
+    """Verify _setup_cgroup creates nested parent directories when parents=True."""
+    nested_root = tmp_path / "deep" / "nested" / "cgroups"
+    config = CgroupConfig(cgroup_fs_root=str(nested_root))
+    adapter = CgroupsV2ProcessAdapter(cgroup_config=config)
+    limits = CgroupLimits.from_resources(cpus=1, ram_mb=512)
+    path = adapter._setup_cgroup("j-nested", limits)
+    assert path is not None
+    assert path.exists() is True
+
+
+@pytest.mark.asyncio
+async def test_cgroups_adapter_start_new_session_flag() -> None:
+    """Verify create_subprocess_shell is invoked with start_new_session=True."""
+    from unittest.mock import AsyncMock, patch
+
+    adapter = CgroupsV2ProcessAdapter()
+    job = JobSpec(id="j-session", run_id="r1", name="j-session", command="true")
+    proc = AsyncMock()
+    proc.pid = 1234
+    proc.returncode = 0
+    proc.communicate.return_value = (b"", b"")
+    with patch("asyncio.create_subprocess_shell", return_value=proc) as mock_shell:
+        await adapter.execute(job)
+        assert mock_shell.call_args.kwargs.get("start_new_session") is True
