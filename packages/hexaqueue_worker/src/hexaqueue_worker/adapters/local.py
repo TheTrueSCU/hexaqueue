@@ -8,6 +8,7 @@ Notes/Architectural Intent:
 
 import asyncio
 import contextlib
+import importlib
 from typing import Any
 
 from hexaqueue_core.adapters.runtime.local import LocalSubprocessExecutionRuntimeAdapter
@@ -21,6 +22,38 @@ from hexaqueue_core.ports.runtime import ExecutionRuntimePort, ProcessExecutionR
 from hexaqueue_core.ports.storage import StorageVolumePort, VolumeAllocation
 from hexaqueue_worker.domain.models import WorkerConfig, WorkerMetrics
 from hexaqueue_worker.ports.worker import WorkerDaemonPort
+
+
+def _capture_sentry_worker_exception(
+    exc: Exception,
+    worker_id: str,
+    job_id: str,
+    queue: str,
+    command: str,
+) -> None:
+    """Push worker crash failure context to Sentry scope if sentry_sdk is active.
+
+    Args:
+        exc: Unhandled exception raised during job execution.
+        worker_id: Unique identifier of the worker daemon.
+        job_id: Unique identifier of the job that crashed.
+        queue: Name or identifier of the queue.
+        command: Command string executed by the job.
+
+    Notes/Architectural Intent:
+        Integrates optional Sentry error monitoring without adding a hard dependency
+        on sentry-sdk. Dynamically loads sentry_sdk at runtime and safely tags execution metadata.
+    """
+    try:
+        sentry_sdk = importlib.import_module("sentry_sdk")
+        with sentry_sdk.push_scope() as scope:
+            scope.set_tag("worker_id", worker_id)
+            scope.set_tag("job_id", job_id)
+            scope.set_tag("queue", queue)
+            scope.set_tag("command", command)
+            sentry_sdk.capture_exception(exc)
+    except Exception:
+        pass
 
 
 class LocalSubprocessWorker(WorkerDaemonPort):
@@ -170,6 +203,28 @@ class LocalSubprocessWorker(WorkerDaemonPort):
                     self._total_failed += 1
 
             return result
+        except Exception as exc:
+            queue_name = str(
+                getattr(
+                    self._queue,
+                    "name",
+                    getattr(
+                        self._queue,
+                        "queue_name",
+                        getattr(job, "queue", "default"),
+                    ),
+                )
+            )
+            _capture_sentry_worker_exception(
+                exc=exc,
+                worker_id=self._config.worker_id,
+                job_id=job.id,
+                queue=queue_name,
+                command=job.command,
+            )
+            async with self._lock:
+                self._total_failed += 1
+            raise
         finally:
             # 5. Clean up scratch storage
             if scratch_vol and scratch_vol.is_ephemeral:

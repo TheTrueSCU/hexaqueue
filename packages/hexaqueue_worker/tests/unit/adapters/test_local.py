@@ -1,6 +1,7 @@
 """Unit tests for LocalSubprocessWorker adapter."""
 
 import asyncio
+import importlib
 from unittest.mock import AsyncMock
 
 import pytest
@@ -301,3 +302,98 @@ async def test_worker_init_and_resource_branching() -> None:
     )
     await worker_persist.execute_job(job_no_gpu)
     assert mock_storage.cleanup_scratch.called is False
+
+
+@pytest.mark.asyncio
+async def test_worker_execute_job_crash_sentry_capture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify Sentry scope tagging and exception capture during worker crash."""
+    from unittest.mock import MagicMock
+
+    queue = InMemoryJobQueueAdapter()
+    storage = InMemoryStorageVolumeAdapter()
+    mock_runtime = AsyncMock()
+    mock_runtime.execute.side_effect = RuntimeError("Fatal node crash")
+
+    mock_sentry = MagicMock()
+    mock_scope = MagicMock()
+    mock_sentry.push_scope.return_value.__enter__.return_value = mock_scope
+
+    orig_import_module = importlib.import_module
+
+    def fake_import_module(name: str, *args, **kwargs):
+        if name == "sentry_sdk":
+            return mock_sentry
+        return orig_import_module(name, *args, **kwargs)
+
+    monkeypatch.setattr(importlib, "import_module", fake_import_module)
+
+    worker = LocalSubprocessWorker(
+        queue=queue,
+        storage=storage,
+        runtime=mock_runtime,
+        config=WorkerConfig(worker_id="crash-worker-42"),
+    )
+
+    job = JobSpec(
+        id="job-crash-101",
+        run_id="run-99",
+        name="crash-job",
+        command="exit_with_sigkill",
+    )
+
+    with pytest.raises(RuntimeError, match="Fatal node crash"):
+        await worker.execute_job(job)
+
+    assert mock_sentry.push_scope.called is True
+    mock_scope.set_tag.assert_any_call("worker_id", "crash-worker-42")
+    mock_scope.set_tag.assert_any_call("job_id", "job-crash-101")
+    mock_scope.set_tag.assert_any_call("queue", "default")
+    mock_scope.set_tag.assert_any_call("command", "exit_with_sigkill")
+    assert mock_sentry.capture_exception.called is True
+
+    metrics = await worker.get_metrics()
+    assert metrics.total_failed == 1
+
+
+@pytest.mark.asyncio
+async def test_worker_execute_job_crash_without_sentry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify worker crash gracefully proceeds when sentry_sdk is not installed."""
+    queue = InMemoryJobQueueAdapter()
+    storage = InMemoryStorageVolumeAdapter()
+    mock_runtime = AsyncMock()
+    crash_error = RuntimeError("Fatal node crash without sentry")
+    mock_runtime.execute.side_effect = crash_error
+
+    orig_import_module = importlib.import_module
+
+    def fake_import_module(name: str, *args, **kwargs):
+        if name == "sentry_sdk":
+            msg = "No module named sentry_sdk"
+            raise ModuleNotFoundError(msg)
+        return orig_import_module(name, *args, **kwargs)
+
+    monkeypatch.setattr(importlib, "import_module", fake_import_module)
+
+    worker = LocalSubprocessWorker(
+        queue=queue,
+        storage=storage,
+        runtime=mock_runtime,
+        config=WorkerConfig(worker_id="crash-worker-43"),
+    )
+
+    job = JobSpec(
+        id="job-crash-102",
+        run_id="run-99",
+        name="crash-job",
+        command="exit_with_sigkill",
+    )
+
+    with pytest.raises(RuntimeError, match="Fatal node crash without sentry"):
+        await worker.execute_job(job)
+
+    metrics = await worker.get_metrics()
+    assert metrics.total_failed == 1
