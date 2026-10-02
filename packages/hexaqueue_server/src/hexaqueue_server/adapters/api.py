@@ -9,6 +9,7 @@ Notes/Architectural Intent:
 """
 
 import asyncio
+from collections.abc import AsyncIterator
 from typing import Annotated, Any
 from uuid import uuid4
 
@@ -120,6 +121,63 @@ def _dispatch(pipeline: ExecutionPipeline, message: Any) -> Any:
         ) from exc
 
 
+async def _generate_run_status_events(
+    request: Request,
+    pipeline: ExecutionPipeline,
+    run_id: str,
+    user_id: str,
+    is_elevated: bool,
+    poll_interval: float,
+    max_events: int | None,
+    timeout: float | None,
+) -> AsyncIterator[str]:
+    """Generate Server-Sent Events for run status progression until completion or termination."""
+    last_state = None
+    last_completed = -1
+    last_failed = -1
+    last_running = -1
+    events_sent = 0
+    elapsed = 0.0
+    while True:
+        if await request.is_disconnected():
+            break
+        if max_events is not None and events_sent >= max_events:
+            break
+        if timeout is not None and elapsed >= timeout:
+            break
+
+        try:
+            qry = GetRunStatusQuery(run_id=run_id, user_id=user_id, elevate=is_elevated)
+            status_report: RunStatusReport = _dispatch(pipeline, qry)
+        except Exception as exc:
+            yield f"event: error\ndata: {str(exc)}\n\n"
+            break
+
+        is_progress = (
+            status_report.state != last_state
+            or status_report.completed_jobs != last_completed
+            or status_report.failed_jobs != last_failed
+            or status_report.running_jobs != last_running
+        )
+        if is_progress:
+            last_state = status_report.state
+            last_completed = status_report.completed_jobs
+            last_failed = status_report.failed_jobs
+            last_running = status_report.running_jobs
+            yield f"event: run_status\ndata: {status_report.model_dump_json()}\n\n"
+            events_sent += 1
+
+        if status_report.state == RunState.DONE:
+            yield f"event: run_done\ndata: {status_report.model_dump_json()}\n\n"
+            break
+
+        if max_events is not None and events_sent >= max_events:
+            break
+
+        elapsed += poll_interval
+        await asyncio.sleep(poll_interval)
+
+
 def create_server_api_router() -> APIRouter:
     """Construct the FastAPI APIRouter providing unified REST endpoints for Hexaqueue.
 
@@ -195,56 +253,18 @@ def create_server_api_router() -> APIRouter:
             StreamingResponse emitting SSE text/event-stream pulses.
         """
         user_id, is_elevated = auth
-
-        async def event_generator():
-            last_state = None
-            last_completed = -1
-            last_failed = -1
-            last_running = -1
-            events_sent = 0
-            elapsed = 0.0
-            while True:
-                if await request.is_disconnected():
-                    break
-                if max_events is not None and events_sent >= max_events:
-                    break
-                if timeout is not None and elapsed >= timeout:
-                    break
-
-                try:
-                    qry = GetRunStatusQuery(
-                        run_id=run_id, user_id=user_id, elevate=is_elevated
-                    )
-                    status_report: RunStatusReport = _dispatch(pipeline, qry)
-                except Exception as exc:
-                    yield f"event: error\ndata: {str(exc)}\n\n"
-                    break
-
-                if (
-                    status_report.state != last_state
-                    or status_report.completed_jobs != last_completed
-                    or status_report.failed_jobs != last_failed
-                    or status_report.running_jobs != last_running
-                ):
-                    last_state = status_report.state
-                    last_completed = status_report.completed_jobs
-                    last_failed = status_report.failed_jobs
-                    last_running = status_report.running_jobs
-                    yield f"event: run_status\ndata: {status_report.model_dump_json()}\n\n"
-                    events_sent += 1
-
-                if status_report.state == RunState.DONE:
-                    yield f"event: run_done\ndata: {status_report.model_dump_json()}\n\n"
-                    break
-
-                if max_events is not None and events_sent >= max_events:
-                    break
-
-                elapsed += poll_interval
-                await asyncio.sleep(poll_interval)
-
+        events = _generate_run_status_events(
+            request=request,
+            pipeline=pipeline,
+            run_id=run_id,
+            user_id=user_id,
+            is_elevated=is_elevated,
+            poll_interval=poll_interval,
+            max_events=max_events,
+            timeout=timeout,
+        )
         return StreamingResponse(
-            event_generator(),
+            events,
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",

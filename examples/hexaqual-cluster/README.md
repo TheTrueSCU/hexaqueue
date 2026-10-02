@@ -29,7 +29,7 @@ sequenceDiagram
     API->>SCHED: submit_run(RunSubmission)
     SCHED->>SCHED: Validate DAG & Enqueue Root Jobs
     API-->>HQ: 201 Created (RunStatusReport PENDING)
-    
+
     HQ->>API: GET /v1/runs/{id}/stream (SSE Subscription)
     loop SSE Stream Pulses
         WORKER->>SCHED: Dequeue Ready Job
