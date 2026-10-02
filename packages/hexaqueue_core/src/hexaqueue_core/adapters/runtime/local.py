@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import os
+import shlex
 from datetime import UTC, datetime
 
 from hexaqueue_core.domain.job import JobSpec
@@ -77,14 +78,19 @@ class LocalSubprocessExecutionRuntimeAdapter(ExecutionRuntimePort):
         Returns:
             ProcessExecutionResult with terminal outcome and timings.
         """
-        cwd = scratch_volume.mount_path if scratch_volume else None
         env = os.environ.copy()
         if environment:
             env.update(environment)
+        cwd = scratch_volume.mount_path if scratch_volume else env.get("HEXAQUEUE_CWD")
 
+        full_command = (
+            shlex.join([*shlex.split(job.command), *job.args])
+            if job.args
+            else job.command
+        )
         start_time = datetime.now(UTC)
         proc = await asyncio.create_subprocess_shell(
-            job.command,
+            full_command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,

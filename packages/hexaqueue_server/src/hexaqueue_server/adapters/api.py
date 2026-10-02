@@ -8,6 +8,8 @@ Notes/Architectural Intent:
     query parameter (`?elevate=true`).
 """
 
+import asyncio
+from collections.abc import AsyncIterator
 from typing import Annotated, Any
 from uuid import uuid4
 
@@ -18,8 +20,10 @@ from fastapi import (
     Header,
     HTTPException,
     Query,
+    Request,
     status,
 )
+from fastapi.responses import StreamingResponse
 from hexastack_cqrs.infra.pipeline import ExecutionPipeline
 from hexastack_fastapi.adapters.dependencies import get_pipeline
 from hexastack_fastapi.infra import create_fastapi_app
@@ -56,6 +60,7 @@ from hexaqueue_core.domain.explainability import (
     SchedulingDecisionReport,
 )
 from hexaqueue_core.domain.job import JobSpec
+from hexaqueue_core.domain.lifecycle import RunState
 from hexaqueue_core.ports.logging import LogChunk
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
 from hexaqueue_server.domain.models import RunStatusReport
@@ -116,6 +121,69 @@ def _dispatch(pipeline: ExecutionPipeline, message: Any) -> Any:
         ) from exc
 
 
+async def _generate_run_status_events(
+    request: Request,
+    pipeline: ExecutionPipeline,
+    run_id: str,
+    user_id: str,
+    is_elevated: bool,
+    poll_interval: float,
+    max_events: int | None,
+    timeout: float | None,
+) -> AsyncIterator[str]:
+    """Generate Server-Sent Events for run status progression until completion or termination."""
+    last_state = None
+    last_completed = -1
+    last_failed = -1
+    last_running = -1
+    events_sent = 0
+    elapsed = 0.0
+    while True:
+        if await request.is_disconnected():
+            break
+        if max_events is not None and events_sent >= max_events:
+            break
+        if timeout is not None and elapsed >= timeout:
+            break
+
+        try:
+            qry = GetRunStatusQuery(run_id=run_id, user_id=user_id, elevate=is_elevated)
+            status_report: RunStatusReport = _dispatch(pipeline, qry)
+        except Exception:
+            yield 'event: error\ndata: {"error": "Failed to retrieve run status"}\n\n'
+            break
+
+        is_progress = (
+            status_report.state != last_state
+            or status_report.completed_jobs != last_completed
+            or status_report.failed_jobs != last_failed
+            or status_report.running_jobs != last_running
+        )
+        if is_progress:
+            last_state = status_report.state
+            last_completed = status_report.completed_jobs
+            last_failed = status_report.failed_jobs
+            last_running = status_report.running_jobs
+            yield f"event: run_status\ndata: {status_report.model_dump_json()}\n\n"
+            events_sent += 1
+
+        is_terminal = status_report.state == RunState.DONE or (
+            status_report.state == RunState.BLOCKED
+            and status_report.running_jobs == 0
+            and status_report.failed_jobs > 0
+        )
+        if is_terminal:
+            if max_events is None or events_sent < max_events:
+                yield f"event: run_done\ndata: {status_report.model_dump_json()}\n\n"
+            break
+
+        if max_events is not None and events_sent >= max_events:
+            break
+
+        elapsed += poll_interval
+        await asyncio.sleep(poll_interval)
+
+
 def create_server_api_router() -> APIRouter:
     """Construct the FastAPI APIRouter providing unified REST endpoints for Hexaqueue.
 
@@ -161,7 +229,57 @@ def create_server_api_router() -> APIRouter:
         qry = GetRunStatusQuery(run_id=run_id, user_id=user_id, elevate=is_elevated)
         return _dispatch(pipeline, qry)
 
-    # 3. Cancel Run
+    # 3. Stream Run Status (SSE)
+    @router.get(
+        "/runs/{run_id}/stream",
+        summary="Stream pipeline DAG run progress via Server-Sent Events",
+        response_class=StreamingResponse,
+    )
+    async def stream_run_status(
+        run_id: str,
+        request: Request,
+        pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
+        poll_interval: Annotated[float, Query(ge=0.05, le=5.0)] = 0.25,
+        max_events: Annotated[int | None, Query(ge=1)] = None,
+        timeout: Annotated[float | None, Query(ge=0.1, le=3600.0)] = None,
+    ) -> StreamingResponse:
+        """Stream run status snapshots as Server-Sent Events (SSE).
+
+        Args:
+            run_id: Root pipeline run identifier.
+            request: Active FastAPI HTTP request for client disconnect detection.
+            pipeline: CQRS execution pipeline.
+            auth: Resolved authentication tuple (user_id, is_elevated).
+            poll_interval: Interval between status polls in seconds.
+            max_events: Optional maximum number of events to emit before closing stream.
+            timeout: Optional maximum duration in seconds before terminating stream.
+
+        Returns:
+            StreamingResponse emitting SSE text/event-stream pulses.
+        """
+        user_id, is_elevated = auth
+        events = _generate_run_status_events(
+            request=request,
+            pipeline=pipeline,
+            run_id=run_id,
+            user_id=user_id,
+            is_elevated=is_elevated,
+            poll_interval=poll_interval,
+            max_events=max_events,
+            timeout=timeout,
+        )
+        return StreamingResponse(
+            events,
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    # 4. Cancel Run
     @router.post(
         "/runs/{run_id}/cancel",
         response_model=RunStatusReport,

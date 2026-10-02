@@ -12,8 +12,8 @@
 <!-- fastapi -->
 <g id="node1" class="node">
 <title>fastapi</title><style>.edge>path:hover{stroke-width:8}</style>
-<polygon fill="#c24747" stroke="black" points="743.86,-571.48 740.86,-575.48 719.86,-575.48 716.86,-571.48 689.86,-571.48 689.86,-535.48 743.86,-535.48 743.86,-571.48"/>
-<text text-anchor="middle" x="716.86" y="-550.98" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#ffffff">fastapi</text>
+<polygon fill="blue" stroke="black" points="743.86,-571.48 740.86,-575.48 719.86,-575.48 716.86,-571.48 689.86,-571.48 689.86,-535.48 743.86,-535.48 743.86,-571.48"/>
+<text text-anchor="middle" x="716.86" y="-550.98" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">fastapi</text>
 </g>
 <!-- hexaqueue_server_adapters_api -->
 <g id="node5" class="node">
