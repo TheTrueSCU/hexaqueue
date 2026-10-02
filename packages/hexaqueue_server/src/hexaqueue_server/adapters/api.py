@@ -148,9 +148,11 @@ async def _generate_run_status_events(
 
         try:
             qry = GetRunStatusQuery(run_id=run_id, user_id=user_id, elevate=is_elevated)
-            status_report: RunStatusReport = _dispatch(pipeline, qry)
-        except Exception as exc:
-            yield f"event: error\ndata: {str(exc)}\n\n"
+            status_report: RunStatusReport = await asyncio.to_thread(
+                _dispatch, pipeline, qry
+            )
+        except Exception:
+            yield 'event: error\ndata: {"error": "Failed to retrieve run status"}\n\n'
             break
 
         is_progress = (
@@ -167,8 +169,14 @@ async def _generate_run_status_events(
             yield f"event: run_status\ndata: {status_report.model_dump_json()}\n\n"
             events_sent += 1
 
-        if status_report.state == RunState.DONE:
-            yield f"event: run_done\ndata: {status_report.model_dump_json()}\n\n"
+        is_terminal = status_report.state == RunState.DONE or (
+            status_report.state == RunState.BLOCKED
+            and status_report.running_jobs == 0
+            and status_report.failed_jobs > 0
+        )
+        if is_terminal:
+            if max_events is None or events_sent < max_events:
+                yield f"event: run_done\ndata: {status_report.model_dump_json()}\n\n"
             break
 
         if max_events is not None and events_sent >= max_events:

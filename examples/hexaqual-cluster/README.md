@@ -46,7 +46,7 @@ sequenceDiagram
 ## Running the Example
 
 ### Prerequisites
-Requires `hexaqual[all] >= 0.9.0` (with `HexaqueueClusterRunnerAdapter` support).
+Requires `hexaqual[all] >= 0.10.0` (with `HexaqueueClusterRunnerAdapter` support).
 
 ### 1. Run on v0.1.0 Local Subprocess Cluster
 ```bash
