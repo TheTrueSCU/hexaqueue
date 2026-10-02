@@ -474,18 +474,21 @@ def test_api_stream_run_status(hermetic_api_client: TestClient) -> None:
 
     # 1. Stream valid run with max_events=1
     with client.stream(
-        "GET", "/v1/runs/run-api-seed/stream?poll_interval=0.05&max_events=1&timeout=1.0"
+        "GET",
+        "/v1/runs/run-api-seed/stream?poll_interval=0.05&max_events=1&timeout=1.0",
     ) as resp:
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers["content-type"]
         lines = list(resp.iter_lines())
-        assert any("event: run_status" in line or "event: run_done" in line for line in lines)
+        assert any(
+            "event: run_status" in line or "event: run_done" in line for line in lines
+        )
 
     # 2. Stream unknown run returns error event
     with client.stream(
-        "GET", "/v1/runs/unknown-run-id/stream?poll_interval=0.05&max_events=1&timeout=1.0"
+        "GET",
+        "/v1/runs/unknown-run-id/stream?poll_interval=0.05&max_events=1&timeout=1.0",
     ) as resp:
         assert resp.status_code == 200
         lines = list(resp.iter_lines())
         assert any("event: error" in line for line in lines)
-
