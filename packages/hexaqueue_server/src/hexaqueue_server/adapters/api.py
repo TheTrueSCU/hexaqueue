@@ -148,9 +148,7 @@ async def _generate_run_status_events(
 
         try:
             qry = GetRunStatusQuery(run_id=run_id, user_id=user_id, elevate=is_elevated)
-            status_report: RunStatusReport = await asyncio.to_thread(
-                _dispatch, pipeline, qry
-            )
+            status_report: RunStatusReport = _dispatch(pipeline, qry)
         except Exception:
             yield 'event: error\ndata: {"error": "Failed to retrieve run status"}\n\n'
             break

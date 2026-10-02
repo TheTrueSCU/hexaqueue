@@ -83,7 +83,11 @@ class LocalSubprocessExecutionRuntimeAdapter(ExecutionRuntimePort):
             env.update(environment)
         cwd = scratch_volume.mount_path if scratch_volume else env.get("HEXAQUEUE_CWD")
 
-        full_command = shlex.join([job.command, *job.args]) if job.args else job.command
+        full_command = (
+            shlex.join([*shlex.split(job.command), *job.args])
+            if job.args
+            else job.command
+        )
         start_time = datetime.now(UTC)
         proc = await asyncio.create_subprocess_shell(
             full_command,
