@@ -10,6 +10,7 @@ Notes/Architectural Intent:
 import asyncio
 import contextlib
 import os
+import shlex
 import signal
 from datetime import UTC, datetime
 
@@ -117,7 +118,8 @@ class PodmanExecutionRuntimeAdapter(ExecutionRuntimePort):
             flags.extend(job.container.entrypoint)
             flags.extend(job.args)
         else:
-            flags.extend(["sh", "-c", job.command])
+            cmd = f"{job.command} {shlex.join(job.args)}" if job.args else job.command
+            flags.extend(["sh", "-c", cmd])
 
         return flags
 

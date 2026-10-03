@@ -9,6 +9,8 @@ Notes/Architectural Intent:
 """
 
 import asyncio
+import os
+import time
 from collections.abc import AsyncIterator
 from typing import Annotated, Any
 from uuid import uuid4
@@ -75,6 +77,8 @@ def get_auth_context(
     x_hexaqueue_elevate: Annotated[bool, Header()] = False,
     elevate: Annotated[bool, Query()] = False,
     admin: Annotated[bool, Query()] = False,
+    x_hexaqueue_admin_token: Annotated[str | None, Header()] = None,
+    admin_token: Annotated[str | None, Query()] = None,
 ) -> tuple[str, bool]:
     """Resolve requesting user identity and elevation status.
 
@@ -84,15 +88,32 @@ def get_auth_context(
         x_hexaqueue_elevate: Elevation flag from X-Hexaqueue-Elevate header.
         elevate: Elevation flag from elevate query parameter.
         admin: Administrative elevation flag from admin query parameter.
+        x_hexaqueue_admin_token: Administrative bearer token from header.
+        admin_token: Administrative token from query parameter.
 
     Returns:
         Tuple of (resolved_user_id, is_elevated).
+
+    Raises:
+        HTTPException: If admin elevation is asserted but HEXAQUEUE_ADMIN_TOKEN is configured and invalid.
 
     Notes/Architectural Intent:
         Centralized authentication and elevation resolution dependency for REST endpoints.
     """
     user_id = x_hexaqueue_user or user or "default"
-    is_elevated = bool(x_hexaqueue_elevate or elevate or admin)
+    requested_elevation = bool(x_hexaqueue_elevate or elevate or admin)
+    if requested_elevation:
+        configured_token = os.environ.get("HEXAQUEUE_ADMIN_TOKEN")
+        if configured_token:
+            provided_token = x_hexaqueue_admin_token or admin_token
+            if provided_token != configured_token:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Invalid or missing administrative elevation token.",
+                )
+        is_elevated = True
+    else:
+        is_elevated = False
     return user_id, is_elevated
 
 
@@ -137,13 +158,13 @@ async def _generate_run_status_events(
     last_failed = -1
     last_running = -1
     events_sent = 0
-    elapsed = 0.0
+    start_time = time.monotonic()
     while True:
         if await request.is_disconnected():
             break
         if max_events is not None and events_sent >= max_events:
             break
-        if timeout is not None and elapsed >= timeout:
+        if timeout is not None and (time.monotonic() - start_time) >= timeout:
             break
 
         try:
@@ -171,6 +192,7 @@ async def _generate_run_status_events(
             status_report.state == RunState.BLOCKED
             and status_report.running_jobs == 0
             and status_report.failed_jobs > 0
+            and status_report.outcome is not None
         )
         if is_terminal:
             if max_events is None or events_sent < max_events:
@@ -180,7 +202,6 @@ async def _generate_run_status_events(
         if max_events is not None and events_sent >= max_events:
             break
 
-        elapsed += poll_interval
         await asyncio.sleep(poll_interval)
 
 

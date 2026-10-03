@@ -20,11 +20,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install Copy-Paste Detection
-        run: cargo install jscpd --locked
-
       - name: Run Quality Gate via Hexaqual
-        uses: TheTrueSCU/hexaqual@v0.8.0
+        uses: TheTrueSCU/hexaqual@v0.9.1
         with:
           sync-args: "--all-packages --all-extras --all-groups"
 
