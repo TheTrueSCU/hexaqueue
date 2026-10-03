@@ -559,6 +559,7 @@ class HexaqueueCqrsService:
             except PermissionDeniedError:
                 raise
             except Exception:
+                # Job not found in controller registry; proceed to historical log store
                 pass
 
         chunks = self.log_store.get(qry.job_id, [])
