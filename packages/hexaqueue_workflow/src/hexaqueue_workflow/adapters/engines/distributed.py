@@ -41,8 +41,14 @@ from hexastack_core.adapters.storage.in_memory import InMemoryStorage
 from hexastack_core.ports.storage import StoragePort
 
 from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
+from hexaqueue_core.domain.exceptions import HexaqueueError
 from hexaqueue_core.domain.job import JobSpec
-from hexaqueue_core.domain.lifecycle import JobState, JobStatus, TerminalOutcome
+from hexaqueue_core.domain.lifecycle import (
+    JobState,
+    JobStatus,
+    RunState,
+    TerminalOutcome,
+)
 from hexaqueue_core.domain.notification import (
     NotificationPolicy,
     NotificationTrigger,
@@ -310,6 +316,10 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
         # Attempt to cancel any in-flight jobs in scheduler controller
         with contextlib.suppress(Exception):
             await self._controller.cancel_run(run_id)
+        for stage in workflow.stages:
+            for step in stage.steps:
+                with contextlib.suppress(Exception):
+                    await self._controller.cancel_run(f"{run_id}_{step.name}")
 
         checkpoints = self._store.get_checkpoints(run_id)
         for chk in reversed(checkpoints):
@@ -558,8 +568,21 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
             jobs=[job_spec],
             dependencies={},
         )
-        with contextlib.suppress(Exception):
-            await self._controller.submit_run(run_submission)
+        try:
+            run_status = await self._controller.submit_run(run_submission)
+        except HexaqueueError as err:
+            if "already registered" in str(err):
+                run_status = await self._controller.get_run_status(
+                    run_submission.run_spec.id
+                )
+            else:
+                raise
+        if run_status.state == RunState.BLOCKED:
+            raise WorkflowSuspended(
+                run_id=state.run_id,
+                failed_step=step.name,
+                reason=f"Step '{step.name}' blocked by scheduler policies.",
+            )
 
         step_policies = (
             list(mapping.notifications)
@@ -789,15 +812,25 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
         sub_job_spec = sub_job_spec.model_copy(
             update={"id": f"{state.run_id}_{sub_step_name}", "name": sub_step_name}
         )
-        with contextlib.suppress(Exception):
-            await self._controller.submit_run(
+        sub_run_id = f"{state.run_id}_{sub_step_name}"
+        try:
+            run_status = await self._controller.submit_run(
                 RunSubmission(
-                    run_spec=RunSpec(
-                        id=f"{state.run_id}_{sub_step_name}", name=sub_step_name
-                    ),
+                    run_spec=RunSpec(id=sub_run_id, name=sub_step_name),
                     jobs=[sub_job_spec],
                     dependencies={},
                 )
+            )
+        except HexaqueueError as err:
+            if "already registered" in str(err):
+                run_status = await self._controller.get_run_status(sub_run_id)
+            else:
+                raise
+        if run_status.state == RunState.BLOCKED:
+            raise WorkflowSuspended(
+                run_id=state.run_id,
+                failed_step=sub_step_name,
+                reason=f"Step '{sub_step_name}' blocked by scheduler policies.",
             )
 
         sub_start = datetime.now(UTC)

@@ -15,6 +15,7 @@ from hexaqueue_core.adapters.runtime.local import LocalSubprocessExecutionRuntim
 from hexaqueue_core.adapters.storage.local import LocalDiskStorageVolumeAdapter
 from hexaqueue_core.domain.gpu import GpuAllocation
 from hexaqueue_core.domain.job import JobSpec
+from hexaqueue_core.domain.lifecycle import TerminalOutcome
 from hexaqueue_core.ports.gpu import GpuDeviceManagerPort
 from hexaqueue_core.ports.logging import LogStreamPort
 from hexaqueue_core.ports.queue import JobQueuePort
@@ -131,9 +132,14 @@ class LocalSubprocessWorker(WorkerDaemonPort):
             try:
                 # Wait for concurrency slot
                 await self._semaphore.acquire()
-                job = await self._queue.dequeue(
-                    timeout_seconds=self._config.poll_interval_seconds
-                )
+                try:
+                    job = await self._queue.dequeue(
+                        timeout_seconds=self._config.poll_interval_seconds
+                    )
+                except Exception:
+                    self._semaphore.release()
+                    raise
+
                 if job is None:
                     self._semaphore.release()
                     await asyncio.sleep(self._config.poll_interval_seconds)
@@ -222,6 +228,13 @@ class LocalSubprocessWorker(WorkerDaemonPort):
                 queue=queue_name,
                 command=job.command,
             )
+            if self._controller:
+                with contextlib.suppress(Exception):
+                    await self._controller.update_job_outcome(
+                        job_id=job.id,
+                        outcome=TerminalOutcome.FAILED,
+                        reason=f"Worker failure: {exc}",
+                    )
             async with self._lock:
                 self._total_failed += 1
             raise

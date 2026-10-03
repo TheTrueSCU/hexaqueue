@@ -7,6 +7,7 @@ Notes/Architectural Intent:
 
 import asyncio
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import typer
@@ -451,6 +452,16 @@ def top_cmd(
     asyncio.run(_top())
 
 
+def _extract_job_owner(job: Any) -> str:
+    """Extract owner identity from job tags or user attribute."""
+    for tag in getattr(job, "tags", []):
+        if tag.startswith("owner:"):
+            return tag.split(":", 1)[1]
+    if getattr(job, "user", "default") != "default":
+        return job.user
+    return getattr(job, "env", {}).get("HEXAQUEUE_OWNER", "default")
+
+
 @app.command("exec")
 def exec_cmd(
     job_id: str = typer.Argument(..., help="Job ID to execute command in"),
@@ -472,15 +483,17 @@ def exec_cmd(
 
     async def _exec() -> None:
         client = LocalClientAdapter()
-        request = PtySessionRequest(
-            session_id=f"pty-{uuid4().hex[:8]}",
-            job_id=job_id,
-            user_id=user,
-            roles=["operator"],
-            command=command,
-        )
         try:
-            session_info = await client.create_pty_session(request, job_owner=user)
+            job = await client.get_job(job_id)
+            job_owner = _extract_job_owner(job)
+            request = PtySessionRequest(
+                session_id=f"pty-{uuid4().hex[:8]}",
+                job_id=job_id,
+                user_id=user,
+                roles=["operator"],
+                command=command,
+            )
+            session_info = await client.create_pty_session(request, job_owner=job_owner)
             console.print(
                 f"[bold green]✓[/] Attached PTY session '{session_info.session_id}' "
                 f"to job '{job_id}' (pid: {session_info.pid})"
@@ -511,15 +524,17 @@ def attach_cmd(
 
     async def _attach() -> None:
         client = LocalClientAdapter()
-        request = PtySessionRequest(
-            session_id=f"pty-{uuid4().hex[:8]}",
-            job_id=job_id,
-            user_id=user,
-            roles=["operator"],
-            command=["/bin/bash"],
-        )
         try:
-            session_info = await client.create_pty_session(request, job_owner=user)
+            job = await client.get_job(job_id)
+            job_owner = _extract_job_owner(job)
+            request = PtySessionRequest(
+                session_id=f"pty-{uuid4().hex[:8]}",
+                job_id=job_id,
+                user_id=user,
+                roles=["operator"],
+                command=["/bin/bash"],
+            )
+            session_info = await client.create_pty_session(request, job_owner=job_owner)
             console.print(
                 f"[bold green]✓[/] Attached shell session '{session_info.session_id}' "
                 f"to job '{job_id}' (pid: {session_info.pid})"

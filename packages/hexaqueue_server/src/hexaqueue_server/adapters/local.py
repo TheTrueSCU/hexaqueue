@@ -16,6 +16,7 @@ from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import (
     JobState,
     JobStatus,
+    RunOutcome,
     RunState,
     TerminalOutcome,
     compute_run_outcome,
@@ -77,6 +78,11 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             if run_id in self._runs:
                 msg = f"Run with ID '{run_id}' is already registered"
                 raise HexaqueueError(msg)
+
+            for job in submission.jobs:
+                if job.id in self._jobs:
+                    msg = f"Job ID '{job.id}' is already registered in another run"
+                    raise HexaqueueError(msg)
 
             # Build and validate DAG
             dag = JobDagEngine()
@@ -201,11 +207,12 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             run_state = compute_run_state(job_states)
 
             job_outcomes = [j.outcome for j in run_jobs if j.outcome is not None]
-            run_outcome = (
-                compute_run_outcome(job_outcomes)
-                if run_state in (RunState.DONE, RunState.BLOCKED)
-                else None
-            )
+            if run_state == RunState.DONE:
+                run_outcome = compute_run_outcome(job_outcomes)
+            elif run_state == RunState.BLOCKED:
+                run_outcome = RunOutcome.FAILED
+            else:
+                run_outcome = None
 
             completed = sum(
                 1 for j in run_jobs if j.outcome == TerminalOutcome.COMPLETED

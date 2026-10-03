@@ -57,6 +57,7 @@ from hexaqueue_core.domain.explainability import (
     SchedulingDecisionReport,
 )
 from hexaqueue_core.domain.job import JobSpec
+from hexaqueue_core.domain.lifecycle import JobState, TerminalOutcome
 from hexaqueue_core.domain.run import RunSpec
 from hexaqueue_core.domain.suite import SuiteCompiler
 from hexaqueue_core.ports.logging import LogChunk
@@ -96,6 +97,8 @@ def _extract_job_owner(job: JobSpec) -> str:
     for tag in job.tags:
         if tag.startswith("owner:"):
             return tag.split(":", 1)[1]
+    if getattr(job, "user", "default") != "default":
+        return job.user
     return job.env.get("HEXAQUEUE_OWNER", "default")
 
 
@@ -346,8 +349,23 @@ class HexaqueueCqrsService:
 
         Returns:
             RunStatusReport snapshot.
+
+        Raises:
+            PermissionDeniedError: If unauthorized cross-tenant run status inspection is attempted.
         """
-        return await self.controller.get_run_status(qry.run_id)
+        status = await self.controller.get_run_status(qry.run_id)
+        if qry.user_id != "default" and not qry.elevate:
+            jobs = await self.controller.list_jobs()
+            run_jobs = [j for j in jobs if j.run_id == qry.run_id]
+            if run_jobs and not any(
+                _extract_job_owner(j) == qry.user_id for j in run_jobs
+            ):
+                msg = (
+                    f"Permission denied: You do not have access to run '{qry.run_id}'. "
+                    "Explicit administrative elevation (--admin / elevate=true) is required."
+                )
+                raise PermissionDeniedError(msg)
+        return status
 
     async def handle_get_job(self, qry: GetJobQuery) -> JobSpec:
         """Handle GetJobQuery.
@@ -357,11 +375,23 @@ class HexaqueueCqrsService:
 
         Returns:
             JobSpec metadata.
+
+        Raises:
+            PermissionDeniedError: If unauthorized cross-tenant job inspection is attempted.
         """
-        return await self.controller.get_job(qry.job_id)
+        job = await self.controller.get_job(qry.job_id)
+        if qry.user_id != "default" and not qry.elevate:
+            owner = _extract_job_owner(job)
+            if owner != qry.user_id:
+                msg = (
+                    f"Permission denied: You are not the owner of job '{job.id}' (owned by '{owner}'). "
+                    "Explicit administrative elevation (--admin / elevate=true) is required."
+                )
+                raise PermissionDeniedError(msg)
+        return job
 
     async def handle_list_jobs(self, qry: ListJobsQuery) -> list[JobSpec]:
-        """Handle ListJobsQuery with optional run_id filter.
+        """Handle ListJobsQuery with optional run_id filter and tenant isolation.
 
         Args:
             qry: Query payload.
@@ -371,7 +401,9 @@ class HexaqueueCqrsService:
         """
         jobs = await self.controller.list_jobs()
         if qry.run_id is not None:
-            return [j for j in jobs if j.run_id == qry.run_id]
+            jobs = [j for j in jobs if j.run_id == qry.run_id]
+        if qry.user_id != "default" and not qry.elevate:
+            jobs = [j for j in jobs if _extract_job_owner(j) == qry.user_id]
         return jobs
 
     async def handle_explain_job(
@@ -442,11 +474,30 @@ class HexaqueueCqrsService:
             Aggregated ClusterStatsReport.
         """
         jobs = await self.controller.list_jobs()
-        running = sum(1 for j in jobs if j.state.name == "RUNNING")
-        pending = sum(1 for j in jobs if j.state.name == "PENDING")
-        blocked = sum(1 for j in jobs if j.state.name == "BLOCKED")
-        completed = sum(1 for j in jobs if j.state.name == "COMPLETED")
-        failed = sum(1 for j in jobs if j.state.name in ("FAILED", "CANCELLED"))
+        running = sum(1 for j in jobs if j.state == JobState.RUNNING)
+        pending = sum(
+            1
+            for j in jobs
+            if j.state in (JobState.PENDING, JobState.PROVISIONING, JobState.SUBMITTED)
+        )
+        blocked = sum(1 for j in jobs if j.state == JobState.BLOCKED)
+        completed = sum(
+            1
+            for j in jobs
+            if j.state == JobState.DONE and j.outcome == TerminalOutcome.COMPLETED
+        )
+        failed = sum(
+            1
+            for j in jobs
+            if j.state == JobState.DONE
+            and j.outcome
+            in (
+                TerminalOutcome.FAILED,
+                TerminalOutcome.CANCELLED,
+                TerminalOutcome.TIMED_OUT,
+                TerminalOutcome.PREEMPTED,
+            )
+        )
         run_ids = {j.run_id for j in jobs}
 
         return ClusterStatsReport(
@@ -491,7 +542,26 @@ class HexaqueueCqrsService:
 
         Returns:
             List of LogChunk entries.
+
+        Raises:
+            PermissionDeniedError: If unauthorized cross-tenant log inspection is attempted.
         """
+        if qry.user_id != "default" and not qry.elevate:
+            try:
+                job = await self.controller.get_job(qry.job_id)
+                owner = _extract_job_owner(job)
+                if owner != qry.user_id:
+                    msg = (
+                        f"Permission denied: You are not the owner of job '{qry.job_id}' (owned by '{owner}'). "
+                        "Explicit administrative elevation (--admin / elevate=true) is required."
+                    )
+                    raise PermissionDeniedError(msg)
+            except PermissionDeniedError:
+                raise
+            except Exception:
+                # Job not found in controller registry; proceed to historical log store
+                pass
+
         chunks = self.log_store.get(qry.job_id, [])
         if qry.tail is not None:
             return chunks[-qry.tail :]
