@@ -87,10 +87,16 @@ class TenantWorkload(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     tenant_id: str = Field(min_length=1, description="Tenant identifier")
-    shares: float = Field(default=1.0, gt=0.0, description="Fair-share entitlement shares")
+    shares: float = Field(
+        default=1.0, gt=0.0, description="Fair-share entitlement shares"
+    )
     job_count: int = Field(gt=0, description="Total jobs submitted")
-    checkpointable: bool = Field(default=False, description="Whether jobs support checkpointing")
-    walltime_seconds: float = Field(default=100.0, gt=0.0, description="Job walltime in seconds")
+    checkpointable: bool = Field(
+        default=False, description="Whether jobs support checkpointing"
+    )
+    walltime_seconds: float = Field(
+        default=100.0, gt=0.0, description="Job walltime in seconds"
+    )
 
 
 class PreemptionAuditRecord(BaseModel):
@@ -154,9 +160,7 @@ class ClusterSimulatorPort(ABC):
         """Initialize the cluster resource pool with specified slot capacity."""
 
     @abstractmethod
-    def setup_tenants(
-        self, tenant_a: TenantWorkload, tenant_b: TenantWorkload
-    ) -> None:
+    def setup_tenants(self, tenant_a: TenantWorkload, tenant_b: TenantWorkload) -> None:
         """Configure fair-share tree and tenants for the simulation."""
 
     @abstractmethod
@@ -164,11 +168,15 @@ class ClusterSimulatorPort(ABC):
         """Execute Phase 1: Tenant A occupies all 100 cluster slots."""
 
     @abstractmethod
-    def run_starvation_phase(self, elapsed_seconds: float = 10.0) -> SimulationPhaseResult:
+    def run_starvation_phase(
+        self, elapsed_seconds: float = 10.0
+    ) -> SimulationPhaseResult:
         """Execute Phase 2: Tenant B submits urgent jobs during grace period."""
 
     @abstractmethod
-    def run_preemption_phase(self, elapsed_seconds: float = 35.0) -> SimulationPhaseResult:
+    def run_preemption_phase(
+        self, elapsed_seconds: float = 35.0
+    ) -> SimulationPhaseResult:
         """Execute Phase 3: Grace period expires and controlled preemption triggers."""
 
     @abstractmethod

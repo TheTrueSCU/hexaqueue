@@ -67,7 +67,7 @@ def test_api_run_lifecycle_and_jobs(hermetic_api_client: TestClient) -> None:
         "run_spec": {"id": "run-api-100", "name": "API Test Run"},
         "jobs": [
             {
-                "id": "job-api-1",
+                "id": "job-api-100",
                 "run_id": "run-api-100",
                 "name": "task-api",
                 "command": "echo api",
@@ -95,9 +95,9 @@ def test_api_run_lifecycle_and_jobs(hermetic_api_client: TestClient) -> None:
     assert len(jobs_resp.json()) >= 1
 
     # 4. Get Job
-    job_resp = client.get("/v1/jobs/job-api-1")
+    job_resp = client.get("/v1/jobs/job-api-100")
     assert job_resp.status_code == 200
-    assert job_resp.json()["id"] == "job-api-1"
+    assert job_resp.json()["id"] == "job-api-100"
 
 
 def test_api_permission_elevation_controls(hermetic_api_client: TestClient) -> None:
