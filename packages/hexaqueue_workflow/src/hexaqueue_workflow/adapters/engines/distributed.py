@@ -396,6 +396,7 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
 
         state.status = WorkflowStatus.COMPLETED
         state.finished_at = datetime.now(UTC)
+        self._submitted_runs.pop(state.run_id, None)
         self._store.save_run(state)
         return state
 

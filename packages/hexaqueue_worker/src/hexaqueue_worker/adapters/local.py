@@ -136,7 +136,7 @@ class LocalSubprocessWorker(WorkerDaemonPort):
                     job = await self._queue.dequeue(
                         timeout_seconds=self._config.poll_interval_seconds
                     )
-                except BaseException:
+                except (Exception, asyncio.CancelledError):
                     self._semaphore.release()
                     raise
 
