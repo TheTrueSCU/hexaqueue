@@ -124,6 +124,7 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
         )
         self._store = state_store or InMemoryStateStore()
         self._barrier = barrier or GrpcSplitJoinBarrierAdapter()
+        self._submitted_runs: dict[str, set[str]] = {}
 
         if staging is not None:
             self._staging = staging
@@ -320,6 +321,9 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
             for step in stage.steps:
                 with contextlib.suppress(Exception):
                     await self._controller.cancel_run(f"{run_id}_{step.name}")
+        for submitted_id in self._submitted_runs.pop(run_id, set()):
+            with contextlib.suppress(Exception):
+                await self._controller.cancel_run(submitted_id)
 
         checkpoints = self._store.get_checkpoints(run_id)
         for chk in reversed(checkpoints):
@@ -568,6 +572,8 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
             jobs=[job_spec],
             dependencies={},
         )
+        step_run_id = f"{state.run_id}_{step.name}"
+        self._submitted_runs.setdefault(state.run_id, set()).add(step_run_id)
         try:
             run_status = await self._controller.submit_run(run_submission)
         except HexaqueueError as err:
@@ -813,6 +819,7 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
             update={"id": f"{state.run_id}_{sub_step_name}", "name": sub_step_name}
         )
         sub_run_id = f"{state.run_id}_{sub_step_name}"
+        self._submitted_runs.setdefault(state.run_id, set()).add(sub_run_id)
         try:
             run_status = await self._controller.submit_run(
                 RunSubmission(
