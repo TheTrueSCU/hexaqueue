@@ -1,0 +1,24 @@
+[project]
+name = "hexaqueue-collateral"
+version = "0.4.0"
+description = "Hexaqueue Collateral - Ingestion, upload handling, and staging storage service"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [
+    { name = "Richard West", email = "dopplereffect.us@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "hexaqueue-core",
+    "hexastack-auth>=0.6.0",
+    "hexastack-core>=0.6.0",
+    "hexastack-events>=0.6.0",
+    "hexastack-fastapi>=0.6.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.3,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+hexaqueue-core = { workspace = true }

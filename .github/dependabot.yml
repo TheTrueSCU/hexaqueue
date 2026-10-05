@@ -1,0 +1,197 @@
+# Dependabot configuration for the Hexaqueue monorepo.
+#
+# Notes:
+#   - uv workspaces are not yet natively supported; the `pip` ecosystem is used
+#     and reads each package's pyproject.toml directly.
+#   - Each workspace package gets its own entry so per-package PRs are scoped
+#     to that package's dependency graph.
+#   - Minor and patch updates are grouped per-directory to reduce PR noise.
+#     Major version bumps always get their own PR (not auto-merged).
+#   - GitHub Actions updates are separate from Python dependency updates.
+
+version: 2
+
+updates:
+
+  # ── GitHub Actions ──────────────────────────────────────────────────────────
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: tuesday
+      time: "05:00"
+      timezone: UTC
+    groups:
+      actions-minor-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, github-actions]
+
+  # ── Python: workspace root ───────────────────────────────────────────────────
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: UTC
+    groups:
+      workspace-minor-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, python]
+
+  # ── Python: packages/* ───────────────────────────────────────────────────────
+  - package-ecosystem: pip
+    directory: /packages/hexaqueue
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: UTC
+    groups:
+      hexaqueue-minor-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, python, hexaqueue]
+
+  - package-ecosystem: pip
+    directory: /packages/hexaqueue_cli
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: UTC
+    groups:
+      hexaqueue-cli-minor-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, python, hexaqueue-cli]
+
+  - package-ecosystem: pip
+    directory: /packages/hexaqueue_collateral
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: UTC
+    groups:
+      hexaqueue-collateral-minor-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, python, hexaqueue-collateral]
+
+  - package-ecosystem: pip
+    directory: /packages/hexaqueue_core
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: UTC
+    groups:
+      hexaqueue-core-minor-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, python, hexaqueue-core]
+
+  - package-ecosystem: pip
+    directory: /packages/hexaqueue_dashboard
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: UTC
+    groups:
+      hexaqueue-dashboard-minor-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, python, hexaqueue-dashboard]
+
+  - package-ecosystem: pip
+    directory: /packages/hexaqueue_github_runner
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: UTC
+    groups:
+      hexaqueue-github-runner-minor-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, python, hexaqueue-github-runner]
+
+  - package-ecosystem: pip
+    directory: /packages/hexaqueue_gitlab_runner
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: UTC
+    groups:
+      hexaqueue-gitlab-runner-minor-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, python, hexaqueue-gitlab-runner]
+
+  - package-ecosystem: pip
+    directory: /packages/hexaqueue_kueue
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: UTC
+    groups:
+      hexaqueue-kueue-minor-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, python, hexaqueue-kueue]
+
+  - package-ecosystem: pip
+    directory: /packages/hexaqueue_monitor
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: UTC
+    groups:
+      hexaqueue-monitor-minor-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, python, hexaqueue-monitor]
+
+  - package-ecosystem: pip
+    directory: /packages/hexaqueue_scanner
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: UTC
+    groups:
+      hexaqueue-scanner-minor-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, python, hexaqueue-scanner]
+
+  - package-ecosystem: pip
+    directory: /packages/hexaqueue_server
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: UTC
+    groups:
+      hexaqueue-server-minor-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, python, hexaqueue-server]
+
+  - package-ecosystem: pip
+    directory: /packages/hexaqueue_worker
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: UTC
+    groups:
+      hexaqueue-worker-minor-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, python, hexaqueue-worker]
+
+  - package-ecosystem: pip
+    directory: /packages/hexaqueue_workflow
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: UTC
+    groups:
+      hexaqueue-workflow-minor-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, python, hexaqueue-workflow]

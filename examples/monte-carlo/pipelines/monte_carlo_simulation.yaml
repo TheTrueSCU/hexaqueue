@@ -1,0 +1,48 @@
+run:
+  id: monte-carlo-stochastic-sim
+  name: Multi-Regime Monte-Carlo Simulation & Surface Smoothing
+  tags:
+  - simulation
+  - monte-carlo
+  - smoothing
+  - collateral
+  env:
+    SIM_DIR: /tmp/mc_sim
+    SIM_SCRIPT: ../src/monte_carlo/cli.py
+  resources:
+    cpus: 1
+    ram_mb: 512
+    scratch_mb: 100
+    walltime_seconds: 15
+groups:
+- id: sim-regimes
+  name: Stochastic Trajectory Simulation Regimes
+  params:
+  - regime: low_vol
+    seed: 101
+    drift: 0.03
+    vol: 0.08
+    label: Low Volatility
+  - regime: mid_vol
+    seed: 202
+    drift: 0.05
+    vol: 0.18
+    label: Medium Volatility
+  - regime: high_vol
+    seed: 303
+    drift: 0.08
+    vol: 0.35
+    label: High Volatility & Stress
+  jobs:
+  - id: sim-regime-{{ regime }}
+    name: Simulate {{ label }} Trajectories
+    command: python {{ SIM_SCRIPT }} simulate --regime {{ regime }} --seed {{ seed
+      }} --drift {{ drift }} --vol {{ vol }} --paths 50 --steps 100 --output-dir {{
+      SIM_DIR }} --delay 1.5
+jobs:
+- id: smooth-and-aggregate
+  name: Multi-Variable Smoothing & Statistical Aggregation
+  command: python {{ SIM_SCRIPT }} aggregate --input-dir {{ SIM_DIR }} --regimes low_vol
+    mid_vol high_vol --window 5 --delay 1.5
+  depends_on:
+  - sim-regimes

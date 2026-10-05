@@ -1,0 +1,35 @@
+run:
+  id: "cluster-monopoly-demo"
+  name: "100-Slot Multi-Tenant Cluster Monopoly & Preemption Demo"
+  tags:
+    - "tutorial"
+    - "monopoly"
+    - "fair-share"
+    - "preemption"
+
+groups:
+  - id: "alpha-workload"
+    name: "Team Alpha Background Batch Jobs"
+    params:
+      - { batch_id: "01", user: "team_alpha" }
+      - { batch_id: "02", user: "team_alpha" }
+      - { batch_id: "03", user: "team_alpha" }
+    jobs:
+      - id: "alpha-batch-{{ batch_id }}"
+        name: "Alpha Batch Job {{ batch_id }}"
+        command: "python -c \"import time; time.sleep(2.0); print('Team Alpha batch completed')\""
+        resources:
+          cpus: 1
+          ram_mb: 512
+          scratch_mb: 50
+          walltime_seconds: 30
+
+jobs:
+  - id: "beta-urgent-task"
+    name: "Team Beta Urgent Analytics Task"
+    command: "python -c \"import time; time.sleep(1.5); print('Team Beta high-priority workload completed')\""
+    resources:
+      cpus: 1
+      ram_mb: 512
+      scratch_mb: 50
+      walltime_seconds: 30

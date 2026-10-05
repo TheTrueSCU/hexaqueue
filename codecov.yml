@@ -1,0 +1,108 @@
+# Codecov configuration for the Hexaqueue monorepo.
+# https://docs.codecov.com/docs/codecovyml-reference
+
+coverage:
+  precision: 2
+  round: down
+  range: "70...100"
+
+  status:
+    project:
+      default:
+        target: 90%
+        threshold: 1%       # allow up to 1% drop without failing
+        informational: true
+    patch:
+      default:
+        target: 85%         # new code on PRs target 85%
+        threshold: 1%
+        informational: true # informational status check to avoid blocking on affected-only PR test runs
+
+comment:
+  layout: "reach,diff,flags,components,tree"
+  behavior: default
+  require_changes: true     # only comment when coverage changes
+
+# Components split the single coverage upload by path, giving
+# per-package breakdown in the Codecov UI and per-component badge URLs.
+component_management:
+  default_rules:
+    statuses:
+      - type: project
+        target: 90%
+      - type: patch
+        target: 85%
+        informational: true
+
+  individual_components:
+    - component_id: hexaqueue
+      name: hexaqueue
+      paths:
+        - packages/hexaqueue/src/**
+
+    - component_id: hexaqueue_cli
+      name: hexaqueue-cli
+      paths:
+        - packages/hexaqueue_cli/src/**
+
+    - component_id: hexaqueue_collateral
+      name: hexaqueue-collateral
+      paths:
+        - packages/hexaqueue_collateral/src/**
+
+    - component_id: hexaqueue_core
+      name: hexaqueue-core
+      paths:
+        - packages/hexaqueue_core/src/**
+
+    - component_id: hexaqueue_dashboard
+      name: hexaqueue-dashboard
+      paths:
+        - packages/hexaqueue_dashboard/src/**
+
+    - component_id: hexaqueue_github_runner
+      name: hexaqueue-github-runner
+      paths:
+        - packages/hexaqueue_github_runner/src/**
+
+    - component_id: hexaqueue_gitlab_runner
+      name: hexaqueue-gitlab-runner
+      paths:
+        - packages/hexaqueue_gitlab_runner/src/**
+
+    - component_id: hexaqueue_kueue
+      name: hexaqueue-kueue
+      paths:
+        - packages/hexaqueue_kueue/src/**
+
+    - component_id: hexaqueue_monitor
+      name: hexaqueue-monitor
+      paths:
+        - packages/hexaqueue_monitor/src/**
+
+    - component_id: hexaqueue_scanner
+      name: hexaqueue-scanner
+      paths:
+        - packages/hexaqueue_scanner/src/**
+
+    - component_id: hexaqueue_server
+      name: hexaqueue-server
+      paths:
+        - packages/hexaqueue_server/src/**
+
+    - component_id: hexaqueue_worker
+      name: hexaqueue-worker
+      paths:
+        - packages/hexaqueue_worker/src/**
+
+    - component_id: hexaqueue_workflow
+      name: hexaqueue-workflow
+      paths:
+        - packages/hexaqueue_workflow/src/**
+
+ignore:
+  - "packages/*/tests/**"
+  - "packages/*/testing/**"
+  - "examples/*/tests/**"
+  - "scripts/**"
+  - "docs/**"

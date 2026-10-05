@@ -1,0 +1,47 @@
+[project]
+name = "hexaqueue"
+version = "0.4.0"
+description = "Hexaqueue - Cloud-Agnostic HPC Batch Scheduler and Distributed Job Orchestrator"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [
+    { name = "Richard West", email = "dopplereffect.us@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "hexaqueue-cli",
+    "hexaqueue-collateral",
+    "hexaqueue-core",
+    "hexaqueue-dashboard",
+    "hexaqueue-github-runner",
+    "hexaqueue-gitlab-runner",
+    "hexaqueue-kueue",
+    "hexaqueue-monitor",
+    "hexaqueue-scanner",
+    "hexaqueue-server",
+    "hexaqueue-worker",
+    "hexaqueue-workflow",
+]
+
+[project.optional-dependencies]
+sentry = [
+    "hexaqueue-worker[sentry]",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.3,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+hexaqueue-cli = { workspace = true }
+hexaqueue-collateral = { workspace = true }
+hexaqueue-core = { workspace = true }
+hexaqueue-dashboard = { workspace = true }
+hexaqueue-github-runner = { workspace = true }
+hexaqueue-gitlab-runner = { workspace = true }
+hexaqueue-kueue = { workspace = true }
+hexaqueue-monitor = { workspace = true }
+hexaqueue-scanner = { workspace = true }
+hexaqueue-server = { workspace = true }
+hexaqueue-worker = { workspace = true }
+hexaqueue-workflow = { workspace = true }

@@ -1,0 +1,20 @@
+[project]
+name = "hexaqueue-gitlab-runner"
+version = "0.4.0"
+description = "Hexaqueue GitLab Runner - Custom Executor Driver for GitLab CI/CD"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [
+    { name = "Richard West", email = "dopplereffect.us@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "hexaqueue-core",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.3,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+hexaqueue-core = { workspace = true }
