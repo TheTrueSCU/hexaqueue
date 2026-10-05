@@ -1,0 +1,28 @@
+[project]
+name = "hexaqueue-workflow"
+version = "0.4.0"
+description = "Hexaqueue Workflow - Distributed Cluster Engine & Artifact Staging for Hexaflow"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [
+    { name = "Richard West", email = "dopplereffect.us@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "hexaflow>=0.3.0",
+    "hexaqueue-core",
+    "hexaqueue-server",
+    "hexaqueue-worker",
+    "hexastack-core>=0.6.0",
+    "hexastack-grpc>=0.6.0",
+    "pydantic>=2.10.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.3,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+hexaqueue-core = { workspace = true }
+hexaqueue-server = { workspace = true }
+hexaqueue-worker = { workspace = true }

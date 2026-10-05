@@ -1,0 +1,1 @@
+"""Adapters unit test suite."""

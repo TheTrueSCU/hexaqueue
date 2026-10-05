@@ -1,0 +1,36 @@
+[project]
+name = "hexaqueue-cli"
+version = "0.4.0"
+description = "Hexaqueue CLI - Modern developer and operator terminal interface"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [
+    { name = "Richard West", email = "dopplereffect.us@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "hexaqueue-core",
+    "hexaqueue-server",
+    "hexaqueue-worker",
+    "hexaqueue-workflow",
+    "hexastack-cli>=0.6.0",
+    "hexastack-core>=0.6.0",
+    "hexastack-cqrs>=0.6.0",
+    "hexastack-grpc>=0.6.0",
+    "pyyaml>=6.0.2",
+    "rich>=13.8.0",
+    "typer>=0.15.0",
+]
+
+[project.scripts]
+hq = "hexaqueue_cli.main:app"
+
+[build-system]
+requires = ["uv_build>=0.12.3,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+hexaqueue-core = { workspace = true }
+hexaqueue-server = { workspace = true }
+hexaqueue-worker = { workspace = true }
+hexaqueue-workflow = { workspace = true }
