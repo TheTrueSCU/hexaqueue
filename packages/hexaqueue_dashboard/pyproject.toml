@@ -12,11 +12,11 @@ dependencies = [
     "hexaqueue-core",
     "hexaqueue-server",
     "hexaqueue-worker",
-    "hexastack-auth>=0.6.0",
-    "hexastack-core>=0.6.0",
-    "hexastack-cqrs>=0.6.0",
-    "hexastack-fastapi>=0.6.0",
-    "hexastack-grpc>=0.6.0",
+    "hexastack-auth>=0.8.0",
+    "hexastack-core>=0.8.0",
+    "hexastack-cqrs>=0.8.0",
+    "hexastack-fastapi>=0.8.0",
+    "hexastack-grpc>=0.8.0",
 ]
 
 [build-system]

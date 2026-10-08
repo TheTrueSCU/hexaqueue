@@ -13,8 +13,8 @@ dependencies = [
     "hexaqueue-core",
     "hexaqueue-server",
     "hexaqueue-worker",
-    "hexastack-core>=0.6.0",
-    "hexastack-grpc>=0.6.0",
+    "hexastack-core>=0.8.0",
+    "hexastack-grpc>=0.8.0",
     "pydantic>=2.10.0",
 ]
 
