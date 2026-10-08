@@ -60,7 +60,8 @@ class LocalSubprocessExecutionRuntimeAdapter(ExecutionRuntimePort):
                     )
                     offset += 1
         except asyncio.CancelledError:
-            pass
+            # Stream processor cancelled during job termination; exit loop cleanly.
+            return
 
     async def execute(
         self,
@@ -132,7 +133,7 @@ class LocalSubprocessExecutionRuntimeAdapter(ExecutionRuntimePort):
         except TimeoutError:
             gather_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
-                await gather_task
+                _ = await gather_task
             for t in pipe_tasks:
                 t.cancel()
             await asyncio.gather(*pipe_tasks, return_exceptions=True)

@@ -1,5 +1,6 @@
 """Domain models and operations for collateral staging and promotion."""
 
+from pathlib import Path
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -46,6 +47,16 @@ class IngestionRequest(BaseModel):
             raise ValueError(msg)
         if not self.filename.strip():
             msg = "filename cannot be empty"
+            raise ValueError(msg)
+        cleaned_name = Path(self.filename.strip()).name
+        if (
+            not cleaned_name
+            or cleaned_name != self.filename.strip()
+            or ".." in self.filename
+            or "/" in self.filename
+            or "\\" in self.filename
+        ):
+            msg = "filename must be a valid relative filename without directory traversal components"
             raise ValueError(msg)
         return self
 

@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Generator
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
@@ -53,9 +54,12 @@ def hermetic_api_client() -> Generator[TestClient]:
     pipeline = create_hexaqueue_execution_pipeline(
         controller=controller, log_store=log_store
     )
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setenv("HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN", "1")
     app = create_server_app(pipeline=pipeline)
     with TestClient(app) as client:
         yield client
+    monkeypatch.undo()
 
 
 def test_api_run_lifecycle_and_jobs(hermetic_api_client: TestClient) -> None:
@@ -79,23 +83,27 @@ def test_api_run_lifecycle_and_jobs(hermetic_api_client: TestClient) -> None:
         "user_id": "alice",
         "elevate": False,
     }
-    submit_resp = client.post("/v1/runs", json=payload)
+    submit_resp = client.post(
+        "/v1/runs", json=payload, headers={"X-Hexaqueue-User": "alice"}
+    )
     assert submit_resp.status_code == 201
     run_data = submit_resp.json()
     assert run_data["run_id"] == "run-api-100"
 
     # 2. Get Run Status
-    status_resp = client.get("/v1/runs/run-api-100")
+    status_resp = client.get(
+        "/v1/runs/run-api-100", headers={"X-Hexaqueue-User": "alice"}
+    )
     assert status_resp.status_code == 200
     assert status_resp.json()["run_id"] == "run-api-100"
 
     # 3. List Jobs
-    jobs_resp = client.get("/v1/jobs")
+    jobs_resp = client.get("/v1/jobs", headers={"X-Hexaqueue-User": "alice"})
     assert jobs_resp.status_code == 200
     assert len(jobs_resp.json()) >= 1
 
     # 4. Get Job
-    job_resp = client.get("/v1/jobs/job-api-100")
+    job_resp = client.get("/v1/jobs/job-api-100", headers={"X-Hexaqueue-User": "alice"})
     assert job_resp.status_code == 200
     assert job_resp.json()["id"] == "job-api-100"
 
@@ -239,7 +247,9 @@ def test_api_diagnostics_and_monitoring(hermetic_api_client: TestClient) -> None
     assert fs_resp.json()["root"]["id"] == "root"
 
     # 4. Logs
-    logs_resp = client.get("/v1/jobs/job-api-1/logs?tail=2")
+    logs_resp = client.get(
+        "/v1/jobs/job-api-1/logs?tail=2", headers={"X-Hexaqueue-User": "alice"}
+    )
     assert logs_resp.status_code == 200
 
     # 5. PTY Session
@@ -275,7 +285,14 @@ def test_get_auth_context_unit() -> None:
         False,
     )
 
-    # 3. Elevation resolution
+    # 3. Elevation resolution (default fail-closed without token)
+    with pytest.raises(HTTPException) as exc_info:
+        get_auth_context(x_hexaqueue_elevate=True)
+    assert exc_info.value.status_code == 403
+
+    # Explicit anonymous elevation allowed
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setenv("HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN", "1")
     assert get_auth_context(x_hexaqueue_elevate=True) == ("default", True)
     assert get_auth_context(elevate=True) == ("default", True)
     assert get_auth_context(admin=True) == ("default", True)
@@ -287,6 +304,16 @@ def test_get_auth_context_unit() -> None:
         "default",
         True,
     )
+    monkeypatch.undo()
+
+    # Token-based elevation
+    monkeypatch.setenv("HEXAQUEUE_ADMIN_TOKEN", "secret-test-token")
+    with pytest.raises(HTTPException):
+        get_auth_context(x_hexaqueue_elevate=True)
+    assert get_auth_context(
+        x_hexaqueue_elevate=True, x_hexaqueue_admin_token="secret-test-token"
+    ) == ("default", True)
+    monkeypatch.undo()
 
 
 def test_api_command_elevation_and_user_mapping() -> None:
@@ -347,11 +374,11 @@ def test_api_command_elevation_and_user_mapping() -> None:
         run_spec=RunSpec(id="r1", name="r1"),
         jobs=[job],
         user_id="bob",
-        elevate=False,
+        elevate=True,
     )
     submit_run(cmd=cmd_explicit, pipeline=mock_pip, auth=("alice", False))
     dispatched = mock_pip.execute.call_args[0][0]
-    assert dispatched.user_id == "bob"
+    assert dispatched.user_id == "alice"
     assert dispatched.elevate is False
 
     submit_run(cmd=cmd_default, pipeline=mock_pip, auth=("alice", True))
@@ -392,11 +419,11 @@ def test_api_command_elevation_and_user_mapping() -> None:
             ],
         ),
         user_id="bob",
-        elevate=False,
+        elevate=True,
     )
     submit_suite(cmd=suite_cmd_explicit, pipeline=mock_pip, auth=("alice", False))
     dispatched = mock_pip.execute.call_args[0][0]
-    assert dispatched.user_id == "bob"
+    assert dispatched.user_id == "alice"
     assert dispatched.elevate is False
 
     submit_suite(cmd=suite_cmd_default, pipeline=mock_pip, auth=("alice", True))
@@ -421,11 +448,12 @@ def test_api_command_elevation_and_user_mapping() -> None:
         checksum_sha256="c" * 64,
         size_bytes=100,
         user_id="bob",
-        elevate=False,
+        elevate=True,
     )
     register_col(cmd=col_cmd_explicit, pipeline=mock_pip, auth=("alice", False))
     dispatched = mock_pip.execute.call_args[0][0]
-    assert dispatched.user_id == "bob"
+    assert dispatched.user_id == "alice"
+    assert dispatched.elevate is False
 
     register_col(cmd=col_cmd, pipeline=mock_pip, auth=("alice", True))
     dispatched = mock_pip.execute.call_args[0][0]
@@ -441,11 +469,12 @@ def test_api_command_elevation_and_user_mapping() -> None:
     assert dispatched.elevate is False
 
     bud_cmd_explicit = SettleBudgetCommand(
-        project_id="p1", amount_cents=100, user_id="bob", elevate=False
+        project_id="p1", amount_cents=100, user_id="bob", elevate=True
     )
     settle_bud(cmd=bud_cmd_explicit, pipeline=mock_pip, auth=("alice", False))
     dispatched = mock_pip.execute.call_args[0][0]
-    assert dispatched.user_id == "bob"
+    assert dispatched.user_id == "alice"
+    assert dispatched.elevate is False
 
     settle_bud(cmd=bud_cmd, pipeline=mock_pip, auth=("alice", True))
     dispatched = mock_pip.execute.call_args[0][0]
@@ -476,6 +505,7 @@ def test_api_stream_run_status(hermetic_api_client: TestClient) -> None:
     with client.stream(
         "GET",
         "/v1/runs/run-api-seed/stream?poll_interval=0.05&max_events=1&timeout=1.0",
+        headers={"X-Hexaqueue-User": "alice"},
     ) as resp:
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers["content-type"]

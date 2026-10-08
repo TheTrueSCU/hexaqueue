@@ -124,14 +124,14 @@ class BatchSchedulerClusterSimulator(ClusterSimulatorPort):
             )
 
         self._running_jobs_a.clear()
-        for i in range(self.total_slots):
+        for i in range(min(self.total_slots, self._tenant_a.job_count)):
             job_a = JobSpec(
                 id=f"alpha-job-{i:03d}",
                 run_id="run-alpha",
                 name=f"alpha-task-{i}",
                 command="sleep 1000",
                 user=self._tenant_a.tenant_id,
-                checkpointable=(i % 2 == 0),
+                checkpointable=self._tenant_a.checkpointable,
                 created_at=self._t0 - timedelta(seconds=100),
             )
             self.pool.allocate(job_a)
@@ -190,13 +190,21 @@ class BatchSchedulerClusterSimulator(ClusterSimulatorPort):
             current_timestamp=self._t0_secs + elapsed_seconds,
         )
 
+        tenant_b_id = self._tenant_b.tenant_id if self._tenant_b else "team_beta"
+        admitted_b = [j for j in decision.to_run if j.user == tenant_b_id]
+        if admitted_b:
+            admitted_ids = {j.id for j in admitted_b}
+            self._pending_jobs_b = [
+                j for j in self._pending_jobs_b if j.id not in admitted_ids
+            ]
+
         return SimulationPhaseResult(
             phase_name="Phase 2: Starvation & Grace Period Active",
             elapsed_seconds=elapsed_seconds,
             used_slots=self.pool.used_slots,
             available_slots=self.pool.available_slots,
             slots_tenant_a=len(self._running_jobs_a),
-            slots_tenant_b=0,
+            slots_tenant_b=len(admitted_b),
             pending_jobs_count=len(decision.remains_pending),
             preempted_jobs_count=len(decision.preempted_jobs),
             notes=(
@@ -238,6 +246,17 @@ class BatchSchedulerClusterSimulator(ClusterSimulatorPort):
             # Remove victim from running jobs
             self._running_jobs_a = [
                 j for j in self._running_jobs_a if j.id != preempted_id
+            ]
+
+        admitted_b = [
+            j
+            for j in decision.to_run
+            if j.user == (self._tenant_b.tenant_id if self._tenant_b else "team_beta")
+        ]
+        if admitted_b:
+            admitted_ids = {j.id for j in admitted_b}
+            self._pending_jobs_b = [
+                j for j in self._pending_jobs_b if j.id not in admitted_ids
             ]
 
         slots_b = len(decision.to_run)

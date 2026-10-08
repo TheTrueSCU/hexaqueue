@@ -35,12 +35,9 @@ def _resolve_single_trigger(
     name: str, trigger_cls: type[NotificationTrigger]
 ) -> NotificationTrigger:
     """Resolve a single string token to a NotificationTrigger member."""
-    try:
-        member = getattr(trigger_cls, name)
-        if isinstance(member, trigger_cls):
-            return member
-    except AttributeError:
-        pass
+    member = getattr(trigger_cls, name, None)
+    if isinstance(member, trigger_cls):
+        return member
     valid_names = [m.name for m in trigger_cls]
     raise ValueError(
         f"Unknown notification trigger '{name}'. Valid triggers: {valid_names}"

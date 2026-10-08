@@ -104,14 +104,21 @@ def get_auth_context(
     requested_elevation = bool(x_hexaqueue_elevate or elevate or admin)
     if requested_elevation:
         configured_token = os.environ.get("HEXAQUEUE_ADMIN_TOKEN")
-        if configured_token:
+        if configured_token is not None:
             provided_token = x_hexaqueue_admin_token or admin_token
             if provided_token != configured_token:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Invalid or missing administrative elevation token.",
                 )
-        is_elevated = True
+            is_elevated = True
+        elif os.environ.get("HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN", "0") != "1":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Administrative elevation requires HEXAQUEUE_ADMIN_TOKEN to be configured.",
+            )
+        else:
+            is_elevated = True
     else:
         is_elevated = False
     return user_id, is_elevated
@@ -230,8 +237,8 @@ def create_server_api_router() -> APIRouter:
             run_spec=cmd.run_spec,
             jobs=cmd.jobs,
             dependencies=cmd.dependencies,
-            user_id=cmd.user_id if cmd.user_id != "default" else user_id,
-            elevate=bool(cmd.elevate or is_elevated),
+            user_id=user_id,
+            elevate=is_elevated,
         )
         return _dispatch(pipeline, effective_cmd)
 
@@ -330,8 +337,8 @@ def create_server_api_router() -> APIRouter:
         user_id, is_elevated = auth
         effective_cmd = SubmitSuiteCommand(
             suite_spec=cmd.suite_spec,
-            user_id=cmd.user_id if cmd.user_id != "default" else user_id,
-            elevate=bool(cmd.elevate or is_elevated),
+            user_id=user_id,
+            elevate=is_elevated,
         )
         return _dispatch(pipeline, effective_cmd)
 
@@ -460,8 +467,8 @@ def create_server_api_router() -> APIRouter:
             job_id=job_id,
             session_id=cmd.session_id or f"pty-{uuid4().hex[:8]}",
             command=cmd.command,
-            user_id=cmd.user_id if cmd.user_id != "default" else user_id,
-            elevate=bool(cmd.elevate or is_elevated),
+            user_id=user_id,
+            elevate=is_elevated,
             rows=cmd.rows,
             cols=cmd.cols,
             term_type=cmd.term_type,
@@ -550,8 +557,8 @@ def create_server_api_router() -> APIRouter:
             tier=cmd.tier,
             kind=cmd.kind,
             target_path=cmd.target_path,
-            user_id=cmd.user_id if cmd.user_id != "default" else user_id,
-            elevate=bool(cmd.elevate or is_elevated),
+            user_id=user_id,
+            elevate=is_elevated,
         )
         return _dispatch(pipeline, effective_cmd)
 
@@ -570,8 +577,8 @@ def create_server_api_router() -> APIRouter:
         effective_cmd = SettleBudgetCommand(
             project_id=cmd.project_id,
             amount_cents=cmd.amount_cents,
-            user_id=cmd.user_id if cmd.user_id != "default" else user_id,
-            elevate=bool(cmd.elevate or is_elevated),
+            user_id=user_id,
+            elevate=is_elevated,
         )
         return _dispatch(pipeline, effective_cmd)
 

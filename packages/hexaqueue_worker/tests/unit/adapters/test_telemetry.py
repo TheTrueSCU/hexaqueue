@@ -72,7 +72,7 @@ async def test_emit_and_subscribe_pulses() -> None:
     await asyncio.sleep(0.01)
 
     await collector.close()
-    await task
+    _ = await task
 
     rec_len = len(received)
     assert rec_len == 1

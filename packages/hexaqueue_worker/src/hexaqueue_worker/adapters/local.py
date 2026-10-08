@@ -45,7 +45,7 @@ def _capture_sentry_worker_exception(
         Integrates optional Sentry error monitoring without adding a hard dependency
         on sentry-sdk. Dynamically loads sentry_sdk at runtime and safely tags execution metadata.
     """
-    try:
+    with contextlib.suppress(Exception):
         sentry_sdk = importlib.import_module("sentry_sdk")
         with sentry_sdk.push_scope() as scope:
             scope.set_tag("worker_id", worker_id)
@@ -53,8 +53,6 @@ def _capture_sentry_worker_exception(
             scope.set_tag("queue", queue)
             scope.set_tag("command", command)
             sentry_sdk.capture_exception(exc)
-    except Exception:
-        pass
 
 
 class LocalSubprocessWorker(WorkerDaemonPort):
@@ -239,16 +237,18 @@ class LocalSubprocessWorker(WorkerDaemonPort):
                 self._total_failed += 1
             raise
         finally:
-            # 5. Clean up scratch storage
-            if scratch_vol and scratch_vol.is_ephemeral:
-                await self._storage.cleanup_scratch(scratch_vol.volume_id)
-
-            # 6. Release reserved GPU accelerators
-            if gpu_alloc and self._gpu_manager:
-                await self._gpu_manager.release_gpus(job.id)
-
-            async with self._lock:
-                self._active_jobs.discard(job.id)
+            # 5. Clean up scratch storage (isolated so failures cannot strand GPU/active-job tracking)
+            try:
+                if scratch_vol and scratch_vol.is_ephemeral:
+                    await self._storage.cleanup_scratch(scratch_vol.volume_id)
+            finally:
+                # 6. Release reserved GPU accelerators
+                try:
+                    if gpu_alloc and self._gpu_manager:
+                        await self._gpu_manager.release_gpus(job.id)
+                finally:
+                    async with self._lock:
+                        self._active_jobs.discard(job.id)
 
     async def get_metrics(self) -> WorkerMetrics:
         """Retrieve real-time operational worker metrics."""

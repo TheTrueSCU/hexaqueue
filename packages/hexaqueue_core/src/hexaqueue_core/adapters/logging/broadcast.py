@@ -8,6 +8,7 @@ Notes/Architectural Intent:
 """
 
 import asyncio
+import contextlib
 from collections import defaultdict, deque
 from collections.abc import AsyncIterator
 from typing import Final
@@ -66,11 +67,9 @@ class BroadcastLogStreamAdapter(LogStreamPort):
                 sub_queue.put_nowait(chunk)
             except asyncio.QueueFull:
                 # Discard oldest chunk or skip to prevent backpressure blocking
-                try:
+                with contextlib.suppress(asyncio.QueueEmpty, asyncio.QueueFull):
                     _ = sub_queue.get_nowait()
                     sub_queue.put_nowait(chunk)
-                except (asyncio.QueueEmpty, asyncio.QueueFull):
-                    pass
 
     async def stream_logs(
         self, job_id: str, follow: bool = False, tail: int | None = None
@@ -140,11 +139,9 @@ class BroadcastLogStreamAdapter(LogStreamPort):
             try:
                 sub_queue.put_nowait(None)
             except asyncio.QueueFull:
-                try:
+                with contextlib.suppress(asyncio.QueueEmpty, asyncio.QueueFull):
                     _ = sub_queue.get_nowait()
                     sub_queue.put_nowait(None)
-                except (asyncio.QueueEmpty, asyncio.QueueFull):
-                    pass
 
 
 __all__ = [

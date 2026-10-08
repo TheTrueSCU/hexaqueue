@@ -284,44 +284,20 @@ class NotificationDispatcher:
 
         Notes/Architectural Intent:
             Passes ad-hoc destination targets directly to `NotificationPort.notify(..., targets=...)`
-            without mutating adapter singleton state (supported in Hexastack >= 0.7.0).
-            If a legacy adapter is provided whose `notify` method does not accept `targets`,
-            gracefully falls back to registering URLs via `_ensure_targets` before dispatching.
+            without mutating adapter singleton state.
         """
         if self._port is None:
             return False
 
-        notify_fn: Any = self._port.notify
-        try:
-            return bool(
-                notify_fn(
-                    title=title,
-                    body=body,
-                    priority=priority,
-                    tags=tags,
-                    targets=targets or None,
-                )
+        return bool(
+            self._port.notify(
+                title=title,
+                body=body,
+                priority=priority,
+                tags=tags,
+                targets=targets or None,
             )
-        except TypeError as err:
-            if "targets" in str(err):
-                self._ensure_targets(targets)
-                return bool(
-                    self._port.notify(
-                        title=title,
-                        body=body,
-                        priority=priority,
-                        tags=tags,
-                    )
-                )
-            raise
-
-    def _ensure_targets(self, targets: list[str]) -> None:
-        """Register dynamic target URLs with the notification port if supported."""
-        if self._port is not None:
-            add_fn = getattr(self._port, "add_url", None)
-            if callable(add_fn):
-                for target in targets:
-                    add_fn(target)
+        )
 
     def _calculate_priority(
         self,

@@ -42,7 +42,7 @@ class LocalTelemetryCollector(TelemetryEmitterPort):
         """
         meminfo_path = Path("/proc/meminfo")
         if meminfo_path.exists():
-            try:
+            with contextlib.suppress(OSError, ValueError, IndexError):
                 mem_total = 0
                 mem_available = 0
                 for line in meminfo_path.read_text().splitlines():
@@ -53,8 +53,6 @@ class LocalTelemetryCollector(TelemetryEmitterPort):
                 if mem_total > 0:
                     mem_used = max(0, mem_total - mem_available)
                     return mem_used, mem_total
-            except Exception:
-                pass
         return 2048, 8192
 
     def _read_scratch_mb(self, path_str: str | None) -> tuple[int, int]:
@@ -137,11 +135,9 @@ class LocalTelemetryCollector(TelemetryEmitterPort):
             try:
                 q.put_nowait(pulse)
             except asyncio.QueueFull:
-                try:
+                with contextlib.suppress(asyncio.QueueEmpty, asyncio.QueueFull):
                     _ = q.get_nowait()
                     q.put_nowait(pulse)
-                except (asyncio.QueueEmpty, asyncio.QueueFull):
-                    pass
 
     async def subscribe_pulses(
         self, worker_id: str | None = None

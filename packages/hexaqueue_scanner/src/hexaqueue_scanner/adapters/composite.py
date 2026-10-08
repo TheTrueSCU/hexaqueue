@@ -66,6 +66,12 @@ class CompositeQuarantineScannerAdapter(SecurityQuarantinePort):
             else CollateralState.REJECTED
         )
 
+        if not self._engines:
+            return (
+                failure_state,
+                "No malware scanner engines configured in composite scanner",
+            )
+
         for engine in self._engines:
             result = await engine.scan_file(file_path)
             if not result.is_clean:
@@ -94,6 +100,11 @@ class CompositeQuarantineScannerAdapter(SecurityQuarantinePort):
         if not file_path.is_file():
             overall_clean = False
             quarantine_reason = f"Staged file missing: {file_path}"
+        elif not self._engines:
+            overall_clean = False
+            quarantine_reason = (
+                "No malware scanner engines configured in composite scanner"
+            )
         else:
             for engine in self._engines:
                 res = await engine.scan_file(file_path)

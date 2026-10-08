@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Generator
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
@@ -48,9 +49,12 @@ def hermetic_dashboard_client() -> Generator[TestClient]:
     pipeline = create_hexaqueue_execution_pipeline(
         controller=controller, log_store=log_store
     )
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setenv("HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN", "1")
     app = create_dashboard_app(pipeline=pipeline)
     with TestClient(app) as client:
         yield client
+    monkeypatch.undo()
 
 
 def test_dashboard_overview_and_telemetry(
@@ -183,11 +187,15 @@ def test_dashboard_run_and_suite_submission(
     assert jobs_resp.status_code == 200
     assert len(jobs_resp.json()) >= 1
 
-    single_job_resp = client.get("/dashboard/jobs/job-dash-2")
+    single_job_resp = client.get(
+        "/dashboard/jobs/job-dash-2", headers={"X-Hexaqueue-User": "charlie"}
+    )
     assert single_job_resp.status_code == 200
     assert single_job_resp.json()["id"] == "job-dash-2"
 
-    job3_resp = client.get("/dashboard/jobs/job-dash-3")
+    job3_resp = client.get(
+        "/dashboard/jobs/job-dash-3", headers={"X-Hexaqueue-User": "alice"}
+    )
     assert job3_resp.status_code == 200
     assert "owner:alice" in job3_resp.json()["tags"]
 
@@ -365,31 +373,32 @@ def test_get_auth_context_unit() -> None:
 
     # 1. Defaults
     assert get_auth_context() == ("default", False)
-    assert get_auth_context(None, False, False) == ("default", False)
+    assert get_auth_context(None, None, False) == ("default", False)
 
     # 2. User identity
     assert get_auth_context(x_hexaqueue_user="alice") == ("alice", False)
     assert get_auth_context(x_hexaqueue_user="") == ("default", False)
 
-    # 3. Header elevation
+    # 3. Elevation resolution (default fail-closed without token)
+    with pytest.raises(HTTPException) as exc_info:
+        get_auth_context(x_hexaqueue_elevate=True)
+    assert exc_info.value.status_code == 403
+
+    # Explicit anonymous elevation allowed
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setenv("HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN", "1")
     assert get_auth_context(x_hexaqueue_elevate=True, elevate=False) == (
         "default",
         True,
     )
-
-    # 4. Query elevation
     assert get_auth_context(x_hexaqueue_elevate=False, elevate=True) == (
         "default",
         True,
     )
-
-    # 5. Both elevation
     assert get_auth_context(x_hexaqueue_elevate=True, elevate=True) == (
         "default",
         True,
     )
-
-    # 6. User and elevation combined
     assert get_auth_context(x_hexaqueue_user="charlie", x_hexaqueue_elevate=True) == (
         "charlie",
         True,
@@ -398,6 +407,20 @@ def test_get_auth_context_unit() -> None:
         "charlie",
         True,
     )
+    monkeypatch.undo()
+
+    # Token-based elevation
+    monkeypatch.setenv("HEXAQUEUE_ADMIN_TOKEN", "secret-test-token")
+    with pytest.raises(HTTPException):
+        get_auth_context(x_hexaqueue_elevate=True)
+    assert get_auth_context(
+        x_hexaqueue_elevate=True, x_hexaqueue_admin_token="secret-test-token"
+    ) == ("default", True)
+    assert get_auth_context(elevate=True, admin_token="secret-test-token") == (
+        "default",
+        True,
+    )
+    monkeypatch.undo()
 
 
 def test_dashboard_command_elevation_and_user_mapping() -> None:

@@ -963,8 +963,15 @@ async def test_concurrent_stage_zip_strict(test_setup: tuple[Any, Any, Any]) -> 
     fut.set_result([1])
     fut_step = asyncio.Future()
     fut_step.set_result(None)
+
+    def _mock_gather(*tasks: Any, **_kwargs: Any) -> asyncio.Future:
+        for t in tasks:
+            if asyncio.iscoroutine(t):
+                t.close()
+        return fut
+
     with (
-        patch("asyncio.gather", return_value=fut),
+        patch("asyncio.gather", side_effect=_mock_gather),
         patch.object(engine, "_execute_step", new=MagicMock(return_value=fut_step)),
         pytest.raises(ValueError),
     ):

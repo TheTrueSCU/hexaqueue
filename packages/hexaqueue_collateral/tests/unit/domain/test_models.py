@@ -43,6 +43,22 @@ def test_ingestion_request_invalid():
             sha256_checksum="a" * 64,
         )
 
+    with pytest.raises(ValueError, match="directory traversal components"):
+        IngestionRequest(
+            job_id="job-1",
+            filename="../../etc/passwd",
+            size_bytes=100,
+            sha256_checksum="a" * 64,
+        )
+
+    with pytest.raises(ValueError, match="directory traversal components"):
+        IngestionRequest(
+            job_id="job-1",
+            filename="/etc/shadow",
+            size_bytes=100,
+            sha256_checksum="a" * 64,
+        )
+
 
 def test_staged_upload_descriptor():
     """Verify StagedUploadDescriptor holds bundle and upload destination."""

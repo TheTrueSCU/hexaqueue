@@ -395,11 +395,12 @@ class BatchSchedulerEngine:
         remaining_ranked: list[RankedJob] = []
 
         for ranked in ranked_pending:
-            if self._pool.can_fit(ranked.job):
-                self._pool.allocate(ranked.job)
-                to_run.append(ranked.job)
-            elif anchor is None:
-                anchor = ranked
+            if anchor is None:
+                if self._pool.can_fit(ranked.job):
+                    self._pool.allocate(ranked.job)
+                    to_run.append(ranked.job)
+                else:
+                    anchor = ranked
             else:
                 remaining_ranked.append(ranked)
 
@@ -461,18 +462,64 @@ class BatchSchedulerEngine:
         new_remaining = [r for r in remaining_ranked if r.job.id != starved.job.id]
         return anchor, new_remaining
 
+    def _calculate_anchor_reservation_window(
+        self,
+        anchor: RankedJob,
+        running_jobs: list[JobSpec],
+        current_timestamp: float,
+        estimated_durations: dict[str, float] | None,
+        allocated_jobs: list[JobSpec] | None = None,
+    ) -> float:
+        """Calculate dynamic reservation window until anchor can be allocated."""
+        needed_slots = max(1, anchor.job.resources.cpus) - self._pool.available_slots
+        if needed_slots <= 0:
+            return 0.0
+
+        durations = estimated_durations or {}
+        default_dur = self._backfill._default_duration
+
+        job_completions: list[tuple[float, int]] = []
+        for rj in running_jobs:
+            start_t = self._start_times.get(rj.id, current_timestamp)
+            dur = durations.get(rj.id, default_dur)
+            remaining_t = max(0.0, (start_t + dur) - current_timestamp)
+            slots = max(1, rj.resources.cpus)
+            job_completions.append((remaining_t, slots))
+
+        for aj in allocated_jobs or []:
+            dur = durations.get(aj.id, default_dur)
+            remaining_t = max(0.0, (current_timestamp + dur) - current_timestamp)
+            slots = max(1, aj.resources.cpus)
+            job_completions.append((remaining_t, slots))
+
+        job_completions.sort(key=lambda x: x[0])
+
+        accumulated_slots = 0
+        for remaining_t, slots in job_completions:
+            accumulated_slots += slots
+            if accumulated_slots >= needed_slots:
+                return remaining_t
+
+        return default_dur
+
     def _handle_backfill(
         self,
         anchor: RankedJob | None,
         remaining_ranked: list[RankedJob],
+        running_jobs: list[JobSpec],
+        current_timestamp: float,
         estimated_durations: dict[str, float] | None,
+        allocated_jobs: list[JobSpec] | None = None,
     ) -> tuple[list[JobSpec], list[RankedJob]]:
         """Attempt conservative backfill of lower-priority jobs into spare slots.
 
         Args:
             anchor: Blocked priority anchor job holding reservations.
             remaining_ranked: Candidate jobs for backfilling.
+            running_jobs: Currently running cluster jobs.
+            current_timestamp: Active evaluation timestamp.
             estimated_durations: Optional map of job execution durations.
+            allocated_jobs: Optional jobs allocated in the current scheduling cycle.
 
         Returns:
             Tuple of (backfilled jobs, updated remaining ranked jobs).
@@ -480,7 +527,13 @@ class BatchSchedulerEngine:
         if anchor is None or self._pool.available_slots == 0:
             return [], remaining_ranked
 
-        reservation_window = 60.0
+        reservation_window = self._calculate_anchor_reservation_window(
+            anchor=anchor,
+            running_jobs=running_jobs,
+            current_timestamp=current_timestamp,
+            estimated_durations=estimated_durations,
+            allocated_jobs=allocated_jobs,
+        )
         backfilled = self._backfill.evaluate_backfill(
             unallocated_pending=remaining_ranked,
             pool=self._pool,
@@ -545,7 +598,10 @@ class BatchSchedulerEngine:
         backfilled, remaining_ranked = self._handle_backfill(
             anchor=anchor,
             remaining_ranked=remaining_ranked,
+            running_jobs=running_jobs,
+            current_timestamp=current_timestamp,
             estimated_durations=estimated_durations,
+            allocated_jobs=to_run,
         )
 
         remains = ([anchor.job] if anchor else []) + [r.job for r in remaining_ranked]

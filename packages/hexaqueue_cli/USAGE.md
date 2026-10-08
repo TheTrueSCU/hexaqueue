@@ -85,6 +85,7 @@ Usage: hq attach [OPTIONS] {job_id}
  Args:
      job_id: Target running job identifier.
      user: Requesting user identity for RBAC validation.
+     admin: Whether explicit administrative elevation is requested.
 
  Notes/Architectural Intent:
      Convenience alias launching an interactive bash terminal inside the target
@@ -94,8 +95,9 @@ Usage: hq attach [OPTIONS] {job_id}
 │ *    job_id      <str>  Job ID to attach interactive shell to [required]     │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --user  -u      <str>  Requesting username [default: default]                │
-│ --help                 Show this message and exit.                           │
+│ --user   -u      <str>  Requesting username [default: default]               │
+│ --admin                 Assert explicit administrative elevation             │
+│ --help                  Show this message and exit.                          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -200,6 +202,7 @@ Usage: hq exec [OPTIONS] {job_id} {command}...
      job_id: Target running job identifier.
      command: Command vector to execute in terminal PTY.
      user: Requesting user identity for RBAC validation.
+     admin: Whether explicit administrative elevation is requested.
 
  Notes/Architectural Intent:
      Connects local terminal to remote worker PTY master bridge with RBAC
@@ -211,8 +214,9 @@ Usage: hq exec [OPTIONS] {job_id} {command}...
 │                          [required]                                          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --user  -u      <str>  Requesting username [default: default]                │
-│ --help                 Show this message and exit.                           │
+│ --user   -u      <str>  Requesting username [default: default]               │
+│ --admin                 Assert explicit administrative elevation             │
+│ --help                  Show this message and exit.                          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 

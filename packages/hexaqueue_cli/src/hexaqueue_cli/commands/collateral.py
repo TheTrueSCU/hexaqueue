@@ -78,6 +78,16 @@ def push_collateral_cmd(
     sha256_hash = hashlib.sha256(content).hexdigest()
     size_bytes = len(content)
     asset_name = name or file_path.name
+    if (
+        ".." in asset_name
+        or "/" in asset_name
+        or "\\" in asset_name
+        or Path(asset_name).is_absolute()
+    ):
+        console.print(
+            f"[bold red]Error:[/] Collateral name '{asset_name}' contains illegal path components."
+        )
+        raise typer.Exit(code=1)
 
     resolved_tier = CollateralTier(tier.upper())
     resolved_kind = CollateralKind(kind.upper())
@@ -91,6 +101,7 @@ def push_collateral_cmd(
                 checksum_sha256=sha256_hash,
                 tier=resolved_tier,
                 kind=resolved_kind,
+                target_path=str(file_path),
                 user_id=user,
                 elevate=admin,
             )

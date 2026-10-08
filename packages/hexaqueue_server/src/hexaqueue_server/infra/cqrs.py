@@ -201,7 +201,7 @@ class HexaqueueCqrsService:
             PermissionDeniedError: If unauthorized cross-tenant cancellation is attempted.
         """
         await self.controller.get_run_status(cmd.run_id)
-        if not cmd.elevate and cmd.user_id != "default":
+        if not cmd.elevate:
             # Natural identity check
             jobs = await self.controller.list_jobs()
             run_jobs = [j for j in jobs if j.run_id == cmd.run_id]
@@ -354,7 +354,7 @@ class HexaqueueCqrsService:
             PermissionDeniedError: If unauthorized cross-tenant run status inspection is attempted.
         """
         status = await self.controller.get_run_status(qry.run_id)
-        if qry.user_id != "default" and not qry.elevate:
+        if not qry.elevate:
             jobs = await self.controller.list_jobs()
             run_jobs = [j for j in jobs if j.run_id == qry.run_id]
             if run_jobs and not any(
@@ -380,7 +380,7 @@ class HexaqueueCqrsService:
             PermissionDeniedError: If unauthorized cross-tenant job inspection is attempted.
         """
         job = await self.controller.get_job(qry.job_id)
-        if qry.user_id != "default" and not qry.elevate:
+        if not qry.elevate:
             owner = _extract_job_owner(job)
             if owner != qry.user_id:
                 msg = (
@@ -402,7 +402,7 @@ class HexaqueueCqrsService:
         jobs = await self.controller.list_jobs()
         if qry.run_id is not None:
             jobs = [j for j in jobs if j.run_id == qry.run_id]
-        if qry.user_id != "default" and not qry.elevate:
+        if not qry.elevate:
             jobs = [j for j in jobs if _extract_job_owner(j) == qry.user_id]
         return jobs
 
@@ -546,7 +546,7 @@ class HexaqueueCqrsService:
         Raises:
             PermissionDeniedError: If unauthorized cross-tenant log inspection is attempted.
         """
-        if qry.user_id != "default" and not qry.elevate:
+        if not qry.elevate:
             try:
                 job = await self.controller.get_job(qry.job_id)
                 owner = _extract_job_owner(job)
@@ -558,9 +558,12 @@ class HexaqueueCqrsService:
                     raise PermissionDeniedError(msg)
             except PermissionDeniedError:
                 raise
-            except Exception:
-                # Job not found in controller registry; proceed to historical log store
-                pass
+            except Exception as exc:
+                msg = (
+                    f"Permission denied: Job '{qry.job_id}' not found in active registry to verify ownership. "
+                    "Explicit administrative elevation (--admin / elevate=true) is required."
+                )
+                raise PermissionDeniedError(msg) from exc
 
         chunks = self.log_store.get(qry.job_id, [])
         if qry.tail is not None:

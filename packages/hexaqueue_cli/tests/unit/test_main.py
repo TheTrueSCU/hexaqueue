@@ -126,9 +126,6 @@ def test_main_cli_top_once(
 def test_main_cli_job_lifecycle_commands(
     hermetic_cli_session: LocalCliSession,
 ) -> None:
-    """Verify hold, release, logs, exec, attach, and cancel commands."""
-    import asyncio
-
     from hexaqueue_core.domain.job import JobSpec
     from hexaqueue_core.domain.run import RunSpec
     from hexaqueue_core.ports.logging import LogChunk

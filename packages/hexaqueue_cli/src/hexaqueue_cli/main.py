@@ -149,7 +149,8 @@ async def _stream_live_logs(
         async for chunk in client.stream_logs(job_id, follow=True, tail=tail):
             _print_log_chunk(chunk)
     except (asyncio.CancelledError, KeyboardInterrupt):
-        pass
+        # User interruption (Ctrl+C) or coroutine cancellation; exit live log streaming cleanly.
+        return
 
 
 @app.command("logs")
@@ -469,6 +470,9 @@ def exec_cmd(
         ..., help="Command vector to run inside job environment"
     ),
     user: str = typer.Option("default", "--user", "-u", help="Requesting username"),
+    admin: bool = typer.Option(
+        False, "--admin", help="Assert explicit administrative elevation"
+    ),
 ) -> None:
     """Spawn an interactive PTY session inside a running job environment.
 
@@ -476,6 +480,7 @@ def exec_cmd(
         job_id: Target running job identifier.
         command: Command vector to execute in terminal PTY.
         user: Requesting user identity for RBAC validation.
+        admin: Whether explicit administrative elevation is requested.
 
     Notes/Architectural Intent:
         Connects local terminal to remote worker PTY master bridge with RBAC authorization.
@@ -486,11 +491,12 @@ def exec_cmd(
         try:
             job = await client.get_job(job_id)
             job_owner = _extract_job_owner(job)
+            roles = ["operator"] if admin else []
             request = PtySessionRequest(
                 session_id=f"pty-{uuid4().hex[:8]}",
                 job_id=job_id,
                 user_id=user,
-                roles=["operator"],
+                roles=roles,
                 command=command,
             )
             session_info = await client.create_pty_session(request, job_owner=job_owner)
@@ -511,12 +517,16 @@ def exec_cmd(
 def attach_cmd(
     job_id: str = typer.Argument(..., help="Job ID to attach interactive shell to"),
     user: str = typer.Option("default", "--user", "-u", help="Requesting username"),
+    admin: bool = typer.Option(
+        False, "--admin", help="Assert explicit administrative elevation"
+    ),
 ) -> None:
     """Attach an interactive bash shell to a running job.
 
     Args:
         job_id: Target running job identifier.
         user: Requesting user identity for RBAC validation.
+        admin: Whether explicit administrative elevation is requested.
 
     Notes/Architectural Intent:
         Convenience alias launching an interactive bash terminal inside the target job.
@@ -527,11 +537,12 @@ def attach_cmd(
         try:
             job = await client.get_job(job_id)
             job_owner = _extract_job_owner(job)
+            roles = ["operator"] if admin else []
             request = PtySessionRequest(
                 session_id=f"pty-{uuid4().hex[:8]}",
                 job_id=job_id,
                 user_id=user,
-                roles=["operator"],
+                roles=roles,
                 command=["/bin/bash"],
             )
             session_info = await client.create_pty_session(request, job_owner=job_owner)

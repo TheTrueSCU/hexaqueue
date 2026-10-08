@@ -1,5 +1,34 @@
 # CHANGELOG
 
+## v0.5.0 (2026-10-08)
+
+### Security Audit Remediation & Hardening
+* **Positive Administrative Elevation & Principle of Least Privilege (`hexaqueue-server`, `hexaqueue-dashboard`, `hexaqueue-cli`)**:
+  * Enforced server-side validation of `HEXAQUEUE_ADMIN_TOKEN` when administrative elevation is asserted via `X-Hexaqueue-Elevate: true` or query parameters.
+  * Bound `user_id` and elevation states strictly from authenticated context (`auth`), preventing request-body forgery and privilege escalation.
+  * Removed unauthenticated `user_id != "default"` short-circuit bypasses across `handle_cancel_run`, `handle_get_run_status`, `handle_get_job`, `handle_list_jobs`, and `handle_get_logs`.
+  * Added mandatory `--admin` flag requirement for privileged CLI commands (`hq exec`, `hq attach`).
+* **OpenSSF Scorecard & Gold Policy Compliance**:
+  * Remediated OpenSSF Scorecard high alert on `.github/workflows/docs.yml` (`DangerousWorkflowID` / untrusted `workflow_run` artifact download) by triggering directly on `push` to `main` with paths filter.
+  * Added root `SECURITY.md` defining supported version matrix, coordinated disclosure SLA (90-day window, 48-hour critical acknowledgement), threat model, trust boundaries, and SLSA provenance guarantees.
+  * Consolidated `.github/dependabot.yml` to native `uv` package ecosystem management.
+* **Collateral Staging & Quarantine Hardening (`hexaqueue-collateral`, `hexaqueue-scanner`)**:
+  * Enforced strict path traversal rejection (blocking `..`, `/`, `\`, and absolute paths) in `IngestionRequest.validate_invariants` and staging directory path resolution in `LocalCollateralServiceAdapter`.
+  * Hardened `CompositeQuarantineScannerAdapter` and `LocalCollateralServiceAdapter` to fail closed with `CollateralState.QUARANTINED` when no scanning engines are operational or configured.
+  * Surfaced rule compilation syntax errors in `YaraRuleScannerAdapter` rather than silently degrading to fallback heuristics.
+* **Worker & Distributed Engine Integrity (`hexaqueue-worker`, `hexaqueue-workflow`)**:
+  * Isolated scratch directory cleanup in a `finally` block in `LocalSubprocessRuntimeAdapter` to guarantee cleanup and prevent GPU capacity leakage on process failure.
+  * Fixed intra-stage step barriers in `HexaqueueDistributedEngine` to resolve and await actual task futures rather than unawaited stage coroutines.
+  * Wired `LocalStorageAdapter` for durable artifact staging across CLI workflow invocations.
+* **Scheduler Algorithmic Corrections (`hexaqueue-core`, `examples/monopoly`)**:
+  * Fixed conservative anchor slot allocation and dynamic backfill window adjustments to correctly reflect available capacity and start time horizons.
+  * Bound slot allocation in monopoly simulation to configured tenant `job_count` and honored `checkpointable` configuration.
+* **Static Analysis & CodeQL Resolutions**:
+  * Resolved 15 active CodeQL alerts across `dag.py`, `explainability.py`, `notification.py`, `cgroups.py`, `broadcast.py`, `local.py`, `pty.py`, `telemetry.py`, and `main.py`.
+* **Ecosystem Alignment & Secondary Port Contract Streamlining**:
+  * Upgraded workspace dependencies across all subpackages to `hexastack-*>=0.8.0`, `hexaflow>=0.4.1`, and `hexaqual[all]>=0.9.1`.
+  * Streamlined `NotificationDispatcher` in `hexaqueue-core` to directly invoke the modern `NotificationPort.notify(..., targets=...)` signature from `hexastack-core 0.8.0` without legacy fallback overhead.
+
 ## v0.4.0 (2026-09-20)
 
 ### Highlights & Features
