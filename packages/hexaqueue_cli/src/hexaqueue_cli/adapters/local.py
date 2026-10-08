@@ -265,11 +265,18 @@ class LocalClientAdapter(ClientPort):
         )
         staging_uri = f"memory://staging/collateral/{name}"
         if target_path and Path(target_path).is_file():
+            if ".." in name or "/" in name or "\\" in name or Path(name).is_absolute():
+                raise ValueError(
+                    f"Collateral name '{name}' contains illegal path components."
+                )
             content = Path(target_path).read_bytes()
             alloc = await self._session.storage.allocate_scratch(
                 job_id="collateral", size_mb=max(1, len(content) // (1024 * 1024))
             )
-            dest = Path(alloc.mount_path) / name
+            mount_path = Path(alloc.mount_path).resolve()
+            dest = (mount_path / name).resolve()
+            if not dest.is_relative_to(mount_path):
+                raise ValueError("Path traversal detected in collateral destination.")
             dest.write_bytes(content)
             staging_uri = f"file://{dest}"
         return CollateralBundle(
@@ -305,16 +312,7 @@ class LocalClientAdapter(ClientPort):
             roles=["admin", "operator"],
             command=["/bin/sh"],
         )
-        try:
-            return await self._session.pty.create_session(req, job_owner=user_id)
-        except Exception:
-            return PtySessionInfo(
-                session_id=req.session_id,
-                job_id=req.job_id,
-                user_id=user_id,
-                pid=99999,
-                is_active=True,
-            )
+        return await self._session.pty.create_session(req, job_owner=user_id)
 
 
 __all__ = [

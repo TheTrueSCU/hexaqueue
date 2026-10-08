@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Generator
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
@@ -53,9 +54,12 @@ def hermetic_api_client() -> Generator[TestClient]:
     pipeline = create_hexaqueue_execution_pipeline(
         controller=controller, log_store=log_store
     )
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setenv("HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN", "1")
     app = create_server_app(pipeline=pipeline)
     with TestClient(app) as client:
         yield client
+    monkeypatch.undo()
 
 
 def test_api_run_lifecycle_and_jobs(hermetic_api_client: TestClient) -> None:
@@ -281,7 +285,14 @@ def test_get_auth_context_unit() -> None:
         False,
     )
 
-    # 3. Elevation resolution
+    # 3. Elevation resolution (default fail-closed without token)
+    with pytest.raises(HTTPException) as exc_info:
+        get_auth_context(x_hexaqueue_elevate=True)
+    assert exc_info.value.status_code == 403
+
+    # Explicit anonymous elevation allowed
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setenv("HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN", "1")
     assert get_auth_context(x_hexaqueue_elevate=True) == ("default", True)
     assert get_auth_context(elevate=True) == ("default", True)
     assert get_auth_context(admin=True) == ("default", True)
@@ -293,6 +304,16 @@ def test_get_auth_context_unit() -> None:
         "default",
         True,
     )
+    monkeypatch.undo()
+
+    # Token-based elevation
+    monkeypatch.setenv("HEXAQUEUE_ADMIN_TOKEN", "secret-test-token")
+    with pytest.raises(HTTPException):
+        get_auth_context(x_hexaqueue_elevate=True)
+    assert get_auth_context(
+        x_hexaqueue_elevate=True, x_hexaqueue_admin_token="secret-test-token"
+    ) == ("default", True)
+    monkeypatch.undo()
 
 
 def test_api_command_elevation_and_user_mapping() -> None:

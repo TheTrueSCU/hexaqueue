@@ -31,11 +31,23 @@ class ThreatDetectingScanner(SecurityQuarantinePort):
         return CollateralState.QUARANTINED, "Eicar-Test-Signature detected"
 
 
+class BenignScanner(SecurityQuarantinePort):
+    """Mock scanner returning APPROVED state for clean testing."""
+
+    async def scan_collateral(
+        self, bundle: CollateralBundle
+    ) -> tuple[CollateralState, str | None]:
+        """Flag bundle as approved."""
+        return CollateralState.APPROVED, None
+
+
 @pytest.mark.asyncio
 async def test_local_collateral_end_to_end_promotion():
     """Verify complete lifecycle: register -> stage -> scan -> approved promotion."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        service = LocalCollateralServiceAdapter(base_dir=tmpdir)
+        service = LocalCollateralServiceAdapter(
+            base_dir=tmpdir, security_port=BenignScanner()
+        )
 
         content = b"print('Hello Machine Learning World')\n"
         sha256 = hashlib.sha256(content).hexdigest()
@@ -257,3 +269,25 @@ def test_local_collateral_nested_and_reinitialize(tmp_path: Path) -> None:
     # 2. Existing directories must not raise FileExistsError (exist_ok=True)
     service2 = LocalCollateralServiceAdapter(base_dir=nested_dir)
     assert service2._staging_dir.exists()
+
+
+@pytest.mark.asyncio
+async def test_local_collateral_no_scanner_fails_closed() -> None:
+    """Verify that absent scanner fails closed and quarantines collateral."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        service = LocalCollateralServiceAdapter(base_dir=tmpdir, security_port=None)
+        content = b"print('Hello World')\n"
+        sha256 = hashlib.sha256(content).hexdigest()
+        req = IngestionRequest(
+            job_id="job-999",
+            filename="unscanned.py",
+            size_bytes=len(content),
+            sha256_checksum=sha256,
+        )
+        desc = await service.register(req)
+        await service.stage_file(desc.bundle.id, content)
+        quarantined = await service.process_quarantine(desc.bundle.id)
+        assert quarantined.state == CollateralState.QUARANTINED
+        assert "No quarantine scanner configured" in (
+            quarantined.quarantine_reason or ""
+        )

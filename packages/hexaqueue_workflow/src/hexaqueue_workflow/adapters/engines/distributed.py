@@ -426,31 +426,21 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
                 )
                 cached_outputs[step.name] = res
         else:
-            # CONCURRENT execution mode (DAG split / fan-out with dependency ordering)
-            step_events: dict[str, asyncio.Event] = {
-                step.name: asyncio.Event() for step in stage.steps
-            }
+            # CONCURRENT execution mode (DAG split / fan-out across independent steps)
+            async def _run_step(step: StepDefinition) -> Any:
+                res = await self._execute_step(
+                    state,
+                    stage,
+                    step,
+                    cached_outputs,
+                    initial_inputs,
+                    skipped_steps,
+                    is_restart=is_restart,
+                )
+                cached_outputs[step.name] = res
+                return res
 
-            async def _run_step_with_barrier(step: StepDefinition) -> Any:
-                for dep in step.depends_on:
-                    if dep in step_events:
-                        await step_events[dep].wait()
-                try:
-                    res = await self._execute_step(
-                        state,
-                        stage,
-                        step,
-                        cached_outputs,
-                        initial_inputs,
-                        skipped_steps,
-                        is_restart=is_restart,
-                    )
-                    cached_outputs[step.name] = res
-                    return res
-                finally:
-                    step_events[step.name].set()
-
-            tasks = [_run_step_with_barrier(step) for step in stage.steps]
+            tasks = [_run_step(step) for step in stage.steps]
             results = await asyncio.gather(*tasks)
             for step, res in zip(stage.steps, results, strict=True):
                 cached_outputs[step.name] = res

@@ -200,7 +200,10 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
                 scanning_bundle
             )
         else:
-            next_state, reason = CollateralState.APPROVED, None
+            next_state, reason = (
+                CollateralState.QUARANTINED,
+                "No quarantine scanner configured; failing closed.",
+            )
 
         staged_path = Path(bundle.staging_uri)
 

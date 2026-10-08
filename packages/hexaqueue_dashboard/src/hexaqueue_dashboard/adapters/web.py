@@ -112,7 +112,7 @@ def get_auth_context(
                     detail="Invalid or missing administrative elevation token.",
                 )
             is_elevated = True
-        elif os.environ.get("HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN", "1") == "0":
+        elif os.environ.get("HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN", "0") != "1":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Administrative elevation requires HEXAQUEUE_ADMIN_TOKEN to be configured.",
@@ -363,7 +363,7 @@ def create_dashboard_router(
                         detail="Invalid or missing administrative elevation token.",
                     )
             elif (
-                os.environ.get("HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN", "1") == "0"
+                os.environ.get("HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN", "0") != "1"
                 and not header_elevate
             ):
                 raise HTTPException(

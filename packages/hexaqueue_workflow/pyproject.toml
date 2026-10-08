@@ -9,7 +9,7 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
-    "hexaflow>=0.3.0",
+    "hexaflow>=0.4.1",
     "hexaqueue-core",
     "hexaqueue-server",
     "hexaqueue-worker",
