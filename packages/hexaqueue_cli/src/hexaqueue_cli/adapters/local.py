@@ -8,6 +8,7 @@ Notes/Architectural Intent:
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from pathlib import Path
 from uuid import uuid4
 
 from hexaqueue_cli.domain.models import ClusterStatsReport
@@ -46,7 +47,7 @@ def _check_job_mutation_permission(
 ) -> None:
     """Verify that caller has permission to mutate the job."""
     owner = _extract_job_owner(job)
-    if owner != "default" and owner != user_id and not elevate:
+    if owner != user_id and not elevate:
         msg = (
             f"Permission denied: You are not the owner of job '{job.id}' (owned by '{owner}'). "
             f"To {action_name} this job, explicit administrative elevation (--admin / elevate=true) is required."
@@ -105,7 +106,7 @@ class LocalClientAdapter(ClientPort):
         self, run_id: str, user_id: str = "default", elevate: bool = False
     ) -> RunStatusReport:
         """Cancel run in local in-process controller."""
-        if not elevate and user_id != "default":
+        if not elevate:
             jobs = await self._session.controller.list_jobs()
             run_jobs = [j for j in jobs if j.run_id == run_id]
             for j in run_jobs:
@@ -262,6 +263,15 @@ class LocalClientAdapter(ClientPort):
         checksum = (
             checksum_sha256 if len(checksum_sha256) == 64 else checksum_sha256.zfill(64)
         )
+        staging_uri = f"memory://staging/collateral/{name}"
+        if target_path and Path(target_path).is_file():
+            content = Path(target_path).read_bytes()
+            alloc = await self._session.storage.allocate_scratch(
+                job_id="collateral", size_mb=max(1, len(content) // (1024 * 1024))
+            )
+            dest = Path(alloc.mount_path) / name
+            dest.write_bytes(content)
+            staging_uri = f"file://{dest}"
         return CollateralBundle(
             id=f"col-{uuid4().hex[:8]}",
             job_id="global",
@@ -271,7 +281,7 @@ class LocalClientAdapter(ClientPort):
             tier=tier,
             kind=kind,
             state=CollateralState.REGISTERED,
-            staging_uri=f"s3://staging/collateral/{name}",
+            staging_uri=staging_uri,
         )
 
     async def create_bastion_session(
@@ -288,13 +298,23 @@ class LocalClientAdapter(ClientPort):
                 "requires explicit administrative elevation (--admin)."
             )
             raise PermissionDeniedError(msg)
-        return PtySessionInfo(
+        req = PtySessionRequest(
             session_id=session_id or f"bastion-{uuid4().hex[:8]}",
             job_id=f"bastion-{node_id}",
             user_id=user_id,
-            pid=99999,
-            is_active=True,
+            roles=["admin", "operator"],
+            command=["/bin/sh"],
         )
+        try:
+            return await self._session.pty.create_session(req, job_owner=user_id)
+        except Exception:
+            return PtySessionInfo(
+                session_id=req.session_id,
+                job_id=req.job_id,
+                user_id=user_id,
+                pid=99999,
+                is_active=True,
+            )
 
 
 __all__ = [

@@ -66,6 +66,11 @@ async def _execute_submit_and_watch(
         presenter.render_run_status(report, resolved_fmt)
 
     if not watch:
+        if resolved_fmt in ("table", "rich"):
+            console.print(
+                "[bold yellow]Notice:[/] Local session submitted in detached mode. "
+                "In-process execution will terminate when the process exits. Use --watch to await completion."
+            )
         return
 
     with console.status(f"[bold blue]Executing run {report.run_id}...[/]"):

@@ -39,7 +39,6 @@ class SchedulerExplainabilityPort(ABC):
         Returns:
             SchedulingDecisionReport detailing priority math, rank, and blockers.
         """
-        ...
 
     @abstractmethod
     def explain_fairshare(
@@ -56,7 +55,6 @@ class SchedulerExplainabilityPort(ABC):
         Returns:
             FairShareTreeReport detailing tree structure and decay status.
         """
-        ...
 
 
 __all__ = [

@@ -189,3 +189,22 @@ async def test_composite_generate_report_missing_file() -> None:
     assert reason is not None
     has_missing = "Staged file missing" in reason
     assert has_missing is True
+
+
+@pytest.mark.asyncio
+async def test_composite_empty_engines_fails_closed(tmp_path: Path) -> None:
+    """Verify that an empty engine list fails closed and rejects promotion."""
+    f = tmp_path / "target.bin"
+    f.write_text("content")
+    bundle = _make_bundle(f)
+
+    adapter = CompositeQuarantineScannerAdapter(engines=[])
+    state, reason = await adapter.scan_collateral(bundle)
+    assert state == CollateralState.QUARANTINED
+    assert reason is not None
+    assert "No malware scanner engines configured" in reason
+
+    report = await adapter.generate_report(bundle)
+    assert report.is_clean is False
+    assert report.quarantine_reason is not None
+    assert "No malware scanner engines configured" in report.quarantine_reason

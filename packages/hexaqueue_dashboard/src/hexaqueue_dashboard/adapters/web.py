@@ -7,6 +7,7 @@ Notes/Architectural Intent:
     introducing private domain bypasses or state drift.
 """
 
+import os
 from typing import Annotated, Any
 from uuid import uuid4
 
@@ -77,15 +78,21 @@ def get_pipeline(request: Request) -> ExecutionPipeline:
 
 def get_auth_context(
     x_hexaqueue_user: Annotated[str | None, Header()] = None,
+    user: Annotated[str | None, Query()] = None,
     x_hexaqueue_elevate: Annotated[bool, Header()] = False,
     elevate: Annotated[bool, Query()] = False,
+    x_hexaqueue_admin_token: Annotated[str | None, Header()] = None,
+    admin_token: Annotated[str | None, Query()] = None,
 ) -> tuple[str, bool]:
     """Resolve requesting user identity and elevation status.
 
     Args:
         x_hexaqueue_user: User identity from header.
+        user: User identity from query parameter.
         x_hexaqueue_elevate: Elevation flag from header.
         elevate: Elevation flag from query string.
+        x_hexaqueue_admin_token: Administrative elevation token from header.
+        admin_token: Administrative elevation token from query string.
 
     Returns:
         Tuple of (user_id, is_elevated).
@@ -93,8 +100,27 @@ def get_auth_context(
     Notes/Architectural Intent:
         Centralized authentication resolution dependency for Web Dashboard endpoints.
     """
-    user_id = x_hexaqueue_user if x_hexaqueue_user else "default"
-    is_elevated = bool(x_hexaqueue_elevate or elevate)
+    user_id = x_hexaqueue_user or user or "default"
+    requested_elevation = bool(x_hexaqueue_elevate or elevate)
+    if requested_elevation:
+        configured_token = os.environ.get("HEXAQUEUE_ADMIN_TOKEN")
+        if configured_token is not None:
+            provided_token = x_hexaqueue_admin_token or admin_token
+            if provided_token != configured_token:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Invalid or missing administrative elevation token.",
+                )
+            is_elevated = True
+        elif os.environ.get("HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN", "1") == "0":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Administrative elevation requires HEXAQUEUE_ADMIN_TOKEN to be configured.",
+            )
+        else:
+            is_elevated = True
+    else:
+        is_elevated = False
     return user_id, is_elevated
 
 
@@ -327,7 +353,26 @@ def create_dashboard_router(
         auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> JobSpec:
         user_id, header_elevate = auth
-        is_elevated = bool(action_req.elevate or header_elevate)
+        if action_req.elevate:
+            configured_token = os.environ.get("HEXAQUEUE_ADMIN_TOKEN")
+            if configured_token is not None:
+                provided_token = action_req.admin_token
+                if provided_token != configured_token and not header_elevate:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Invalid or missing administrative elevation token.",
+                    )
+            elif (
+                os.environ.get("HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN", "1") == "0"
+                and not header_elevate
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Administrative elevation requires HEXAQUEUE_ADMIN_TOKEN to be configured.",
+                )
+            is_elevated = True
+        else:
+            is_elevated = header_elevate
         action = action_req.action.lower()
 
         if action == "hold":

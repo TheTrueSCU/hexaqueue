@@ -299,3 +299,80 @@ def test_the_100_slot_monopoly_thought_experiment() -> None:
     assert pool.used_slots == 100
     assert pool.is_allocated("job-b-001") is True
     assert pool.is_allocated(preempted_id) is False
+
+
+def test_anchor_reservation_and_dynamic_backfill_window() -> None:
+    """Verify that once an anchor is established, lower priority jobs do not bypass backfill,
+
+    and the backfill window dynamically reflects running job completion times.
+    """
+    # 4 total slots.
+    # 2 slots running job_run (finishing in 20 seconds).
+    # 2 slots available.
+    pool = ResourceSlotPool(total_slots=4)
+    running_job = JobSpec(
+        id="j-run",
+        run_id="r1",
+        name="running",
+        command="sleep 20",
+        resources=ResourceRequirements(cpus=2),
+    )
+    pool.allocate(running_job)
+    assert pool.available_slots == 2
+
+    scheduler = BatchSchedulerEngine(pool=pool)
+    t0 = 1000.0
+    # j-run started at t0 - 80s with estimated duration 100s -> 20s remaining
+    scheduler.record_job_start(running_job.id, t0 - 80.0)
+
+    # Pending queue:
+    # 1. j_anchor: requires 4 slots (needs 2 more slots). Anchor!
+    # 2. j_long: requires 2 slots (could fit in available slots!), but duration is 50s.
+    #    Since 50s > 20s remaining, it MUST NOT be admitted (would delay anchor).
+    # 3. j_short: requires 1 slot, duration 15s.
+    #    Since 15s <= 20s remaining, it CAN backfill safely!
+    j_anchor = JobSpec(
+        id="j-anchor",
+        run_id="r1",
+        name="anchor",
+        command="big",
+        resources=ResourceRequirements(cpus=4),
+        created_at=datetime.fromtimestamp(t0 - 10, tz=UTC),
+    )
+    j_long = JobSpec(
+        id="j-long",
+        run_id="r1",
+        name="long",
+        command="long",
+        resources=ResourceRequirements(cpus=2),
+        created_at=datetime.fromtimestamp(t0 - 5, tz=UTC),
+    )
+    j_short = JobSpec(
+        id="j-short",
+        run_id="r1",
+        name="short",
+        command="short",
+        resources=ResourceRequirements(cpus=1),
+        created_at=datetime.fromtimestamp(t0 - 1, tz=UTC),
+    )
+
+    decision = scheduler.schedule_cycle(
+        pending_jobs=[j_anchor, j_long, j_short],
+        running_jobs=[running_job],
+        current_timestamp=t0,
+        estimated_durations={
+            "j-run": 100.0,
+            "j-long": 50.0,
+            "j-short": 15.0,
+        },
+    )
+
+    # j_anchor is held as anchor (in remains_pending)
+    # j_long is NOT greedily allocated and cannot backfill (50s > 20s window)
+    # j_short backfills successfully (15s <= 20s window)
+    backfilled_ids = [j.id for j in decision.backfilled_jobs]
+    assert backfilled_ids == ["j-short"]
+    assert "j-long" not in backfilled_ids
+    assert any(j.id == "j-anchor" for j in decision.remains_pending)
+    assert any(j.id == "j-long" for j in decision.remains_pending)
+    assert pool.available_slots == 1  # 2 - 1 for j-short

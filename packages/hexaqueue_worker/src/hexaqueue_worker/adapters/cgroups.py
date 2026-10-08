@@ -78,11 +78,9 @@ class CgroupsV2ProcessAdapter(ExecutionRuntimePort):
         if cgroup_path is None:
             return
         procs_file = cgroup_path / "cgroup.procs"
-        try:
+        with contextlib.suppress(OSError):
             if procs_file.exists():
                 procs_file.write_text(str(pid))
-        except OSError:
-            pass
 
     def _teardown_cgroup(self, cgroup_path: Path | None) -> None:
         """Remove per-job cgroup directory upon completion.

@@ -495,6 +495,12 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                     cancelled_job, NotificationTrigger.CANCELLED
                 )
 
+                submission = self._runs.get(cancelled_job.run_id)
+                dag = self._dag_engines.get(cancelled_job.run_id)
+                if submission and dag:
+                    await self._advance_dependents(submission, dag)
+                    await self._check_and_notify_run_completion(submission)
+
             return self._jobs[job_id]
 
     async def hold_job(self, job_id: str) -> JobSpec:

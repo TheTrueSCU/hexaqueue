@@ -183,11 +183,15 @@ def test_dashboard_run_and_suite_submission(
     assert jobs_resp.status_code == 200
     assert len(jobs_resp.json()) >= 1
 
-    single_job_resp = client.get("/dashboard/jobs/job-dash-2")
+    single_job_resp = client.get(
+        "/dashboard/jobs/job-dash-2", headers={"X-Hexaqueue-User": "charlie"}
+    )
     assert single_job_resp.status_code == 200
     assert single_job_resp.json()["id"] == "job-dash-2"
 
-    job3_resp = client.get("/dashboard/jobs/job-dash-3")
+    job3_resp = client.get(
+        "/dashboard/jobs/job-dash-3", headers={"X-Hexaqueue-User": "alice"}
+    )
     assert job3_resp.status_code == 200
     assert "owner:alice" in job3_resp.json()["tags"]
 
@@ -365,7 +369,7 @@ def test_get_auth_context_unit() -> None:
 
     # 1. Defaults
     assert get_auth_context() == ("default", False)
-    assert get_auth_context(None, False, False) == ("default", False)
+    assert get_auth_context(None, None, False) == ("default", False)
 
     # 2. User identity
     assert get_auth_context(x_hexaqueue_user="alice") == ("alice", False)

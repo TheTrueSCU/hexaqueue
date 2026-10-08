@@ -53,7 +53,7 @@ async def test_broadcast_live_streaming() -> None:
     await asyncio.sleep(0.01)
 
     await log_port.close_stream("job-live")
-    await sub_task
+    _ = await sub_task
 
     rec_len = len(received)
     assert rec_len == 2

@@ -44,6 +44,10 @@ class DashboardJobAction(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     action: str = Field(description="Target lifecycle action (hold, release, cancel)")
+    admin_token: str | None = Field(
+        default=None,
+        description="Administrative elevation token",
+    )
     elevate: bool = Field(
         default=False,
         description="Positive confirmation for administrative elevation",

@@ -56,9 +56,22 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
         self._bundles: dict[str, CollateralBundle] = {}
 
     async def register(self, request: IngestionRequest) -> StagedUploadDescriptor:
-        """Register a new collateral artifact and prepare its staging descriptor."""
+        """Register a new collateral artifact and prepare its staging descriptor.
+
+        Args:
+            request: IngestionRequest specification.
+
+        Returns:
+            StagedUploadDescriptor with target upload paths.
+        """
         collateral_id = f"col-{uuid4().hex[:10]}"
-        dest_staging_path = self._staging_dir / collateral_id / request.filename
+        safe_filename = Path(request.filename).name
+        dest_staging_path = (
+            self._staging_dir / collateral_id / safe_filename
+        ).resolve()
+        if not str(dest_staging_path).startswith(str(self._staging_dir.resolve())):
+            msg = f"Path traversal detected in collateral filename: {request.filename}"
+            raise HexaqueueError(msg)
 
         bundle = CollateralBundle(
             id=collateral_id,

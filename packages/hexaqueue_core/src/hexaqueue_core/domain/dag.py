@@ -86,6 +86,8 @@ def is_dependency_satisfied(
             return True
         case TriggerCondition.AFTER_CORR:
             return parent_outcome == TerminalOutcome.COMPLETED
+        case _:
+            return False
 
 
 def is_dependency_blocked(
@@ -113,6 +115,8 @@ def is_dependency_blocked(
                 TerminalOutcome.TIMED_OUT,
             )
         case TriggerCondition.AFTER_ANY:
+            return False
+        case _:
             return False
 
 

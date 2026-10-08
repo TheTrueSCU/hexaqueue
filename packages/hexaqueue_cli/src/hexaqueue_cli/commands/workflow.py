@@ -16,6 +16,7 @@ import typer
 from hexaflow.adapters.storage.sqlite import SqliteStateStore
 from hexaflow.domain.models import WorkflowDefinition
 from hexaflow.dsl.builder import Workflow
+from hexastack_core.adapters.storage import LocalStorageAdapter
 from rich.console import Console
 
 from hexaqueue_cli.adapters.presenter import CliPresenter
@@ -192,8 +193,12 @@ def submit_cmd(
         port = None
     dispatcher = NotificationDispatcher(notification_port=port)
     store = SqliteStateStore(db_path=db_path)
+    artifacts_dir = Path(db_path).parent / "artifacts"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    storage = LocalStorageAdapter(root_dir=artifacts_dir)
     engine = HexaqueueDistributedEngine(
         state_store=store,
+        storage=storage,
         config=config,
         notification_dispatcher=dispatcher,
     )
@@ -274,7 +279,10 @@ def resume_cmd(
     resolved_fmt = resolve_format(format_type)
 
     store = SqliteStateStore(db_path=db_path)
-    engine = HexaqueueDistributedEngine(state_store=store)
+    artifacts_dir = Path(db_path).parent / "artifacts"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    storage = LocalStorageAdapter(root_dir=artifacts_dir)
+    engine = HexaqueueDistributedEngine(state_store=store, storage=storage)
 
     if resolved_fmt in ("table", "rich"):
         console.print(f"[bold yellow]Resuming workflow run:[/] [cyan]{run_id}[/]")
@@ -311,7 +319,10 @@ def abort_cmd(
     workflow = load_workflow_from_target(target)
     resolved_fmt = resolve_format(format_type)
     store = SqliteStateStore(db_path=db_path)
-    engine = HexaqueueDistributedEngine(state_store=store)
+    artifacts_dir = Path(db_path).parent / "artifacts"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    storage = LocalStorageAdapter(root_dir=artifacts_dir)
+    engine = HexaqueueDistributedEngine(state_store=store, storage=storage)
 
     if resolved_fmt in ("table", "rich"):
         console.print(f"[bold red]Aborting workflow run:[/] [cyan]{run_id}[/]")

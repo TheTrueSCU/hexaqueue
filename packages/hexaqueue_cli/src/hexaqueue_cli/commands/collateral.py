@@ -91,6 +91,7 @@ def push_collateral_cmd(
                 checksum_sha256=sha256_hash,
                 tier=resolved_tier,
                 kind=resolved_kind,
+                target_path=str(file_path),
                 user_id=user,
                 elevate=admin,
             )

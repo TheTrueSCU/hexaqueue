@@ -112,7 +112,8 @@ class LocalPtyBridgeAdapter(InteractivePtyPort):
                     return
                 output_queue.put_nowait(data)
             except (BlockingIOError, InterruptedError):
-                pass
+                # Temporary non-blocking condition or signal interrupt; wait for next readable event.
+                return
             except OSError:
                 with contextlib.suppress(Exception):
                     loop.remove_reader(master_fd)

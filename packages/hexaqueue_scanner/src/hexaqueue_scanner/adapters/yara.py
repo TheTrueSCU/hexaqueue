@@ -65,7 +65,7 @@ class YaraRuleScannerAdapter(MalwareScannerEnginePort):
                     sources=sources if sources else None,
                     filepaths=filepaths if filepaths else None,
                 )
-        except (ImportError, Exception):
+        except ImportError:
             self._compiled_yara_rules = None
 
     async def ping(self) -> bool:

@@ -124,14 +124,14 @@ class BatchSchedulerClusterSimulator(ClusterSimulatorPort):
             )
 
         self._running_jobs_a.clear()
-        for i in range(self.total_slots):
+        for i in range(min(self.total_slots, self._tenant_a.job_count)):
             job_a = JobSpec(
                 id=f"alpha-job-{i:03d}",
                 run_id="run-alpha",
                 name=f"alpha-task-{i}",
                 command="sleep 1000",
                 user=self._tenant_a.tenant_id,
-                checkpointable=(i % 2 == 0),
+                checkpointable=self._tenant_a.checkpointable,
                 created_at=self._t0 - timedelta(seconds=100),
             )
             self.pool.allocate(job_a)

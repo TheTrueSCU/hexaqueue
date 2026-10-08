@@ -81,7 +81,9 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
         Transforms Hexaflow DAG stages and steps into Hexaqueue jobs with explicit
         compute constraints (CPU, RAM, GPU), dispatches them through SchedulerControllerPort,
         stages intermediate payloads larger than the threshold via ArtifactStagingPort,
-        and manages durable checkpoints for failure recovery and resumption.
+        and manages durable checkpoints for failure recovery and resumption. Step actions
+        defined as Python callables are invoked in-process by design, coordinating with the
+        controller for admission verification, dependency blocking detection, and outcome tracking.
 
     Args:
         controller: SchedulerControllerPort instance (defaults to LocalSchedulerControllerAdapter).
@@ -424,19 +426,31 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
                 )
                 cached_outputs[step.name] = res
         else:
-            # CONCURRENT execution mode (DAG split / fan-out)
-            tasks = [
-                self._execute_step(
-                    state,
-                    stage,
-                    step,
-                    cached_outputs,
-                    initial_inputs,
-                    skipped_steps,
-                    is_restart=is_restart,
-                )
-                for step in stage.steps
-            ]
+            # CONCURRENT execution mode (DAG split / fan-out with dependency ordering)
+            step_events: dict[str, asyncio.Event] = {
+                step.name: asyncio.Event() for step in stage.steps
+            }
+
+            async def _run_step_with_barrier(step: StepDefinition) -> Any:
+                for dep in step.depends_on:
+                    if dep in step_events:
+                        await step_events[dep].wait()
+                try:
+                    res = await self._execute_step(
+                        state,
+                        stage,
+                        step,
+                        cached_outputs,
+                        initial_inputs,
+                        skipped_steps,
+                        is_restart=is_restart,
+                    )
+                    cached_outputs[step.name] = res
+                    return res
+                finally:
+                    step_events[step.name].set()
+
+            tasks = [_run_step_with_barrier(step) for step in stage.steps]
             results = await asyncio.gather(*tasks)
             for step, res in zip(stage.steps, results, strict=True):
                 cached_outputs[step.name] = res
