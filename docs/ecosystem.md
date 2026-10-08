@@ -13,7 +13,7 @@ graph TD
     classDef hf fill:#059669,stroke:#047857,stroke-width:2px,color:#ffffff;
     classDef hqual fill:#d97706,stroke:#b45309,stroke-width:2px,color:#ffffff;
 
-    HQ["⚡ hexaqueue (v0.3.0)<br/>Distributed HPC Batch Scheduler"]:::hq
+    HQ["⚡ hexaqueue (v0.5.0)<br/>Distributed HPC Batch Scheduler"]:::hq
     HS["🏛️ hexastack (v0.8.0)<br/>Hexagonal Monorepo (18 Packages)<br/>CQRS • gRPC • DB • Auth"]:::hs
     HF["📦 hexaflow (v0.4.1)<br/>Resumable In-Process DAG Engine"]:::hf
     HQUAL["🛠️ hexaqual (v0.9.1)<br/>Unified Quality, Governance & CI Plane"]:::hqual

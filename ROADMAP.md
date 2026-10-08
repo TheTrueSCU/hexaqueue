@@ -29,22 +29,41 @@ This document outlines the strategic priorities, upcoming milestones, and archit
 - [x] **Hypothesis Preemption State Machine Fuzzing**: Rule-based stateful fuzzing verifying lifecycle invariants, preemption recovery, and checkpoint preservation (`hexaqueue-core`).
 - [x] **Ecosystem Dependency Synchronization**: Upgraded to `hexastack-*>=0.6.0`, `hexaflow>=0.3.0`, and `hexaqual>=0.4.0`.
 
+### v0.4.0 (CLI Expansion, Schedulers & Resource Clamping)
+- [x] **Comprehensive CLI Expansion & Administrative Elevation**: Positive elevation (`--admin`) required for privileged commands (`hq cancel`, `hq purge`, `hq workers drain`), plus `hq why` explainability and `hq top` telemetry (`hexaqueue-cli`).
+- [x] **Cron, Interval & One-Shot Scheduling Engine**: Persistent cron, interval, and deferred one-shot workload dispatchers with misfire grace periods and overlap guards (`hexaqueue-server`, `hexaqueue-core`).
+- [x] **Dynamic Worker Pools, Autoscale & Draining**: Coordinated worker heartbeats, dynamic worker pool autoscaling, and graceful node draining on spot preemption (`hexaqueue-worker`, `hexaqueue-server`).
+- [x] **Real-Time SSE Log Streaming & Multiplexing**: Server-Sent Events (SSE) log streaming adapter with multi-consumer channel multiplexing and live CLI tailing (`hexaqueue-server`, `hexaqueue-cli`).
+- [x] **Containerized Execution Adapters**: Rootless Podman OCI and Apptainer/Singularity HPC execution runtimes with GPU passthrough (`hexaqueue-worker`).
+- [x] **Vulnerability & Security Gate Scanner**: Integrated Trivy and Grype static vulnerability and secret analysis adapters (`hexaqueue-scanner`).
+- [x] **Free-Tier Limits & Resource Clamping**: CPU, memory, and concurrency rate limits clamping unprivileged free-tier tenants (`hexaqueue-core`).
+- [x] **Universal Agent Guardrails Integration**: Synchronized universal `.agents/` rules, workflows, and skills via `hexaqual>=0.5.0`.
+
+### v0.5.0 (Security Audit Remediation, Governance & Ecosystem Hardening)
+- [x] **OpenSSF Scorecard & Gold Policy Compliance**: Remediated `DangerousWorkflowID` alert in docs workflow; added root `SECURITY.md` defining SLA, threat model, trust boundaries, and SLSA provenance guarantees.
+- [x] **Positive Administrative Elevation & Auth Hardening**: Bound `user_id` and elevation states strictly from authenticated context; validated `HEXAQUEUE_ADMIN_TOKEN`; required `--admin` on `hq exec` and `hq attach` (`hexaqueue-server`, `hexaqueue-dashboard`, `hexaqueue-cli`).
+- [x] **Collateral Staging & Quarantine Hardening**: Enforced strict path traversal rejection (`..`, `/`, `\`); hardened composite and local collateral adapters to fail closed with `CollateralState.QUARANTINED` (`hexaqueue-collateral`, `hexaqueue-scanner`).
+- [x] **Worker & Distributed Engine Integrity**: Isolated scratch directory cleanup in `finally` block preventing GPU memory leaks; fixed intra-stage step barriers to await actual task futures (`hexaqueue-worker`, `hexaqueue-workflow`).
+- [x] **Scheduler Algorithmic Corrections**: Fixed conservative anchor slot allocation and dynamic backfill window calculations; bound monopoly simulation slots to configured tenant limits (`hexaqueue-core`, `examples/monopoly`).
+- [x] **Static Analysis & CodeQL Resolutions**: Resolved 15 active CodeQL alerts across core, server, and worker packages.
+- [x] **Ecosystem Lockstep Alignment**: Upgraded all workspace subpackages to `hexastack-*>=0.8.0`, `hexaflow>=0.4.1`, and `hexaqual[all]>=0.9.1`.
+- [x] **Secondary Notification Port Contract Streamlining**: Direct delegation to modern `NotificationPort.notify(..., targets=...)` signature from `hexastack-core 0.8.0` (`hexaqueue-core`).
+
 ---
 
-## 🎯 Active Milestone: v0.4.0 (Cloud Deference, Multi-Cloud Ingestion & Zero-Trust)
-- [ ] **Multi-Granular Notification Engine**: Plumb `hexastack-core`'s `NotificationPort` across runs, jobs, and workflow steps with arbitrary combinations of lifecycle triggers (`STARTED`, `RESUMED`, `COMPLETED`, `FAILED`, `PREEMPTED`, `CANCELLED`) and multi-transport dispatching via Apprise (`hexaqueue-core`, `hexaqueue-workflow`, `hexaqueue-cli`).
-- [ ] **Provider-Native Deference & No-Op Bypass**: Direct batch submission to AWS Batch, GCP Batch, and Azure CycleCloud (`hexaqueue-core` - Issue #4b).
+## 🎯 Active Milestone: v0.6.0 (Cloud Deference, Multi-Cloud Ingestion & Kubernetes Kueue Bridge)
 - [ ] **Direct Multi-Part Presigned S3/GCS Ingestion**: Zero-payload control plane direct uploads with pre-signed chunked URLs (`hexaqueue-collateral` - Issue #5).
+- [ ] **Provider-Native Deference & No-Op Bypass**: Direct batch submission to AWS Batch, GCP Batch, and Azure CycleCloud (`hexaqueue-worker`).
+- [ ] **Kubernetes Batch v1 & Kueue Bridge**: Cloud-native Kueue admission controller integration (`hexaqueue-kueue`).
 - [ ] **High-Availability Controller & Leader Election**: Distributed HA scheduler clustering backed by Raft and Etcd (`hexaqueue-server` - Issue #7).
-- [ ] **Controlled Fair-Share Preemption**: 100-slot monopoly fairness algorithms with 30–60s `SIGUSR1` checkpointing (`hexaqueue-server` - Issue #8).
-- [ ] **Zero-Trust Security Architecture**: SPIFFE/SPIRE workload attestation, KMS envelope encryption, and mutual TLS 1.3 (`hexaqueue-core` - Issue #19).
+- [ ] **Controlled Fair-Share Preemption**: 100-slot monopoly fairness algorithms with 30–60s `SIGUSR1` checkpointing (`hexaqueue-server`).
 
 ---
 
 ## 🔮 Upcoming Milestones
 
-### v0.5.0 (Ecosystem Bridges & Web Dashboard)
-- [ ] **Kubernetes Batch v1 & Kueue Bridge**: Cloud-native Kueue admission controller integration (`hexaqueue-kueue`).
+### v0.7.0 (Ecosystem CI Drivers, Zero-Trust Architecture & Web Portal)
 - [ ] **CI/CD Ephemeral Runner Drivers**: GitHub Actions JIT ephemeral runner bridge (`hexaqueue-github-runner` - Issue #22) and GitLab CI custom executor (`hexaqueue-gitlab-runner` - Issue #23).
-- [ ] **Workflow DAG Engines**: Temporal Activity Worker and Argo Workflows driver (`hexaqueue-workflow` - Issue #23).
+- [ ] **Zero-Trust Security Architecture**: SPIFFE/SPIRE workload attestation, KMS envelope encryption, and mutual TLS 1.3 (`hexaqueue-core` - Issue #19).
+- [ ] **Cloud-Agnostic Bastion & Operator Access Protocol**: Abstract `BastionAccessPort` and cloud session adapters (`hexaqueue-core` - Issue #18).
 - [ ] **Reactive Web Portal & Operator Console**: Live job inspector, DAG visualizer, and audit portal (`hexaqueue-dashboard` - Issue #12).
