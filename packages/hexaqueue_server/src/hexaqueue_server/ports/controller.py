@@ -6,6 +6,7 @@ from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import TerminalOutcome
 from hexaqueue_core.domain.node import ComputeNodeProfile
 from hexaqueue_core.domain.retry import DeadLetterRecord
+from hexaqueue_core.domain.telemetry import NodeTelemetryPulse
 from hexaqueue_server.domain.models import RunStatusReport, RunSubmission
 from hexaqueue_server.domain.placement import PlacementDecision
 
@@ -62,6 +63,8 @@ class SchedulerControllerPort(ABC):
         job_id: str,
         outcome: TerminalOutcome,
         reason: str | None = None,
+        walltime_seconds: float | None = None,
+        consumed_credits: float | None = None,
     ) -> None:
         """Record the terminal outcome of an executed job and advance dependent downstream tasks.
 
@@ -69,6 +72,8 @@ class SchedulerControllerPort(ABC):
             job_id: Finished job identifier.
             outcome: Final TerminalOutcome (COMPLETED, FAILED, TIMED_OUT, CANCELLED).
             reason: Optional explanation or error message.
+            walltime_seconds: Optional executed walltime in seconds for budget accounting.
+            consumed_credits: Optional exact consumed credits for budget accounting.
         """
 
     @abstractmethod
@@ -137,6 +142,7 @@ class SchedulerControllerPort(ABC):
         worker_id: str,
         active_job_ids: list[str] | None = None,
         cached_collateral_hashes: list[str] | None = None,
+        pulse: NodeTelemetryPulse | None = None,
     ) -> ComputeNodeProfile:
         """Record a heartbeat pulse from a compute worker node.
 
@@ -144,6 +150,7 @@ class SchedulerControllerPort(ABC):
             worker_id: Unique worker node identifier.
             active_job_ids: Optional list of in-flight job IDs on the worker.
             cached_collateral_hashes: Optional list of CAS hashes present in node's local disk cache.
+            pulse: Optional telemetry pulse emitted by the worker node.
 
         Returns:
             Updated ComputeNodeProfile instance.

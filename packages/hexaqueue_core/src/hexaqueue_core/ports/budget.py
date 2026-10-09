@@ -10,6 +10,7 @@ from abc import ABC, abstractmethod
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from hexaqueue_core.domain.budget import TenantAccount
 from hexaqueue_core.domain.config import CspProvider
 from hexaqueue_core.domain.resources import ResourceRequirements
 
@@ -87,4 +88,45 @@ class BudgetAccountingPort(ABC):
 
         Raises:
             HexaqueueError: If reservation ID is invalid or already settled.
+        """
+
+    @abstractmethod
+    async def settle_segment(
+        self,
+        reservation_id: str,
+        segment_credits: float,
+    ) -> float:
+        """Settle an incremental execution segment (e.g. upon preemption).
+
+        Args:
+            reservation_id: Reservation hold token ID.
+            segment_credits: Credits consumed during this execution segment.
+
+        Returns:
+            Cumulative credits settled so far on this reservation.
+
+        Raises:
+            HexaqueueError: If reservation ID is invalid or already settled.
+        """
+
+    @abstractmethod
+    async def release_budget(self, reservation_id: str) -> None:
+        """Release an active budget hold in full without billing.
+
+        Args:
+            reservation_id: Reservation hold token ID.
+
+        Raises:
+            HexaqueueError: If reservation ID is invalid or already settled.
+        """
+
+    @abstractmethod
+    async def get_account(self, tenant_id: str) -> TenantAccount:
+        """Retrieve tenant credit balance and active hold details.
+
+        Args:
+            tenant_id: Tenant or project account identifier.
+
+        Returns:
+            TenantAccount domain entity with balance and hold metrics.
         """

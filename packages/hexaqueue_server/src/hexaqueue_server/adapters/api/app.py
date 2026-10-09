@@ -10,6 +10,7 @@ from hexastack_cqrs.infra.pipeline import ExecutionPipeline
 from hexastack_fastapi.infra import create_fastapi_app
 from rodi import Container
 
+from hexaqueue_server.adapters.api.budget import create_budget_router
 from hexaqueue_server.adapters.api.cluster import create_cluster_router
 from hexaqueue_server.adapters.api.jobs import create_jobs_router
 from hexaqueue_server.adapters.api.logs import create_logs_router
@@ -31,6 +32,7 @@ def create_server_api_router() -> APIRouter:
     router.include_router(create_logs_router())
     router.include_router(create_nodes_router())
     router.include_router(create_cluster_router())
+    router.include_router(create_budget_router())
     return router
 
 

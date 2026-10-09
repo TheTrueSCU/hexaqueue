@@ -14,8 +14,10 @@ from typing import Any, cast
 from hexaqueue_collateral.ports.service import CollateralServicePort
 from hexaqueue_core.domain.exceptions import PermissionDeniedError
 from hexaqueue_core.domain.job import JobSpec
+from hexaqueue_core.ports.budget import BudgetAccountingPort
 from hexaqueue_core.ports.logging import LogChunk
 from hexaqueue_core.ports.storage import PresignedStoragePort
+from hexaqueue_monitor.ports.monitor import ClusterMonitorPort
 from hexaqueue_server.ports.controller import SchedulerControllerPort
 from hexaqueue_worker.domain.telemetry import NodeTelemetryPulse
 
@@ -93,6 +95,8 @@ class BaseCqrsService:
         telemetry registries inherited by modular domain handlers.
     """
 
+    budget_port: BudgetAccountingPort
+    cluster_monitor: ClusterMonitorPort
     collateral_service: CollateralServicePort
     controller: SchedulerControllerPort
     log_artifacts: dict[str, dict[str, Any]]

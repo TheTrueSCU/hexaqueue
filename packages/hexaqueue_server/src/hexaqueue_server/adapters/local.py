@@ -11,9 +11,13 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from hexaqueue_collateral.ports.service import CollateralServicePort
-from hexaqueue_core.domain.config import ExecutionMode
+from hexaqueue_core.domain.config import CspProvider, ExecutionMode
 from hexaqueue_core.domain.dag import JobDagEngine, TriggerCondition
-from hexaqueue_core.domain.exceptions import FreeTierLimitExceededError, HexaqueueError
+from hexaqueue_core.domain.exceptions import (
+    FreeTierLimitExceededError,
+    HexaqueueError,
+    QuotaExceededError,
+)
 from hexaqueue_core.domain.freetier import FreeTierGovernor
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import (
@@ -34,9 +38,12 @@ from hexaqueue_core.domain.notification import (
     map_lifecycle_to_trigger,
 )
 from hexaqueue_core.domain.retry import DeadLetterRecord
+from hexaqueue_core.domain.telemetry import NodeTelemetryPulse
 from hexaqueue_core.infra.notification import NotificationDispatcher
+from hexaqueue_core.ports.budget import BudgetAccountingPort, CostRateModelPort
 from hexaqueue_core.ports.coordination import LeaderElectionPort
 from hexaqueue_core.ports.queue import JobQueuePort
+from hexaqueue_monitor.ports.monitor import ClusterMonitorPort
 from hexaqueue_server.domain.models import RunStatusReport, RunSubmission
 from hexaqueue_server.domain.placement import (
     PlacementDecision,
@@ -58,6 +65,9 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
         controller_id: str = "controller-main",
         placement_engine: WarmCachePlacementEngine | None = None,
         collateral_service: CollateralServicePort | None = None,
+        budget_port: BudgetAccountingPort | None = None,
+        cost_model: CostRateModelPort | None = None,
+        cluster_monitor: ClusterMonitorPort | None = None,
     ) -> None:
         """Initialize controller with task queue and optional notification dispatcher.
 
@@ -70,6 +80,9 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             controller_id: Unique identifier of this controller instance.
             placement_engine: Optional WarmCachePlacementEngine for warm cache aware scheduling.
             collateral_service: Optional CollateralServicePort for automated collateral pinning/unpinning.
+            budget_port: Optional BudgetAccountingPort for two-phase budget reservation holds.
+            cost_model: Optional CostRateModelPort for translating job resource requirements to credit estimates.
+            cluster_monitor: Optional ClusterMonitorPort for hardware telemetry pulses.
 
         Notes/Architectural Intent:
             When operating under Free-Tier Safety Mode (`mode == ExecutionMode.FREE_TIER`
@@ -90,6 +103,10 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
         self._controller_id = controller_id
         self._placement_engine = placement_engine or WarmCachePlacementEngine()
         self._collateral_service = collateral_service
+        self._budget_port = budget_port
+        self._cost_model = cost_model
+        self._cluster_monitor = cluster_monitor
+        self._job_reservations: dict[str, str] = {}
         self._runs: dict[str, RunSubmission] = {}
         self._jobs: dict[str, JobSpec] = {}
         self._dag_engines: dict[str, JobDagEngine] = {}
@@ -184,6 +201,59 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             if tag.startswith("region:"):
                 return tag.split(":", 1)[1]
         return None
+
+    @staticmethod
+    def _resolve_job_tenant(job: JobSpec) -> str:
+        """Resolve tenant or project account identifier for a job."""
+        for tag in job.tags:
+            if tag.startswith("tenant:"):
+                return tag.split(":", 1)[1]
+        if getattr(job, "user", "default") != "default":
+            return job.user
+        return job.env.get("HEXAQUEUE_TENANT", "default")
+
+    @staticmethod
+    def _resolve_job_provider(job: JobSpec) -> CspProvider:
+        """Resolve CSP provider from job tags or default to LOCAL."""
+        for tag in job.tags:
+            if tag.startswith("provider:"):
+                p_val = tag.split(":", 1)[1].upper()
+                try:
+                    return CspProvider(p_val)
+                except ValueError:
+                    pass
+        return CspProvider.LOCAL
+
+    async def _settle_or_release_job_budget(
+        self,
+        job_id: str,
+        outcome: TerminalOutcome,
+        walltime_seconds: float | None = None,
+        consumed_credits: float | None = None,
+    ) -> None:
+        """Handle two-phase budget settlement or unspent hold release on job termination."""
+        if not self._budget_port or job_id not in self._job_reservations:
+            return
+
+        res_id = self._job_reservations[job_id]
+        if outcome == TerminalOutcome.PREEMPTED:
+            seg_credits = consumed_credits if consumed_credits is not None else 1.0
+            with contextlib.suppress(Exception):
+                await self._budget_port.settle_segment(res_id, seg_credits)
+        elif outcome == TerminalOutcome.CANCELLED:
+            if walltime_seconds is not None and walltime_seconds > 0.0:
+                act_credits = consumed_credits if consumed_credits is not None else 1.0
+                with contextlib.suppress(Exception):
+                    await self._budget_port.settle_budget(res_id, act_credits)
+            else:
+                with contextlib.suppress(Exception):
+                    await self._budget_port.release_budget(res_id)
+            del self._job_reservations[job_id]
+        else:
+            act_credits = consumed_credits if consumed_credits is not None else 1.0
+            with contextlib.suppress(Exception):
+                await self._budget_port.settle_budget(res_id, act_credits)
+            del self._job_reservations[job_id]
 
     async def _enqueue_initial_jobs(
         self,
@@ -301,6 +371,8 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
         job_id: str,
         outcome: TerminalOutcome,
         reason: str | None = None,
+        walltime_seconds: float | None = None,
+        consumed_credits: float | None = None,
     ) -> None:
         """Record terminal outcome and advance eligible downstream dependents."""
         await self._check_leadership()
@@ -329,6 +401,14 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                 for cid in current_job.collateral_ids:
                     with contextlib.suppress(Exception):
                         await self._collateral_service.unpin_bundle(cid)
+
+            # Settle or release budget reservation
+            await self._settle_or_release_job_budget(
+                job_id=job_id,
+                outcome=outcome,
+                walltime_seconds=walltime_seconds,
+                consumed_credits=consumed_credits,
+            )
 
             # Dispatch job-level notification
             job_trigger = map_lifecycle_to_trigger(JobState.DONE, outcome)
@@ -446,6 +526,20 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                         for cid in current.collateral_ids:
                             with contextlib.suppress(Exception):
                                 await self._collateral_service.unpin_bundle(cid)
+                    await self._settle_or_release_job_budget(
+                        job_id=job.id,
+                        outcome=TerminalOutcome.CANCELLED,
+                        walltime_seconds=(
+                            0.0
+                            if current.state
+                            in (
+                                JobState.PENDING,
+                                JobState.PROVISIONING,
+                                JobState.SUBMITTED,
+                            )
+                            else 1.0
+                        ),
+                    )
                     await self._dispatcher.async_dispatch_job_event(
                         cancelled_job, NotificationTrigger.CANCELLED
                     )
@@ -493,6 +587,21 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                     for cid in current.collateral_ids:
                         with contextlib.suppress(Exception):
                             await self._collateral_service.unpin_bundle(cid)
+
+                await self._settle_or_release_job_budget(
+                    job_id=job_id,
+                    outcome=TerminalOutcome.CANCELLED,
+                    walltime_seconds=(
+                        0.0
+                        if current.state
+                        in (
+                            JobState.PENDING,
+                            JobState.PROVISIONING,
+                            JobState.SUBMITTED,
+                        )
+                        else 1.0
+                    ),
+                )
 
                 await self._dispatcher.async_dispatch_job_event(
                     cancelled_job, NotificationTrigger.CANCELLED
@@ -590,6 +699,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
         worker_id: str,
         active_job_ids: list[str] | None = None,
         cached_collateral_hashes: list[str] | None = None,
+        pulse: NodeTelemetryPulse | None = None,
     ) -> ComputeNodeProfile:
         """Record a heartbeat pulse from a compute worker node.
 
@@ -597,6 +707,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             worker_id: Unique worker node identifier.
             active_job_ids: Optional list of in-flight job IDs on the worker.
             cached_collateral_hashes: Optional list of CAS hashes present in node's local disk cache.
+            pulse: Optional telemetry pulse emitted by the worker node.
 
         Returns:
             Updated ComputeNodeProfile instance.
@@ -624,6 +735,22 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                     }
                 )
             self._nodes[worker_id] = updated
+
+            if self._cluster_monitor is not None:
+                if pulse is not None:
+                    await self._cluster_monitor.record_pulse(pulse)
+                else:
+                    synth_pulse = NodeTelemetryPulse(
+                        active_jobs=len(active_job_ids or []),
+                        cpu_utilization_pct=0.0,
+                        memory_total_mb=8192,
+                        memory_used_mb=1024,
+                        scratch_total_mb=10000,
+                        scratch_used_mb=100,
+                        worker_id=worker_id,
+                    )
+                    await self._cluster_monitor.record_pulse(synth_pulse)
+
             return updated
 
     async def list_nodes(self) -> list[ComputeNodeProfile]:
@@ -758,6 +885,88 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
         async with self._lock:
             return list(self._dead_letters[-limit:])
 
+    async def _ensure_budget_reservation(
+        self, job: JobSpec
+    ) -> PlacementDecision | None:
+        """Reserve pre-emptive budget hold for job, blocking job if balance is exceeded."""
+        if not self._budget_port or job.id in self._job_reservations:
+            return None
+
+        if self._cost_model is not None:
+            provider = self._resolve_job_provider(job)
+            est_credits = self._cost_model.calculate_estimated_cost(
+                job.resources, provider=provider
+            )
+        else:
+            est_credits = 10.0
+
+        tenant_id = self._resolve_job_tenant(job)
+        try:
+            res_id = await self._budget_port.reserve_budget(
+                tenant_id=tenant_id,
+                job_id=job.id,
+                estimated_credits=est_credits,
+            )
+            self._job_reservations[job.id] = res_id
+            return None
+        except QuotaExceededError:
+            blocked_job = job.model_copy(
+                update={
+                    "status": JobStatus(
+                        state=JobState.BLOCKED,
+                        reason="BUDGET_EXHAUSTED",
+                    )
+                }
+            )
+            self._jobs[job.id] = blocked_job
+            return PlacementDecision(
+                reason="BUDGET_EXHAUSTED",
+                selected_node_id=None,
+            )
+
+    async def _resolve_collateral_hashes(
+        self,
+        job: JobSpec,
+        collateral_hash_map: dict[str, str] | None,
+    ) -> dict[str, str]:
+        """Resolve collateral hashes for a job's dependencies."""
+        resolved = dict(collateral_hash_map) if collateral_hash_map is not None else {}
+        if not self._collateral_service or not job.collateral_ids:
+            return resolved
+
+        for cid in job.collateral_ids:
+            if cid not in resolved:
+                with contextlib.suppress(Exception):
+                    bundle = await self._collateral_service.get_bundle(cid)
+                    if bundle and bundle.sha256_checksum:
+                        resolved[cid] = bundle.sha256_checksum
+        return resolved
+
+    async def _apply_placement_assignment(
+        self,
+        job: JobSpec,
+        assigned_node_id: str,
+    ) -> None:
+        """Bind scheduled job to worker node and pin associated collateral bundles."""
+        updated_job = job.model_copy(
+            update={
+                "assigned_worker_id": assigned_node_id,
+                "status": JobStatus(state=JobState.PROVISIONING),
+            }
+        )
+        self._jobs[job.id] = updated_job
+
+        if self._collateral_service and job.collateral_ids:
+            for cid in job.collateral_ids:
+                with contextlib.suppress(Exception):
+                    await self._collateral_service.pin_bundle(cid)
+
+        if assigned_node_id in self._nodes:
+            node = self._nodes[assigned_node_id]
+            self._nodes[assigned_node_id] = node.model_copy(
+                update={"active_job_ids": node.active_job_ids | frozenset([job.id])}
+            )
+
     async def schedule_placement(
         self,
         job_id: str,
@@ -782,17 +991,13 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                 raise HexaqueueError(msg)
 
             job = self._jobs[job_id]
-            resolved_hash_map = (
-                dict(collateral_hash_map) if collateral_hash_map is not None else {}
-            )
-            if self._collateral_service and job.collateral_ids:
-                for cid in job.collateral_ids:
-                    if cid not in resolved_hash_map:
-                        with contextlib.suppress(Exception):
-                            bundle = await self._collateral_service.get_bundle(cid)
-                            if bundle and bundle.sha256_checksum:
-                                resolved_hash_map[cid] = bundle.sha256_checksum
+            budget_decision = await self._ensure_budget_reservation(job)
+            if budget_decision is not None:
+                return budget_decision
 
+            resolved_hash_map = await self._resolve_collateral_hashes(
+                job, collateral_hash_map
+            )
             backlog_size = sum(
                 1 for j in self._jobs.values() if j.state == JobState.PENDING
             )
@@ -804,29 +1009,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             )
 
             if decision.selected_node_id is not None:
-                assigned_node_id = decision.selected_node_id
-                updated_job = job.model_copy(
-                    update={
-                        "assigned_worker_id": assigned_node_id,
-                        "status": JobStatus(state=JobState.PROVISIONING),
-                    }
-                )
-                self._jobs[job_id] = updated_job
-
-                # Pin collateral bundles for this scheduled job
-                if self._collateral_service and job.collateral_ids:
-                    for cid in job.collateral_ids:
-                        with contextlib.suppress(Exception):
-                            await self._collateral_service.pin_bundle(cid)
-
-                if assigned_node_id in self._nodes:
-                    node = self._nodes[assigned_node_id]
-                    updated_node = node.model_copy(
-                        update={
-                            "active_job_ids": node.active_job_ids | frozenset([job_id]),
-                        }
-                    )
-                    self._nodes[assigned_node_id] = updated_node
+                await self._apply_placement_assignment(job, decision.selected_node_id)
 
             return decision
 

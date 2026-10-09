@@ -11,6 +11,7 @@ requires-python = ">=3.13"
 dependencies = [
     "hexaqueue-collateral",
     "hexaqueue-core",
+    "hexaqueue-monitor",
     "hexastack-auth>=0.8.0",
     "hexastack-core>=0.8.0",
     "hexastack-cqrs>=0.8.0",
@@ -28,3 +29,4 @@ build-backend = "uv_build"
 [tool.uv.sources]
 hexaqueue-collateral = { workspace = true }
 hexaqueue-core = { workspace = true }
+hexaqueue-monitor = { workspace = true }

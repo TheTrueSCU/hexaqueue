@@ -37,7 +37,11 @@ from hexaqueue_core.domain.notification import (
 from hexaqueue_core.domain.resources import ResourceRequirements
 from hexaqueue_core.domain.retry import JobRetryPolicy
 from hexaqueue_core.domain.run import RunSpec
+from hexaqueue_core.domain.telemetry import NodeTelemetryPulse
 from hexaqueue_core.infra.notification import NotificationDispatcher
+from hexaqueue_monitor.adapters.ledger import InMemoryBudgetLedgerAdapter
+from hexaqueue_monitor.adapters.local import LocalClusterMonitorAdapter
+from hexaqueue_monitor.adapters.rates import NormalizedCostRateModelAdapter
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
 from hexaqueue_server.domain.models import RunSubmission
 
@@ -1095,3 +1099,199 @@ async def test_local_scheduler_controller_cancel_unpins_collateral() -> None:
     out = res_cancel_run.outcome
     assert out == RunOutcome.CANCELLED
     mock_collateral.unpin_bundle.assert_awaited_once_with("col-cancel")
+
+
+@pytest.mark.asyncio
+async def test_local_scheduler_budget_reservation_and_settlement() -> None:
+    """Verify budget reservation on schedule_placement and settlement on completion/preemption."""
+    queue = InMemoryJobQueueAdapter()
+    ledger = InMemoryBudgetLedgerAdapter(initial_balances={"tenant-sched": 500.0})
+    cost_model = NormalizedCostRateModelAdapter()
+    controller = LocalSchedulerControllerAdapter(
+        queue=queue,
+        budget_port=ledger,
+        cost_model=cost_model,
+    )
+
+    node = ComputeNodeProfile(node_id="worker-b1")
+    await controller.register_node(node)
+
+    run = RunSpec(id="run-b1", name="budget-run")
+    job = JobSpec(
+        id="job-b1",
+        run_id=run.id,
+        name="task-b1",
+        command="python train.py",
+        resources=ResourceRequirements(cpus=4, ram_mb=16384, walltime_seconds=3600),
+        tags=["provider:aws", "tenant:tenant-sched"],
+    )
+    await controller.submit_run(RunSubmission(run_spec=run, jobs=[job]))
+
+    # Placement places budget hold
+    decision = await controller.schedule_placement("job-b1")
+    sel_node = decision.selected_node_id
+    assert sel_node == "worker-b1"
+
+    # Verify hold is active
+    account_held = await ledger.get_account("tenant-sched")
+    held = account_held.active_holds_total
+    assert held > 0.0
+
+    # Job is preempted: settle incremental slice
+    await controller.update_job_outcome(
+        job_id="job-b1",
+        outcome=TerminalOutcome.PREEMPTED,
+        consumed_credits=1.5,
+    )
+    account_preempt = await ledger.get_account("tenant-sched")
+    settled_preempt = account_preempt.settled_total
+    assert settled_preempt == 1.5
+
+    # Job finishes: settle final without double counting
+    await controller.update_job_outcome(
+        job_id="job-b1",
+        outcome=TerminalOutcome.COMPLETED,
+        consumed_credits=4.0,
+    )
+    account_final = await ledger.get_account("tenant-sched")
+    final_settled = account_final.settled_total
+    final_held = account_final.active_holds_total
+    assert final_settled == 4.0
+    assert final_held == 0.0
+
+
+@pytest.mark.asyncio
+async def test_local_scheduler_budget_cancellation_zero_run_vs_partial() -> None:
+    """Verify zero-run cancellation returns 100% of held credits, while partial run settles."""
+    queue = InMemoryJobQueueAdapter()
+    ledger = InMemoryBudgetLedgerAdapter(initial_balances={"tenant-cancel": 1000.0})
+    controller = LocalSchedulerControllerAdapter(
+        queue=queue,
+        budget_port=ledger,
+    )
+
+    node = ComputeNodeProfile(node_id="worker-c1")
+    await controller.register_node(node)
+
+    # 1. Zero-run cancellation (job in PENDING when cancelled)
+    run1 = RunSpec(id="run-zero", name="zero-run")
+    job1 = JobSpec(
+        id="job-zero",
+        run_id=run1.id,
+        name="task-zero",
+        command="sleep 100",
+        tags=["tenant:tenant-cancel"],
+    )
+    await controller.submit_run(RunSubmission(run_spec=run1, jobs=[job1]))
+    await controller.schedule_placement("job-zero")
+
+    # Cancel while walltime is 0 / pending
+    res_cancel = await controller.cancel_job("job-zero")
+    cancel_state = res_cancel.state
+    assert cancel_state == JobState.DONE
+
+    account_after_zero = await ledger.get_account("tenant-cancel")
+    avail_zero = account_after_zero.available_balance
+    held_zero = account_after_zero.active_holds_total
+    settled_zero = account_after_zero.settled_total
+    assert avail_zero == 1000.0
+    assert held_zero == 0.0
+    assert settled_zero == 0.0
+
+    # 2. Partial-run cancellation (running with walltime > 0)
+    run2 = RunSpec(id="run-part", name="part-run")
+    job2 = JobSpec(
+        id="job-part",
+        run_id=run2.id,
+        name="task-part",
+        command="sleep 100",
+        tags=["tenant:tenant-cancel"],
+    )
+    await controller.submit_run(RunSubmission(run_spec=run2, jobs=[job2]))
+    await controller.schedule_placement("job-part")
+
+    await controller.update_job_outcome(
+        job_id="job-part",
+        outcome=TerminalOutcome.CANCELLED,
+        walltime_seconds=120.0,
+        consumed_credits=3.5,
+    )
+
+    account_after_part = await ledger.get_account("tenant-cancel")
+    avail_part = account_after_part.available_balance
+    held_part = account_after_part.active_holds_total
+    settled_part = account_after_part.settled_total
+    assert avail_part == 996.5
+    assert held_part == 0.0
+    assert settled_part == 3.5
+
+
+@pytest.mark.asyncio
+async def test_local_scheduler_budget_exhausted_blocks_placement() -> None:
+    """Verify job placement transitions to BLOCKED when tenant balance is insufficient."""
+    queue = InMemoryJobQueueAdapter()
+    ledger = InMemoryBudgetLedgerAdapter(initial_balances={"tenant-poor": 0.05})
+    cost_model = NormalizedCostRateModelAdapter()
+    controller = LocalSchedulerControllerAdapter(
+        queue=queue,
+        budget_port=ledger,
+        cost_model=cost_model,
+    )
+
+    node = ComputeNodeProfile(node_id="worker-p1")
+    await controller.register_node(node)
+
+    run = RunSpec(id="run-p1", name="poor-run")
+    job = JobSpec(
+        id="job-p1",
+        run_id=run.id,
+        name="task-p1",
+        command="python heavy.py",
+        resources=ResourceRequirements(cpus=4, ram_mb=16384, walltime_seconds=3600),
+        tags=["provider:aws", "tenant:tenant-poor"],
+    )
+    await controller.submit_run(RunSubmission(run_spec=run, jobs=[job]))
+
+    decision = await controller.schedule_placement("job-p1")
+    sel_node = decision.selected_node_id
+    reason = decision.reason
+    assert sel_node is None
+    assert reason == "BUDGET_EXHAUSTED"
+
+    stored_job = await controller.get_job("job-p1")
+    job_st = stored_job.state
+    job_reason = stored_job.status.reason
+    assert job_st == JobState.BLOCKED
+    assert job_reason == "BUDGET_EXHAUSTED"
+
+
+@pytest.mark.asyncio
+async def test_local_scheduler_heartbeat_forwarding_to_monitor() -> None:
+    """Verify worker node heartbeats forward telemetry pulses to ClusterMonitorPort."""
+    queue = InMemoryJobQueueAdapter()
+    monitor = LocalClusterMonitorAdapter()
+    controller = LocalSchedulerControllerAdapter(
+        queue=queue,
+        cluster_monitor=monitor,
+    )
+
+    node = ComputeNodeProfile(node_id="worker-m1")
+    await controller.register_node(node)
+
+    pulse = NodeTelemetryPulse(
+        worker_id="worker-m1",
+        cpu_utilization_pct=42.5,
+        memory_used_mb=4096,
+        memory_total_mb=16384,
+        scratch_used_mb=500,
+        scratch_total_mb=50000,
+        active_jobs=2,
+    )
+    await controller.heartbeat_node(worker_id="worker-m1", pulse=pulse)
+
+    recorded_pulse = await monitor.get_node_pulse("worker-m1")
+    assert recorded_pulse is not None
+    rec_cpu = recorded_pulse.cpu_utilization_pct
+    rec_jobs = recorded_pulse.active_jobs
+    assert rec_cpu == 42.5
+    assert rec_jobs == 2
