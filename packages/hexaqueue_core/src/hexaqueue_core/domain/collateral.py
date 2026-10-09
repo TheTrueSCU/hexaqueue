@@ -133,6 +133,11 @@ class CollateralBundle(BaseModel):
     active_pin_count: int = Field(
         default=0, ge=0, description="Active job pin reference count"
     )
+    last_accessed_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        description="Last accessed or pinned timestamp in UTC",
+    )
+    access_count: int = Field(default=0, ge=0, description="Total cache access count")
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -163,3 +168,77 @@ class CollateralBundle(BaseModel):
             raise ValueError(msg)
 
         return self
+
+    def pin(self) -> Self:
+        """Increment the active job reference pin count and update access timestamp.
+
+        Returns:
+            Updated CollateralBundle instance with incremented pin count.
+
+        Notes/Architectural Intent:
+            Active jobs pin collateral before execution to guarantee the artifact
+            is immune to LRU garbage collection eviction while in flight.
+        """
+        now = datetime.now(UTC)
+        return self.model_copy(
+            update={
+                "active_pin_count": self.active_pin_count + 1,
+                "access_count": self.access_count + 1,
+                "last_accessed_at": now,
+                "updated_at": now,
+            }
+        )
+
+    def unpin(self) -> Self:
+        """Decrement the active job reference pin count and update access timestamp.
+
+        Returns:
+            Updated CollateralBundle instance with decremented pin count.
+
+        Raises:
+            ValueError: If active_pin_count is already 0.
+
+        Notes/Architectural Intent:
+            Jobs release their pins upon completion, failure, or cancellation,
+            allowing ephemeral temporary artifacts to be safely reclaimed.
+        """
+        if self.active_pin_count <= 0:
+            msg = f"Cannot unpin collateral bundle '{self.id}': active_pin_count is already 0"
+            raise ValueError(msg)
+        now = datetime.now(UTC)
+        return self.model_copy(
+            update={
+                "active_pin_count": self.active_pin_count - 1,
+                "last_accessed_at": now,
+                "updated_at": now,
+            }
+        )
+
+    def touch(self) -> Self:
+        """Update the last_accessed_at timestamp and increment access_count.
+
+        Returns:
+            Updated CollateralBundle instance with refreshed LRU recency.
+
+        Notes/Architectural Intent:
+            Refreshes the LRU cache recency upon cache hits without modifying
+            the reference pin count.
+        """
+        now = datetime.now(UTC)
+        return self.model_copy(
+            update={
+                "access_count": self.access_count + 1,
+                "last_accessed_at": now,
+                "updated_at": now,
+            }
+        )
+
+
+__all__ = [
+    "can_transition_collateral",
+    "CollateralBundle",
+    "CollateralKind",
+    "CollateralState",
+    "CollateralTier",
+    "VALID_COLLATERAL_TRANSITIONS",
+]

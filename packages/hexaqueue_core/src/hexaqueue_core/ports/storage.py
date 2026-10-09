@@ -79,3 +79,97 @@ class StorageVolumePort(ABC):
         Raises:
             HexaqueueError: If storage reclamation fails.
         """
+
+
+class PresignedStoragePort(ABC):
+    """Abstract port interface for presigned cloud and local object storage.
+
+    Notes/Architectural Intent:
+        Eliminates API server data transfer bottlenecks by allowing compute workers
+        and clients to upload and download heavy payloads (collateral bundles, logs,
+        container images) directly to/from S3, GCS, Azure Blob, or local object
+        stores using time-bounded preauthenticated URLs.
+    """
+
+    @abstractmethod
+    async def generate_presigned_upload_url(
+        self,
+        key: str,
+        content_type: str | None = None,
+        expires_in_seconds: int = 3600,
+    ) -> str:
+        """Generate a time-bounded presigned PUT URL for direct object upload.
+
+        Args:
+            key: Target object key or storage path.
+            content_type: Optional expected MIME type.
+            expires_in_seconds: Expiration lifetime in seconds (default 1 hour).
+
+        Returns:
+            Preauthenticated upload URL string.
+
+        Raises:
+            HexaqueueError: If presigned URL generation fails.
+        """
+
+    @abstractmethod
+    async def generate_presigned_download_url(
+        self,
+        key: str,
+        expires_in_seconds: int = 3600,
+    ) -> str:
+        """Generate a time-bounded presigned GET URL for direct object download.
+
+        Args:
+            key: Object key to download.
+            expires_in_seconds: Expiration lifetime in seconds (default 1 hour).
+
+        Returns:
+            Preauthenticated download URL string.
+
+        Raises:
+            HexaqueueError: If object is not found or URL generation fails.
+        """
+
+    @abstractmethod
+    async def object_exists(self, key: str) -> bool:
+        """Check whether an object exists in storage.
+
+        Args:
+            key: Object key to check.
+
+        Returns:
+            True if the object exists, False otherwise.
+        """
+
+    @abstractmethod
+    async def get_object_metadata(self, key: str) -> dict[str, str]:
+        """Retrieve metadata tags and headers for an object.
+
+        Args:
+            key: Object key.
+
+        Returns:
+            Dictionary of string key-value metadata pairs.
+
+        Raises:
+            HexaqueueError: If object is not found or metadata retrieval fails.
+        """
+
+    @abstractmethod
+    async def delete_object(self, key: str) -> None:
+        """Delete an object from storage.
+
+        Args:
+            key: Object key to delete.
+
+        Raises:
+            HexaqueueError: If object deletion encounters a transport error.
+        """
+
+
+__all__ = [
+    "PresignedStoragePort",
+    "StorageVolumePort",
+    "VolumeAllocation",
+]

@@ -40,6 +40,7 @@ from hexaqueue_core.ports.security import (
     SecurityScanResult,
 )
 from hexaqueue_core.ports.storage import (
+    PresignedStoragePort,
     StorageVolumePort,
     VolumeAllocation,
 )
@@ -61,6 +62,7 @@ __all__ = [
     "LogChunk",
     "LogStreamPort",
     "NodeCapacity",
+    "PresignedStoragePort",
     "ProcessExecutionResult",
     "SchedulerExplainabilityPort",
     "SecurityQuarantinePort",

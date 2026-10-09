@@ -12,6 +12,7 @@ from hexaqueue_core.domain.cqrs import (
     CreateBastionSessionCommand,
     ExplainJobQuery,
     GetFairShareTreeQuery,
+    GetJobLogDownloadUrlQuery,
     GetJobQuery,
     GetLogsQuery,
     GetNodesQuery,
@@ -19,15 +20,19 @@ from hexaqueue_core.domain.cqrs import (
     GetRunStatusQuery,
     HoldJobCommand,
     ListJobsQuery,
+    NotifyLogUploadCompleteCommand,
     RegisterCollateralCommand,
     ReleaseJobCommand,
+    RequestLogUploadUrlCommand,
     SettleBudgetCommand,
     SubmitRunCommand,
     SubmitSuiteCommand,
 )
 from hexaqueue_core.domain.exceptions import PermissionDeniedError
 from hexaqueue_core.domain.job import JobSpec
+from hexaqueue_core.domain.lifecycle import TerminalOutcome
 from hexaqueue_core.domain.resources import ResourceRequirements
+from hexaqueue_core.domain.retention import LogRetentionTier
 from hexaqueue_core.domain.run import RunSpec
 from hexaqueue_core.domain.suite import SuiteSpec, TaskSpec
 from hexaqueue_core.ports.logging import LogChunk
@@ -307,3 +312,45 @@ def test_collateral_and_budget_commands(
     )
     assert budget_res["status"] == "SETTLED"
     assert budget_res["settled_amount_cents"] == 1500
+
+
+def test_presigned_log_cqrs_flow(
+    hermetic_cqrs_pipeline: tuple[Any, Any],
+) -> None:
+    """Verify presigned log write token vending, completion, and download URL query."""
+    _, pipeline = hermetic_cqrs_pipeline
+
+    # 1. Request presigned upload token for COMPLETED job (SHORT_PASS)
+    token = pipeline.execute(
+        RequestLogUploadUrlCommand(
+            job_id="job-log-1",
+            outcome=TerminalOutcome.COMPLETED,
+            size_bytes=512,
+            expires_in_seconds=300,
+        )
+    )
+    upload_url = token.upload_url
+    assert "upload/logs/job-log-1/stdout_stderr.log" in upload_url
+    assert token.retention_policy.tier == LogRetentionTier.SHORT_PASS
+
+    # 2. Notify complete
+    complete_res = pipeline.execute(
+        NotifyLogUploadCompleteCommand(
+            job_id="job-log-1",
+            storage_key=token.storage_key,
+            sha256_checksum="b" * 64,
+            size_bytes=512,
+        )
+    )
+    assert complete_res["status"] == "recorded"
+
+    # 3. Request presigned download URL
+    dl = pipeline.execute(
+        GetJobLogDownloadUrlQuery(
+            job_id="job-log-1",
+            expires_in_seconds=900,
+            elevate=True,
+        )
+    )
+    dl_url = dl.download_url
+    assert "download/logs/job-log-1/stdout_stderr.log" in dl_url

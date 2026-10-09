@@ -2,6 +2,8 @@
 
 from datetime import UTC, datetime
 
+import pytest
+
 from hexaqueue_cli.ports.client import ClientPort
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import RunState
@@ -55,6 +57,15 @@ class DummyClient(ClientPort):
 
     async def get_logs(self, job_id: str) -> list[LogChunk]:
         return [LogChunk(job_id=job_id, content="hello", offset=0)]
+
+    async def get_log_download_url(
+        self,
+        job_id: str,
+        expires_in_seconds: int = 900,
+        user_id: str = "default",
+        elevate: bool = False,
+    ) -> str:
+        return f"https://storage.example.com/download/logs/{job_id}/stdout.log"
 
     async def explain_job(
         self,
@@ -235,3 +246,11 @@ def test_client_port_instantiation() -> None:
     client = DummyClient()
     res = isinstance(client, ClientPort)
     assert res is True
+
+
+@pytest.mark.asyncio
+async def test_client_port_get_log_download_url() -> None:
+    """Verify get_log_download_url returns valid storage link."""
+    client = DummyClient()
+    url = await client.get_log_download_url(job_id="job-999")
+    assert "logs/job-999/stdout.log" in url

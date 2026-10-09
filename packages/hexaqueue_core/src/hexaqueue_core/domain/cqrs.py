@@ -16,6 +16,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from hexaqueue_core.domain.collateral import CollateralKind, CollateralTier
 from hexaqueue_core.domain.job import JobSpec
+from hexaqueue_core.domain.lifecycle import TerminalOutcome
+from hexaqueue_core.domain.retention import LogRetentionPolicy
 from hexaqueue_core.domain.run import RunSpec
 from hexaqueue_core.domain.suite import SuiteSpec
 
@@ -448,6 +450,120 @@ class StreamLogsQuery(Query):
     user_id: str = Field(default="default", description="Requesting user identity")
 
 
+class RequestLogUploadUrlCommand(Command):
+    """Command from worker to request a presigned write URL for job logs.
+
+    Args:
+        job_id: Unique job identifier.
+        outcome: TerminalOutcome of the job execution.
+        size_bytes: Estimated size in bytes of compressed log payload.
+        expires_in_seconds: Expiration TTL for presigned upload URL.
+        user_id: Identity of submitting worker or user.
+        elevate: Explicit administrative elevation flag.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    elevate: bool = Field(
+        default=False, description="Explicit administrative elevation flag"
+    )
+    expires_in_seconds: int = Field(
+        default=300, ge=30, le=3600, description="Upload URL expiration TTL"
+    )
+    job_id: str = Field(description="Job identifier")
+    outcome: TerminalOutcome = Field(description="Terminal execution outcome")
+    size_bytes: int = Field(default=0, ge=0, description="Estimated log payload bytes")
+    user_id: str = Field(default="default", description="Requesting user identity")
+
+
+class PresignedUploadToken(BaseModel):
+    """Presigned upload token and retention metadata returned to worker.
+
+    Args:
+        job_id: Unique job identifier.
+        upload_url: Preauthenticated write endpoint (e.g. S3 PUT URL).
+        storage_key: Cloud object storage destination key.
+        retention_policy: Differential retention policy and tags applied.
+        expires_in_seconds: Validity TTL for presigned upload link.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    expires_in_seconds: int = Field(description="Upload URL validity in seconds")
+    job_id: str = Field(description="Job identifier")
+    retention_policy: LogRetentionPolicy = Field(
+        description="Applied differential retention policy"
+    )
+    storage_key: str = Field(description="Cloud storage object key")
+    upload_url: str = Field(description="Direct presigned PUT endpoint")
+
+
+class NotifyLogUploadCompleteCommand(Command):
+    """Command notifying the server that worker finished uploading log payload.
+
+    Args:
+        job_id: Unique job identifier.
+        storage_key: Cloud object storage key where logs were stored.
+        sha256_checksum: Optional SHA-256 digest of uploaded log payload.
+        size_bytes: Actual size in bytes of uploaded log payload.
+        user_id: Identity of submitting worker or user.
+        elevate: Explicit administrative elevation flag.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    elevate: bool = Field(
+        default=False, description="Explicit administrative elevation flag"
+    )
+    job_id: str = Field(description="Job identifier")
+    sha256_checksum: str | None = Field(
+        default=None, description="Hexadecimal SHA-256 digest"
+    )
+    size_bytes: int = Field(default=0, ge=0, description="Payload size in bytes")
+    storage_key: str = Field(description="Cloud storage destination key")
+    user_id: str = Field(default="default", description="Requesting user identity")
+
+
+class GetJobLogDownloadUrlQuery(Query):
+    """Query to resolve a direct presigned read URL for client log streaming.
+
+    Args:
+        job_id: Unique job identifier.
+        expires_in_seconds: Download URL expiration TTL in seconds.
+        user_id: Identity of requesting user.
+        elevate: Explicit administrative elevation flag.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    elevate: bool = Field(
+        default=False, description="Explicit administrative elevation flag"
+    )
+    expires_in_seconds: int = Field(
+        default=900, ge=30, le=86400, description="Download URL expiration TTL"
+    )
+    job_id: str = Field(description="Job identifier")
+    user_id: str = Field(default="default", description="Requesting user identity")
+
+
+class PresignedDownloadUrl(BaseModel):
+    """Preauthenticated download URL descriptor returned to client.
+
+    Args:
+        job_id: Unique job identifier.
+        download_url: Preauthenticated direct read URL (e.g. S3 GET URL).
+        storage_key: Cloud object storage destination key.
+        expires_in_seconds: Validity TTL for presigned download link.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    download_url: str = Field(description="Direct presigned GET endpoint")
+    expires_in_seconds: int = Field(description="Download URL validity in seconds")
+    job_id: str = Field(description="Job identifier")
+    storage_key: str = Field(description="Cloud storage object key")
+
+
 __all__ = [
     "CancelJobCommand",
     "CancelRunCommand",
@@ -456,6 +572,7 @@ __all__ = [
     "CreatePtySessionCommand",
     "ExplainJobQuery",
     "GetFairShareTreeQuery",
+    "GetJobLogDownloadUrlQuery",
     "GetJobQuery",
     "GetLogsQuery",
     "GetNodesQuery",
@@ -463,8 +580,12 @@ __all__ = [
     "GetRunStatusQuery",
     "HoldJobCommand",
     "ListJobsQuery",
+    "NotifyLogUploadCompleteCommand",
+    "PresignedDownloadUrl",
+    "PresignedUploadToken",
     "RegisterCollateralCommand",
     "ReleaseJobCommand",
+    "RequestLogUploadUrlCommand",
     "SettleBudgetCommand",
     "StreamLogsQuery",
     "SubmitRunCommand",

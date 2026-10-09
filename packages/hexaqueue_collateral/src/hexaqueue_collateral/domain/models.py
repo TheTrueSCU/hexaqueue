@@ -67,7 +67,8 @@ class StagedUploadDescriptor(BaseModel):
     Args:
         bundle: Initial registered CollateralBundle.
         upload_url: Presigned PUT/POST URL or local file path destination.
-        staging_path: Internal staging storage location.
+        staging_path: Internal staging filesystem path or URI.
+        is_cache_hit: Whether an identical approved bundle was reused from CAS.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -75,6 +76,10 @@ class StagedUploadDescriptor(BaseModel):
     bundle: CollateralBundle = Field(description="Registered collateral bundle")
     staging_path: str = Field(description="Internal staging filesystem path or URI")
     upload_url: str = Field(description="Direct upload endpoint or destination")
+    is_cache_hit: bool = Field(
+        default=False,
+        description="Whether identical approved bundle was found in CAS",
+    )
 
 
 __all__ = [

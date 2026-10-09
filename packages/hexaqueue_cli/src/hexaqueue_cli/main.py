@@ -162,6 +162,9 @@ def logs_cmd(
     tail: int | None = typer.Option(
         None, "--tail", "-n", help="Number of lines to show from end"
     ),
+    url_only: bool = typer.Option(
+        False, "--url", help="Print presigned direct download URL instead of fetching"
+    ),
 ) -> None:
     """View stdout and stderr logs for a job.
 
@@ -169,13 +172,20 @@ def logs_cmd(
         job_id: Target job identifier.
         follow: Stream chunks asynchronously in real time.
         tail: Number of historical lines to tail.
+        url_only: Print preauthenticated direct storage download URL.
 
     Notes/Architectural Intent:
         Demuxes real-time stdout, stderr, and system log chunks with ANSI fidelity.
+        Supports control-plane deference via direct presigned object storage download URLs.
     """
 
     async def _logs() -> None:
         client = LocalClientAdapter()
+        if url_only:
+            dl_url = await client.get_log_download_url(job_id)
+            console.print(dl_url)
+            return
+
         if follow:
             await _stream_live_logs(client, job_id, tail)
             return

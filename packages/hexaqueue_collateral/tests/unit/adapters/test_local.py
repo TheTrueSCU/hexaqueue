@@ -288,6 +288,259 @@ async def test_local_collateral_no_scanner_fails_closed() -> None:
         await service.stage_file(desc.bundle.id, content)
         quarantined = await service.process_quarantine(desc.bundle.id)
         assert quarantined.state == CollateralState.QUARANTINED
-        assert "No quarantine scanner configured" in (
-            quarantined.quarantine_reason or ""
+        reason = quarantined.quarantine_reason or ""
+        assert "No quarantine scanner configured" in reason
+
+
+@pytest.mark.asyncio
+async def test_local_collateral_cas_deduplication_cache_hit():
+    """Verify Content-Addressable Storage (CAS) deduplication returns immediate cache hit."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        service = LocalCollateralServiceAdapter(
+            base_dir=tmpdir, security_port=BenignScanner()
         )
+        content = b"def model_inference(): return 42\n"
+        sha256 = hashlib.sha256(content).hexdigest()
+
+        # Initial ingestion & approval
+        req1 = IngestionRequest(
+            job_id="job-first",
+            filename="inference.py",
+            size_bytes=len(content),
+            sha256_checksum=sha256,
+            tier=CollateralTier.TEMPORARY,
+        )
+        desc1 = await service.register(req1)
+        assert desc1.is_cache_hit is False
+
+        await service.stage_file(desc1.bundle.id, content)
+        approved1 = await service.process_quarantine(desc1.bundle.id)
+        assert approved1.state == CollateralState.APPROVED
+
+        # Second registration with identical SHA-256
+        req2 = IngestionRequest(
+            job_id="job-second",
+            filename="inference.py",
+            size_bytes=len(content),
+            sha256_checksum=sha256,
+            tier=CollateralTier.TEMPORARY,
+        )
+        desc2 = await service.register(req2)
+        assert desc2.is_cache_hit is True
+        assert desc2.bundle.id == desc1.bundle.id
+        assert desc2.bundle.state == CollateralState.APPROVED
+        assert desc2.bundle.access_count >= 1
+
+        # Direct stage and quarantine calls are idempotent on approved bundle
+        staged_again = await service.stage_file(desc2.bundle.id, content)
+        assert staged_again.state == CollateralState.APPROVED
+        quarantined_again = await service.process_quarantine(desc2.bundle.id)
+        assert quarantined_again.state == CollateralState.APPROVED
+
+
+@pytest.mark.asyncio
+async def test_local_collateral_pin_and_unpin_lifecycle():
+    """Verify active job reference pinning and unpinning mechanics."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        service = LocalCollateralServiceAdapter(
+            base_dir=tmpdir, security_port=BenignScanner()
+        )
+        content = b"binary payload\n"
+        sha256 = hashlib.sha256(content).hexdigest()
+
+        req = IngestionRequest(
+            job_id="job-pin-test",
+            filename="binary.bin",
+            size_bytes=len(content),
+            sha256_checksum=sha256,
+        )
+        desc = await service.register(req)
+        await service.stage_file(desc.bundle.id, content)
+        bundle = await service.process_quarantine(desc.bundle.id)
+
+        pin_initial = bundle.active_pin_count
+        assert pin_initial == 0
+
+        # Pin for job 1
+        pinned1 = await service.pin_bundle(bundle.id)
+        assert pinned1.active_pin_count == 1
+
+        # Pin for job 2 (concurrent reference)
+        pinned2 = await service.pin_bundle(bundle.id)
+        assert pinned2.active_pin_count == 2
+
+        # Job 1 finishes -> unpin
+        unpinned1 = await service.unpin_bundle(bundle.id)
+        assert unpinned1.active_pin_count == 1
+
+        # Job 2 finishes -> unpin
+        unpinned2 = await service.unpin_bundle(bundle.id)
+        assert unpinned2.active_pin_count == 0
+
+        # Unpinning beyond zero must fail
+        with pytest.raises(HexaqueueError, match="active_pin_count is already 0"):
+            await service.unpin_bundle(bundle.id)
+
+
+@pytest.mark.asyncio
+async def test_local_collateral_eviction_ttl_and_pin_protection():
+    """Verify TTL cache eviction purges expired bundles while protecting pinned and permanent ones."""
+    from datetime import UTC, datetime, timedelta
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        service = LocalCollateralServiceAdapter(
+            base_dir=tmpdir, security_port=BenignScanner()
+        )
+
+        # 1. Ephemeral unpinned bundle (eligible for TTL eviction)
+        content_a = b"temporary unpinned\n"
+        sha_a = hashlib.sha256(content_a).hexdigest()
+        desc_a = await service.register(
+            IngestionRequest(
+                job_id="job-a",
+                filename="temp_a.bin",
+                size_bytes=len(content_a),
+                sha256_checksum=sha_a,
+                tier=CollateralTier.TEMPORARY,
+            )
+        )
+        await service.stage_file(desc_a.bundle.id, content_a)
+        await service.process_quarantine(desc_a.bundle.id)
+
+        # 2. Ephemeral pinned bundle (protected by active pin)
+        content_b = b"temporary pinned\n"
+        sha_b = hashlib.sha256(content_b).hexdigest()
+        desc_b = await service.register(
+            IngestionRequest(
+                job_id="job-b",
+                filename="temp_b.bin",
+                size_bytes=len(content_b),
+                sha256_checksum=sha_b,
+                tier=CollateralTier.TEMPORARY,
+            )
+        )
+        await service.stage_file(desc_b.bundle.id, content_b)
+        await service.process_quarantine(desc_b.bundle.id)
+        await service.pin_bundle(desc_b.bundle.id)
+
+        # 3. Permanent bundle (exempt from GC)
+        content_c = b"permanent golden image\n"
+        sha_c = hashlib.sha256(content_c).hexdigest()
+        desc_c = await service.register(
+            IngestionRequest(
+                job_id="job-c",
+                filename="perm_c.bin",
+                size_bytes=len(content_c),
+                sha256_checksum=sha_c,
+                tier=CollateralTier.PERMANENT,
+            )
+        )
+        await service.stage_file(desc_c.bundle.id, content_c)
+        await service.process_quarantine(desc_c.bundle.id)
+
+        # Artificially age all bundles to 100 seconds in the past
+        past_time = datetime.now(UTC) - timedelta(seconds=100)
+        service._bundles[desc_a.bundle.id] = service._bundles[
+            desc_a.bundle.id
+        ].model_copy(update={"last_accessed_at": past_time})
+        service._bundles[desc_b.bundle.id] = service._bundles[
+            desc_b.bundle.id
+        ].model_copy(update={"last_accessed_at": past_time})
+        service._bundles[desc_c.bundle.id] = service._bundles[
+            desc_c.bundle.id
+        ].model_copy(update={"last_accessed_at": past_time})
+
+        # Evict with max_age_seconds=60
+        evicted = await service.evict_expired(max_age_seconds=60)
+
+        # Only bundle A must be evicted
+        assert desc_a.bundle.id in evicted
+        assert desc_b.bundle.id not in evicted
+        assert desc_c.bundle.id not in evicted
+
+        # Active path for bundle A must be deleted
+        assert not Path(service._active_dir / sha_a / "temp_a.bin").exists()
+        # Active paths for B and C must still exist
+        assert Path(service._active_dir / sha_b / "temp_b.bin").exists()
+        assert Path(service._active_dir / sha_c / "perm_c.bin").exists()
+
+
+@pytest.mark.asyncio
+async def test_local_collateral_eviction_high_watermark_lru():
+    """Verify high-watermark LRU eviction reclaims oldest unpinned temporary bundles first."""
+    from datetime import UTC, datetime, timedelta
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        service = LocalCollateralServiceAdapter(
+            base_dir=tmpdir, security_port=BenignScanner()
+        )
+
+        async def create_bundle(name: str, size: int, age_seconds: int) -> str:
+            content = b"x" * size
+            sha = hashlib.sha256(content).hexdigest()
+            desc = await service.register(
+                IngestionRequest(
+                    job_id=f"job-{name}",
+                    filename=f"{name}.bin",
+                    size_bytes=size,
+                    sha256_checksum=sha,
+                    tier=CollateralTier.TEMPORARY,
+                )
+            )
+            await service.stage_file(desc.bundle.id, content)
+            await service.process_quarantine(desc.bundle.id)
+            bundle_time = datetime.now(UTC) - timedelta(seconds=age_seconds)
+            service._bundles[desc.bundle.id] = service._bundles[
+                desc.bundle.id
+            ].model_copy(update={"last_accessed_at": bundle_time})
+            return desc.bundle.id
+
+        # Bundle 1: 1000 bytes, 30s old (oldest)
+        id1 = await create_bundle("bundle1", 1000, 30)
+        # Bundle 2: 2000 bytes, 20s old (middle)
+        id2 = await create_bundle("bundle2", 2000, 20)
+        # Bundle 3: 3000 bytes, 10s old (newest)
+        id3 = await create_bundle("bundle3", 3000, 10)
+
+        # Total size = 6000 bytes. High watermark = 3500 bytes.
+        # Should evict bundle1 (1000b -> 5000b) then bundle2 (2000b -> 3000b <= 3500b).
+        evicted = await service.evict_expired(high_watermark_bytes=3500)
+
+        assert id1 in evicted
+        assert id2 in evicted
+        assert id3 not in evicted
+        assert id3 in service._bundles
+
+
+@pytest.mark.asyncio
+async def test_local_collateral_with_presigned_storage() -> None:
+    """Verify LocalCollateralServiceAdapter vends presigned upload URLs when configured."""
+    from hexaqueue_core.adapters.storage.presigned import (
+        InMemoryPresignedStorageAdapter,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage_port = InMemoryPresignedStorageAdapter(
+            endpoint_url="https://s3.example.com"
+        )
+        service = LocalCollateralServiceAdapter(
+            base_dir=tmpdir,
+            storage_port=storage_port,
+        )
+
+        content = b"presigned payload data"
+        sha256 = hashlib.sha256(content).hexdigest()
+
+        request = IngestionRequest(
+            job_id="job-presigned-1",
+            filename="artifact.tar.gz",
+            size_bytes=len(content),
+            sha256_checksum=sha256,
+        )
+        desc = await service.register(request)
+        url = desc.upload_url
+        is_hit = desc.is_cache_hit
+
+        assert is_hit is False
+        assert url.startswith("https://s3.example.com/upload/collateral/")
+        assert "artifact.tar.gz" in url

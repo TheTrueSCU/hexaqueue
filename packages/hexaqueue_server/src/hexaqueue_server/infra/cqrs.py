@@ -22,6 +22,7 @@ from hexastack_cqrs.infra.registries.command import CommandRegistry
 from hexastack_cqrs.infra.registries.handler import HandlerRegistry
 from hexastack_cqrs.infra.registries.query import QueryRegistry
 
+from hexaqueue_core.adapters.storage.presigned import InMemoryPresignedStorageAdapter
 from hexaqueue_core.domain.collateral import (
     CollateralBundle,
     CollateralState,
@@ -34,6 +35,7 @@ from hexaqueue_core.domain.cqrs import (
     CreatePtySessionCommand,
     ExplainJobQuery,
     GetFairShareTreeQuery,
+    GetJobLogDownloadUrlQuery,
     GetJobQuery,
     GetLogsQuery,
     GetNodesQuery,
@@ -41,8 +43,12 @@ from hexaqueue_core.domain.cqrs import (
     GetRunStatusQuery,
     HoldJobCommand,
     ListJobsQuery,
+    NotifyLogUploadCompleteCommand,
+    PresignedDownloadUrl,
+    PresignedUploadToken,
     RegisterCollateralCommand,
     ReleaseJobCommand,
+    RequestLogUploadUrlCommand,
     SettleBudgetCommand,
     SubmitRunCommand,
     SubmitSuiteCommand,
@@ -58,9 +64,11 @@ from hexaqueue_core.domain.explainability import (
 )
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import JobState, TerminalOutcome
+from hexaqueue_core.domain.retention import LogRetentionPolicy
 from hexaqueue_core.domain.run import RunSpec
 from hexaqueue_core.domain.suite import SuiteCompiler
 from hexaqueue_core.ports.logging import LogChunk
+from hexaqueue_core.ports.storage import PresignedStoragePort
 from hexaqueue_server.domain.models import RunStatusReport, RunSubmission
 from hexaqueue_server.ports.controller import SchedulerControllerPort
 from hexaqueue_worker.domain.pty import PtySessionInfo
@@ -133,6 +141,7 @@ class HexaqueueCqrsService:
         controller: SchedulerControllerPort,
         log_store: dict[str, list[LogChunk]] | None = None,
         nodes: list[NodeTelemetryPulse] | None = None,
+        storage_port: PresignedStoragePort | None = None,
     ) -> None:
         """Initialize the unified application service.
 
@@ -140,10 +149,13 @@ class HexaqueueCqrsService:
             controller: Scheduler controller instance for lifecycle management.
             log_store: Optional in-memory store for historical log chunks.
             nodes: Optional list of registered worker node telemetry pulses.
+            storage_port: Optional presigned storage port (defaults to InMemoryPresignedStorageAdapter).
         """
         self.controller = controller
         self.log_store = log_store if log_store is not None else {}
         self.nodes = nodes if nodes is not None else []
+        self.storage_port = storage_port or InMemoryPresignedStorageAdapter()
+        self.log_artifacts: dict[str, dict[str, Any]] = {}
 
     async def handle_submit_run(self, cmd: SubmitRunCommand) -> RunStatusReport:
         """Handle SubmitRunCommand.
@@ -570,11 +582,152 @@ class HexaqueueCqrsService:
             return chunks[-qry.tail :]
         return chunks
 
+    async def handle_request_log_upload_url(
+        self, cmd: RequestLogUploadUrlCommand
+    ) -> PresignedUploadToken:
+        """Handle RequestLogUploadUrlCommand.
+
+        Args:
+            cmd: Command payload with job_id, outcome, and size.
+
+        Returns:
+            PresignedUploadToken containing preauthenticated write URL and retention metadata.
+
+        Raises:
+            PermissionDeniedError: If unauthorized cross-tenant upload is requested.
+
+        Notes/Architectural Intent:
+            Resolves differential retention policy based on terminal outcome
+            (SHORT_PASS for COMPLETED vs LONG_FAIL for failures) and generates
+            a direct presigned upload URL bypassing server API saturation.
+        """
+        if not cmd.elevate:
+            try:
+                job = await self.controller.get_job(cmd.job_id)
+                owner = _extract_job_owner(job)
+                if owner != cmd.user_id:
+                    msg = (
+                        f"Permission denied: You are not the owner of job '{cmd.job_id}' (owned by '{owner}'). "
+                        "Explicit administrative elevation (--admin / elevate=true) is required."
+                    )
+                    raise PermissionDeniedError(msg)
+            except PermissionDeniedError:
+                raise
+            except Exception:
+                pass
+
+        storage_key = f"logs/{cmd.job_id}/stdout_stderr.log"
+        policy = LogRetentionPolicy.for_outcome(cmd.outcome)
+        upload_url = await self.storage_port.generate_presigned_upload_url(
+            key=storage_key,
+            content_type="text/plain",
+            expires_in_seconds=cmd.expires_in_seconds,
+        )
+        return PresignedUploadToken(
+            job_id=cmd.job_id,
+            upload_url=upload_url,
+            storage_key=storage_key,
+            retention_policy=policy,
+            expires_in_seconds=cmd.expires_in_seconds,
+        )
+
+    async def handle_notify_log_upload_complete(
+        self, cmd: NotifyLogUploadCompleteCommand
+    ) -> dict[str, Any]:
+        """Handle NotifyLogUploadCompleteCommand.
+
+        Args:
+            cmd: Command payload with uploaded log key, checksum, and size.
+
+        Returns:
+            Dictionary recording log artifact status.
+        """
+        self.log_artifacts[cmd.job_id] = {
+            "storage_key": cmd.storage_key,
+            "sha256_checksum": cmd.sha256_checksum,
+            "size_bytes": cmd.size_bytes,
+        }
+        if isinstance(
+            self.storage_port, InMemoryPresignedStorageAdapter
+        ) and not await self.storage_port.object_exists(cmd.storage_key):
+            self.storage_port.put_object(
+                key=cmd.storage_key,
+                data=b"[Simulated uploaded logs]",
+                metadata={"sha256": cmd.sha256_checksum or ""},
+            )
+        return {
+            "status": "recorded",
+            "job_id": cmd.job_id,
+            "storage_key": cmd.storage_key,
+        }
+
+    async def handle_get_job_log_download_url(
+        self, qry: GetJobLogDownloadUrlQuery
+    ) -> PresignedDownloadUrl:
+        """Handle GetJobLogDownloadUrlQuery.
+
+        Args:
+            qry: Query payload with job_id.
+
+        Returns:
+            PresignedDownloadUrl with preauthenticated read link.
+
+        Raises:
+            PermissionDeniedError: If unauthorized cross-tenant log inspection is attempted.
+
+        Notes/Architectural Intent:
+            Vends direct preauthenticated download URL so clients stream directly
+            from cloud object storage bypassing server API.
+        """
+        if not qry.elevate:
+            try:
+                job = await self.controller.get_job(qry.job_id)
+                owner = _extract_job_owner(job)
+                if owner != qry.user_id:
+                    msg = (
+                        f"Permission denied: You are not the owner of job '{qry.job_id}' (owned by '{owner}'). "
+                        "Explicit administrative elevation (--admin / elevate=true) is required."
+                    )
+                    raise PermissionDeniedError(msg)
+            except PermissionDeniedError:
+                raise
+            except Exception as exc:
+                msg = (
+                    f"Permission denied: Job '{qry.job_id}' not found in active registry to verify ownership. "
+                    "Explicit administrative elevation (--admin / elevate=true) is required."
+                )
+                raise PermissionDeniedError(msg) from exc
+
+        artifact = self.log_artifacts.get(qry.job_id)
+        storage_key = (
+            artifact["storage_key"]
+            if artifact
+            else f"logs/{qry.job_id}/stdout_stderr.log"
+        )
+        if isinstance(
+            self.storage_port, InMemoryPresignedStorageAdapter
+        ) and not await self.storage_port.object_exists(storage_key):
+            self.storage_port.put_object(
+                key=storage_key,
+                data=b"[Simulated log stream]",
+            )
+        download_url = await self.storage_port.generate_presigned_download_url(
+            key=storage_key,
+            expires_in_seconds=qry.expires_in_seconds,
+        )
+        return PresignedDownloadUrl(
+            job_id=qry.job_id,
+            download_url=download_url,
+            storage_key=storage_key,
+            expires_in_seconds=qry.expires_in_seconds,
+        )
+
 
 def create_hexaqueue_execution_pipeline(
     controller: SchedulerControllerPort,
     log_store: dict[str, list[LogChunk]] | None = None,
     nodes: list[NodeTelemetryPulse] | None = None,
+    storage_port: PresignedStoragePort | None = None,
 ) -> ExecutionPipeline:
     """Construct an ExecutionPipeline with all Hexaqueue CQRS command and query handlers.
 
@@ -582,6 +735,7 @@ def create_hexaqueue_execution_pipeline(
         controller: Central scheduler controller instance.
         log_store: Optional in-memory dictionary for historical job log chunks.
         nodes: Optional list of registered worker node telemetry pulses.
+        storage_port: Optional presigned storage port for log artifacts.
 
     Returns:
         Configured and populated ExecutionPipeline ready for synchronous dispatch.
@@ -591,7 +745,10 @@ def create_hexaqueue_execution_pipeline(
         CLI, REST API, gRPC, and Web Dashboard.
     """
     service = HexaqueueCqrsService(
-        controller=controller, log_store=log_store, nodes=nodes
+        controller=controller,
+        log_store=log_store,
+        nodes=nodes,
+        storage_port=storage_port,
     )
     handler_reg = HandlerRegistry()
     command_reg = CommandRegistry()
@@ -658,6 +815,18 @@ def create_hexaqueue_execution_pipeline(
         lambda cmd: run_coro_sync(service.handle_settle_budget(cmd)),
     )
 
+    command_reg.register(RequestLogUploadUrlCommand)
+    handler_reg.register(
+        RequestLogUploadUrlCommand,
+        lambda cmd: run_coro_sync(service.handle_request_log_upload_url(cmd)),
+    )
+
+    command_reg.register(NotifyLogUploadCompleteCommand)
+    handler_reg.register(
+        NotifyLogUploadCompleteCommand,
+        lambda cmd: run_coro_sync(service.handle_notify_log_upload_complete(cmd)),
+    )
+
     # Queries
     query_reg.register(GetRunStatusQuery)
     handler_reg.register(
@@ -705,6 +874,12 @@ def create_hexaqueue_execution_pipeline(
     handler_reg.register(
         GetLogsQuery,
         lambda qry: run_coro_sync(service.handle_get_logs(qry)),
+    )
+
+    query_reg.register(GetJobLogDownloadUrlQuery)
+    handler_reg.register(
+        GetJobLogDownloadUrlQuery,
+        lambda qry: run_coro_sync(service.handle_get_job_log_download_url(qry)),
     )
 
     return ExecutionPipeline(

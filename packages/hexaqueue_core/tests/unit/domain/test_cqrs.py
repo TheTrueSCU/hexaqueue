@@ -8,6 +8,7 @@ from hexaqueue_core.domain.cqrs import (
     CreatePtySessionCommand,
     ExplainJobQuery,
     GetFairShareTreeQuery,
+    GetJobLogDownloadUrlQuery,
     GetJobQuery,
     GetLogsQuery,
     GetNodesQuery,
@@ -15,15 +16,21 @@ from hexaqueue_core.domain.cqrs import (
     GetRunStatusQuery,
     HoldJobCommand,
     ListJobsQuery,
+    NotifyLogUploadCompleteCommand,
+    PresignedDownloadUrl,
+    PresignedUploadToken,
     RegisterCollateralCommand,
     ReleaseJobCommand,
+    RequestLogUploadUrlCommand,
     SettleBudgetCommand,
     StreamLogsQuery,
     SubmitRunCommand,
     SubmitSuiteCommand,
 )
 from hexaqueue_core.domain.job import JobSpec
+from hexaqueue_core.domain.lifecycle import TerminalOutcome
 from hexaqueue_core.domain.resources import ResourceRequirements
+from hexaqueue_core.domain.retention import LogRetentionPolicy, LogRetentionTier
 from hexaqueue_core.domain.run import RunSpec
 from hexaqueue_core.domain.suite import SuiteSpec, TaskSpec
 
@@ -143,3 +150,51 @@ def test_query_models() -> None:
 
     q_stream = StreamLogsQuery(job_id="job-1", follow=True)
     assert q_stream.follow is True
+
+
+def test_presigned_log_cqrs_models() -> None:
+    """Test CQRS commands and queries for presigned log upload and streaming."""
+    policy = LogRetentionPolicy.for_outcome(TerminalOutcome.COMPLETED)
+    cmd_upload = RequestLogUploadUrlCommand(
+        job_id="job-42",
+        outcome=TerminalOutcome.COMPLETED,
+        size_bytes=1024,
+        expires_in_seconds=600,
+    )
+    job_id = cmd_upload.job_id
+    assert job_id == "job-42"
+    assert cmd_upload.outcome == TerminalOutcome.COMPLETED
+    assert cmd_upload.size_bytes == 1024
+    assert cmd_upload.expires_in_seconds == 600
+
+    token = PresignedUploadToken(
+        job_id="job-42",
+        upload_url="https://s3.example.com/upload",
+        storage_key="logs/job-42/stdout.log",
+        retention_policy=policy,
+        expires_in_seconds=600,
+    )
+    assert token.upload_url == "https://s3.example.com/upload"
+    assert token.retention_policy.tier == LogRetentionTier.SHORT_PASS
+
+    cmd_complete = NotifyLogUploadCompleteCommand(
+        job_id="job-42",
+        storage_key="logs/job-42/stdout.log",
+        sha256_checksum="a" * 64,
+        size_bytes=2048,
+    )
+    assert cmd_complete.storage_key == "logs/job-42/stdout.log"
+    assert cmd_complete.size_bytes == 2048
+
+    query_dl = GetJobLogDownloadUrlQuery(job_id="job-42", expires_in_seconds=1200)
+    assert query_dl.job_id == "job-42"
+    assert query_dl.expires_in_seconds == 1200
+
+    dl_url = PresignedDownloadUrl(
+        job_id="job-42",
+        download_url="https://s3.example.com/download",
+        storage_key="logs/job-42/stdout.log",
+        expires_in_seconds=1200,
+    )
+    assert dl_url.download_url == "https://s3.example.com/download"
+    assert dl_url.expires_in_seconds == 1200
