@@ -9,12 +9,20 @@ Notes/Architectural Intent:
 import asyncio
 import contextlib
 import gzip
+import hashlib
 import importlib
+import shutil
+import tempfile
+import urllib.request
+from pathlib import Path
 from typing import Any
 
+from hexaqueue_collateral.ports.service import CollateralServicePort
 from hexaqueue_core.adapters.runtime.local import LocalSubprocessExecutionRuntimeAdapter
 from hexaqueue_core.adapters.storage.local import LocalDiskStorageVolumeAdapter
 from hexaqueue_core.adapters.storage.presigned import InMemoryPresignedStorageAdapter
+from hexaqueue_core.domain.collateral import CollateralBundle, CollateralState
+from hexaqueue_core.domain.exceptions import HexaqueueError
 from hexaqueue_core.domain.gpu import GpuAllocation
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import TerminalOutcome
@@ -73,6 +81,8 @@ class LocalSubprocessWorker(WorkerDaemonPort):
         log_port: Optional LogStreamPort for streaming stdout/stderr.
         gpu_manager: Optional GpuDeviceManagerPort for dynamic GPU allocation and CUDA masking.
         config: Optional WorkerConfig for concurrency and polling parameters.
+        presigned_storage: Optional PresignedStoragePort for presigned storage operations.
+        collateral_service: Optional CollateralServicePort for CAS collateral caching and retrieval.
     """
 
     def __init__(
@@ -85,17 +95,31 @@ class LocalSubprocessWorker(WorkerDaemonPort):
         gpu_manager: GpuDeviceManagerPort | None = None,
         config: WorkerConfig | None = None,
         presigned_storage: PresignedStoragePort | None = None,
+        collateral_service: CollateralServicePort | None = None,
     ) -> None:
         self._queue = queue
         self._controller = controller
         self._log_port = log_port
         self._gpu_manager = gpu_manager
         self._presigned_storage = presigned_storage
+        self._collateral_service = collateral_service
         self._runtime = runtime or LocalSubprocessExecutionRuntimeAdapter(
             log_port=self._log_port
         )
         self._storage = storage or LocalDiskStorageVolumeAdapter()
         self._config = config or WorkerConfig()
+
+        self._collateral_cache_dir = (
+            Path(self._config.collateral_cache_dir)
+            if self._config.collateral_cache_dir
+            else Path(tempfile.gettempdir())
+            / f"hexaqueue_worker_cas_{self._config.worker_id}"
+        )
+        self._collateral_cache_dir.mkdir(parents=True, exist_ok=True)
+        self._cached_collateral_hashes: set[str] = set()
+        for p in self._collateral_cache_dir.iterdir():
+            if p.is_dir() and len(p.name) == 64:
+                self._cached_collateral_hashes.add(p.name)
 
         self._semaphore = asyncio.Semaphore(self._config.concurrency)
         self._active_jobs: set[str] = set()
@@ -194,6 +218,10 @@ class LocalSubprocessWorker(WorkerDaemonPort):
                 base_dir=self._config.scratch_base_dir,
             )
 
+            # 2.5 Rehydrate required collateral bundles into scratch workspace
+            if job.collateral_ids:
+                await self._rehydrate_collateral(job, scratch_vol)
+
             # 3. Execute process via runtime
             result = await self._runtime.execute(
                 job=job,
@@ -259,6 +287,165 @@ class LocalSubprocessWorker(WorkerDaemonPort):
                     async with self._lock:
                         self._active_jobs.discard(job.id)
 
+    @property
+    def cached_collateral_hashes(self) -> frozenset[str]:
+        """Return the set of CAS SHA-256 hashes currently held in local worker cache.
+
+        Returns:
+            Frozenset of hex-encoded SHA-256 digests.
+        """
+        return frozenset(self._cached_collateral_hashes)
+
+    async def heartbeat_controller(self) -> Any:
+        """Dispatch a heartbeat pulse to the controller reporting active jobs and cached hashes.
+
+        Returns:
+            Controller heartbeat response or None if controller is not wired.
+        """
+        if self._controller and hasattr(self._controller, "heartbeat_node"):
+            return await self._controller.heartbeat_node(
+                worker_id=self._config.worker_id,
+                active_job_ids=list(self._active_jobs),
+                cached_collateral_hashes=list(self._cached_collateral_hashes),
+            )
+        return None
+
+    async def _fetch_collateral_payload(
+        self,
+        bundle: CollateralBundle,
+        cid: str,
+        expected_sha256: str,
+        safe_filename: str,
+    ) -> bytes:
+        """Fetch raw collateral payload bytes across local disk, storage adapter, or HTTP.
+
+        Args:
+            bundle: CollateralBundle domain instance.
+            cid: Collateral identifier string.
+            expected_sha256: Expected SHA-256 digest.
+            safe_filename: Sanitized target filename.
+
+        Returns:
+            Raw bytes payload of the collateral file.
+
+        Raises:
+            HexaqueueError: If payload cannot be downloaded or resolved.
+        """
+        if bundle.active_uri and Path(bundle.active_uri).exists():
+            return Path(bundle.active_uri).read_bytes()
+
+        if self._collateral_service is None:
+            msg = f"Cannot fetch collateral '{cid}': collateral service not configured"
+            raise HexaqueueError(msg)
+
+        download_url = await self._collateral_service.get_download_url(cid)
+        if download_url.startswith("file://"):
+            local_path = Path(download_url.removeprefix("file://"))
+            if local_path.exists():
+                return local_path.read_bytes()
+
+        if self._presigned_storage and isinstance(
+            self._presigned_storage, InMemoryPresignedStorageAdapter
+        ):
+            key = f"collateral/{expected_sha256}/{safe_filename}"
+            return self._presigned_storage.get_object(key)
+
+        if download_url.startswith(("http://", "https://")):
+            req = urllib.request.Request(download_url)  # noqa: S310
+            with urllib.request.urlopen(req) as resp:  # noqa: S310
+                return resp.read()
+
+        msg = f"Failed to retrieve payload for collateral bundle '{cid}' from '{download_url}'"
+        raise HexaqueueError(msg)
+
+    async def _ensure_cached_collateral(self, cid: str) -> tuple[Path, str]:
+        """Ensure a single collateral bundle is cached in local CAS and verified.
+
+        Args:
+            cid: Collateral identifier string.
+
+        Returns:
+            Tuple of (cached_file_path, safe_filename).
+
+        Raises:
+            HexaqueueError: If bundle is missing, unapproved, fails verification, or cannot be cached.
+        """
+        if self._collateral_service is None:
+            msg = (
+                f"Cannot rehydrate collateral '{cid}': no collateral service configured"
+            )
+            raise HexaqueueError(msg)
+
+        bundle = await self._collateral_service.get_bundle(cid)
+        if bundle.state != CollateralState.APPROVED:
+            msg = (
+                f"Collateral bundle '{cid}' is in state '{bundle.state}', "
+                f"not APPROVED. Refusing to inject into job workspace."
+            )
+            raise HexaqueueError(msg)
+
+        expected_sha256 = bundle.sha256_checksum.lower().strip()
+        raw_filename = Path(bundle.filename).name
+        safe_filename = (
+            raw_filename if raw_filename not in ("", ".", "..") else f"collateral_{cid}"
+        )
+
+        cas_dir = self._collateral_cache_dir / expected_sha256
+        cached_file = cas_dir / safe_filename
+
+        if not cached_file.exists():
+            cas_dir.mkdir(parents=True, exist_ok=True)
+            data = await self._fetch_collateral_payload(
+                bundle=bundle,
+                cid=cid,
+                expected_sha256=expected_sha256,
+                safe_filename=safe_filename,
+            )
+            actual_sha256 = hashlib.sha256(data).hexdigest()
+            if actual_sha256 != expected_sha256:
+                msg = (
+                    f"Collateral integrity verification failed for '{cid}': "
+                    f"expected SHA-256 {expected_sha256}, got {actual_sha256}"
+                )
+                raise HexaqueueError(msg)
+            cached_file.write_bytes(data)
+
+        self._cached_collateral_hashes.add(expected_sha256)
+        return cached_file, safe_filename
+
+    async def _rehydrate_collateral(
+        self,
+        job: JobSpec,
+        scratch_volume: VolumeAllocation,
+    ) -> None:
+        """Fetch, verify, cache, and symlink required collateral bundles into scratch volume.
+
+        Args:
+            job: Job specification requesting collateral.
+            scratch_volume: Ephemeral volume allocation representing execution cwd.
+
+        Raises:
+            HexaqueueError: If collateral is missing, unapproved, fails checksum, or cannot be resolved.
+
+        Notes/Architectural Intent:
+            Content-addressable storage rehydration downloads bundles once into a shared
+            node CAS directory named by SHA-256 digest, then creates zero-copy symlinks
+            into each job's isolated scratch directory.
+        """
+        if not job.collateral_ids:
+            return
+
+        mount_path = Path(scratch_volume.mount_path)
+        for cid in job.collateral_ids:
+            cached_file, safe_filename = await self._ensure_cached_collateral(cid)
+            dest_target = mount_path / safe_filename
+            if dest_target.exists() or dest_target.is_symlink():
+                dest_target.unlink()
+            try:
+                dest_target.symlink_to(cached_file)
+            except OSError:
+                shutil.copy2(cached_file, dest_target)
+
     async def get_metrics(self) -> WorkerMetrics:
         """Retrieve real-time operational worker metrics."""
         async with self._lock:
@@ -268,6 +455,7 @@ class LocalSubprocessWorker(WorkerDaemonPort):
                 total_executed=self._total_executed,
                 total_completed=self._total_completed,
                 total_failed=self._total_failed,
+                cached_collateral_count=len(self._cached_collateral_hashes),
                 is_running=self._running,
             )
 

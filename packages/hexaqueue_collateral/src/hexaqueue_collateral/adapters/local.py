@@ -111,6 +111,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
             state=CollateralState.REGISTERED,
             staging_uri=str(dest_staging_path),
             active_uri=None,
+            ttl_seconds=request.ttl_seconds,
         )
         self._bundles[collateral_id] = bundle
 
@@ -208,6 +209,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
             tier=bundle.tier,
             state=CollateralState.UPLOADED,
             staging_uri=bundle.staging_uri,
+            ttl_seconds=bundle.ttl_seconds,
         )
         self._bundles[collateral_id] = uploaded_bundle
         return uploaded_bundle
@@ -233,6 +235,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
             tier=bundle.tier,
             state=CollateralState.SCANNING,
             staging_uri=bundle.staging_uri,
+            ttl_seconds=bundle.ttl_seconds,
         )
         self._bundles[collateral_id] = scanning_bundle
 
@@ -254,6 +257,13 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
             active_target_dir.mkdir(exist_ok=True)
             active_path = active_target_dir / bundle.filename
             shutil.copy2(staged_path, active_path)
+            if self._storage_port:
+                put_fn = getattr(self._storage_port, "put_object", None)
+                if callable(put_fn):
+                    put_fn(
+                        f"collateral/{bundle.sha256_checksum}/{bundle.filename}",
+                        active_path.read_bytes(),
+                    )
 
             approved_bundle = CollateralBundle(
                 id=bundle.id,
@@ -266,6 +276,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
                 state=CollateralState.APPROVED,
                 staging_uri=bundle.staging_uri,
                 active_uri=str(active_path),
+                ttl_seconds=bundle.ttl_seconds,
             )
             self._bundles[collateral_id] = approved_bundle
             return approved_bundle
@@ -287,6 +298,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
                 state=CollateralState.QUARANTINED,
                 staging_uri=str(quarantine_path),
                 quarantine_reason=reason or "Threat detected during security scan",
+                ttl_seconds=bundle.ttl_seconds,
             )
             self._bundles[collateral_id] = quarantined_bundle
             return quarantined_bundle
@@ -303,6 +315,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
             state=CollateralState.REJECTED,
             staging_uri=bundle.staging_uri,
             quarantine_reason=reason or "Security scan rejected artifact",
+            ttl_seconds=bundle.ttl_seconds,
         )
         self._bundles[collateral_id] = rejected_bundle
         return rejected_bundle
@@ -349,6 +362,34 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
                 return discovered
         return None
 
+    async def get_download_url(self, collateral_id: str) -> str:
+        """Vend a download URL or verified file URI for an approved collateral bundle.
+
+        Args:
+            collateral_id: Collateral bundle identifier.
+
+        Returns:
+            Direct presigned download URL or verified local file URI.
+
+        Raises:
+            HexaqueueError: If collateral is not found or not in APPROVED state.
+        """
+        bundle = await self.get_bundle(collateral_id)
+        if bundle.state != CollateralState.APPROVED or not bundle.active_uri:
+            msg = (
+                f"Cannot vend download URL: collateral '{collateral_id}' "
+                f"is in state '{bundle.state}', not APPROVED"
+            )
+            raise HexaqueueError(msg)
+
+        if self._storage_port is not None:
+            safe_filename = Path(bundle.filename).name
+            return await self._storage_port.generate_presigned_download_url(
+                key=f"collateral/{bundle.sha256_checksum}/{safe_filename}"
+            )
+
+        return f"file://{bundle.active_uri}"
+
     async def pin_bundle(self, collateral_id: str) -> CollateralBundle:
         """Pin a collateral bundle to declare active usage by a running job."""
         bundle = await self.get_bundle(collateral_id)
@@ -384,10 +425,11 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
             and b.state == CollateralState.APPROVED
         ]
 
-        # 1. TTL-based eviction
-        if max_age_seconds is not None:
-            cutoff = now - timedelta(seconds=max_age_seconds)
-            for b in list(eligible):
+        # 1. TTL-based eviction (checks custom bundle ttl_seconds or default max_age_seconds)
+        for b in list(eligible):
+            bundle_ttl = b.ttl_seconds if b.ttl_seconds is not None else max_age_seconds
+            if bundle_ttl is not None:
+                cutoff = now - timedelta(seconds=bundle_ttl)
                 if b.last_accessed_at < cutoff:
                     self._purge_bundle(b)
                     evicted_ids.append(b.id)

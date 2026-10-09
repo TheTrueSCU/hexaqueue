@@ -22,6 +22,7 @@ class IngestionRequest(BaseModel):
         sha256_checksum: Hexadecimal SHA-256 digest string.
         kind: Classification kind (OS_IMAGE, CONTAINER_IMAGE, TEST_BINARY, DATASET, BUNDLE).
         tier: Retention tier (PERMANENT or TEMPORARY).
+        ttl_seconds: Optional custom time-to-live in seconds for TEMPORARY collateral.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -37,6 +38,11 @@ class IngestionRequest(BaseModel):
     size_bytes: int = Field(ge=0, description="Payload size in bytes")
     tier: CollateralTier = Field(
         default=CollateralTier.TEMPORARY, description="Retention tier"
+    )
+    ttl_seconds: int | None = Field(
+        default=None,
+        ge=1,
+        description="Optional custom time-to-live in seconds for TEMPORARY collateral",
     )
 
     @model_validator(mode="after")
@@ -80,6 +86,11 @@ class StagedUploadDescriptor(BaseModel):
         default=False,
         description="Whether identical approved bundle was found in CAS",
     )
+
+    @property
+    def collateral_id(self) -> str:
+        """Convenience property returning the unique collateral bundle identifier."""
+        return self.bundle.id
 
 
 __all__ = [

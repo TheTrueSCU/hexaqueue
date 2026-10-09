@@ -100,6 +100,24 @@ class CollateralServicePort(ABC):
         """
 
     @abstractmethod
+    async def get_download_url(self, collateral_id: str) -> str:
+        """Vend a download URL or verified file URI for an approved collateral bundle.
+
+        Args:
+            collateral_id: Collateral bundle identifier.
+
+        Returns:
+            Direct presigned download URL or verified local file URI.
+
+        Raises:
+            HexaqueueError: If collateral is not found or not in APPROVED state.
+
+        Notes/Architectural Intent:
+            Enforces that compute workers can only access verified clean collateral
+            that has successfully cleared quarantine scanning.
+        """
+
+    @abstractmethod
     async def pin_bundle(self, collateral_id: str) -> CollateralBundle:
         """Pin a collateral bundle to declare active usage by a running job.
 

@@ -10,6 +10,7 @@ def test_collateral_service_port_is_abstract():
     assert hasattr(CollateralServicePort, "process_quarantine")
     assert hasattr(CollateralServicePort, "get_bundle")
     assert hasattr(CollateralServicePort, "find_by_checksum")
+    assert hasattr(CollateralServicePort, "get_download_url")
     assert hasattr(CollateralServicePort, "pin_bundle")
     assert hasattr(CollateralServicePort, "unpin_bundle")
     assert hasattr(CollateralServicePort, "evict_expired")

@@ -6,9 +6,11 @@ Notes/Architectural Intent:
 """
 
 import asyncio
+import contextlib
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
+from hexaqueue_collateral.ports.service import CollateralServicePort
 from hexaqueue_core.domain.config import ExecutionMode
 from hexaqueue_core.domain.dag import JobDagEngine, TriggerCondition
 from hexaqueue_core.domain.exceptions import FreeTierLimitExceededError, HexaqueueError
@@ -55,6 +57,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
         leader_election: LeaderElectionPort | None = None,
         controller_id: str = "controller-main",
         placement_engine: WarmCachePlacementEngine | None = None,
+        collateral_service: CollateralServicePort | None = None,
     ) -> None:
         """Initialize controller with task queue and optional notification dispatcher.
 
@@ -66,6 +69,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             leader_election: Optional LeaderElectionPort for HA active/standby leases.
             controller_id: Unique identifier of this controller instance.
             placement_engine: Optional WarmCachePlacementEngine for warm cache aware scheduling.
+            collateral_service: Optional CollateralServicePort for automated collateral pinning/unpinning.
 
         Notes/Architectural Intent:
             When operating under Free-Tier Safety Mode (`mode == ExecutionMode.FREE_TIER`
@@ -85,6 +89,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
         self._leader_election = leader_election
         self._controller_id = controller_id
         self._placement_engine = placement_engine or WarmCachePlacementEngine()
+        self._collateral_service = collateral_service
         self._runs: dict[str, RunSubmission] = {}
         self._jobs: dict[str, JobSpec] = {}
         self._dag_engines: dict[str, JobDagEngine] = {}
@@ -319,6 +324,12 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             )
             self._jobs[job_id] = terminal_job
 
+            # Unpin collateral bundles upon job completion
+            if self._collateral_service and current_job.collateral_ids:
+                for cid in current_job.collateral_ids:
+                    with contextlib.suppress(Exception):
+                        await self._collateral_service.unpin_bundle(cid)
+
             # Dispatch job-level notification
             job_trigger = map_lifecycle_to_trigger(JobState.DONE, outcome)
             if job_trigger:
@@ -431,6 +442,10 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                         }
                     )
                     self._jobs[job.id] = cancelled_job
+                    if self._collateral_service and current.collateral_ids:
+                        for cid in current.collateral_ids:
+                            with contextlib.suppress(Exception):
+                                await self._collateral_service.unpin_bundle(cid)
                     await self._dispatcher.async_dispatch_job_event(
                         cancelled_job, NotificationTrigger.CANCELLED
                     )
@@ -472,6 +487,13 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                     }
                 )
                 self._jobs[job_id] = cancelled_job
+
+                # Unpin collateral bundles upon job cancellation
+                if self._collateral_service and current.collateral_ids:
+                    for cid in current.collateral_ids:
+                        with contextlib.suppress(Exception):
+                            await self._collateral_service.unpin_bundle(cid)
+
                 await self._dispatcher.async_dispatch_job_event(
                     cancelled_job, NotificationTrigger.CANCELLED
                 )
@@ -714,6 +736,10 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                     }
                 )
                 self._jobs[job.id] = failed_job
+                if self._collateral_service and job.collateral_ids:
+                    for cid in job.collateral_ids:
+                        with contextlib.suppress(Exception):
+                            await self._collateral_service.unpin_bundle(cid)
                 if job.run_id in self._runs:
                     submission = self._runs[job.run_id]
                     dag = self._dag_engines[job.run_id]
@@ -756,13 +782,24 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                 raise HexaqueueError(msg)
 
             job = self._jobs[job_id]
+            resolved_hash_map = (
+                dict(collateral_hash_map) if collateral_hash_map is not None else {}
+            )
+            if self._collateral_service and job.collateral_ids:
+                for cid in job.collateral_ids:
+                    if cid not in resolved_hash_map:
+                        with contextlib.suppress(Exception):
+                            bundle = await self._collateral_service.get_bundle(cid)
+                            if bundle and bundle.sha256_checksum:
+                                resolved_hash_map[cid] = bundle.sha256_checksum
+
             backlog_size = sum(
                 1 for j in self._jobs.values() if j.state == JobState.PENDING
             )
             decision = self._placement_engine.evaluate_placement(
                 job=job,
                 nodes=list(self._nodes.values()),
-                collateral_hash_map=collateral_hash_map,
+                collateral_hash_map=resolved_hash_map if resolved_hash_map else None,
                 backlog_size=backlog_size,
             )
 
@@ -775,6 +812,12 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                     }
                 )
                 self._jobs[job_id] = updated_job
+
+                # Pin collateral bundles for this scheduled job
+                if self._collateral_service and job.collateral_ids:
+                    for cid in job.collateral_ids:
+                        with contextlib.suppress(Exception):
+                            await self._collateral_service.pin_bundle(cid)
 
                 if assigned_node_id in self._nodes:
                     node = self._nodes[assigned_node_id]

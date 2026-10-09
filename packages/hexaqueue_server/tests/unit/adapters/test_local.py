@@ -1,13 +1,15 @@
 """Tests for LocalSchedulerControllerAdapter."""
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from hexastack_core.ports.notification import NotificationPort
 
+from hexaqueue_collateral.ports.service import CollateralServicePort
 from hexaqueue_core.adapters.coordination.in_memory import InMemoryLeaderElectionAdapter
 from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
+from hexaqueue_core.domain.collateral import CollateralBundle
 from hexaqueue_core.domain.config import ExecutionMode
 from hexaqueue_core.domain.dag import DependencyCycleError
 from hexaqueue_core.domain.exceptions import HexaqueueError
@@ -979,3 +981,117 @@ async def test_local_scheduler_controller_schedule_placement() -> None:
     assert worker == "node-warm"
     state = updated_job.state
     assert state == JobState.PROVISIONING
+
+
+@pytest.mark.asyncio
+async def test_local_scheduler_controller_schedule_placement_collateral_lifecycle() -> (
+    None
+):
+    """Verify schedule_placement resolves hashes, pins bundles, and unpins on completion."""
+    mock_collateral = AsyncMock(spec=CollateralServicePort)
+    dummy_checksum = "a" * 64
+    bundle = CollateralBundle(
+        id="col-alpha",
+        job_id="job-col-1",
+        filename="weights.bin",
+        sha256_checksum=dummy_checksum,
+        staging_uri="file:///tmp/quarantine/col-alpha/weights.bin",
+        size_bytes=1024,
+    )
+    mock_collateral.get_bundle.return_value = bundle
+    mock_collateral.pin_bundle.return_value = bundle
+    mock_collateral.unpin_bundle.return_value = bundle
+
+    queue = InMemoryJobQueueAdapter()
+    controller = LocalSchedulerControllerAdapter(
+        queue=queue,
+        collateral_service=mock_collateral,
+    )
+
+    node_warm = ComputeNodeProfile(
+        node_id="worker-warm",
+        tier=NodeProvisioningTier.STATIC,
+        cached_collateral_hashes=frozenset([dummy_checksum]),
+    )
+    await controller.register_node(node_warm)
+
+    run = RunSpec(id="run-col-life", name="col-life-run")
+    job = JobSpec(
+        id="job-col-1",
+        run_id=run.id,
+        name="job-weights",
+        command="python eval.py",
+        collateral_ids=["col-alpha"],
+    )
+    submission = RunSubmission(run_spec=run, jobs=[job])
+    await controller.submit_run(submission)
+
+    # 1. Placement without explicit hash_map -> auto-resolves via collateral_service and pins
+    decision = await controller.schedule_placement(job_id="job-col-1")
+    sel_id = decision.selected_node_id
+    assert sel_id == "worker-warm"
+    warm_count = decision.warm_hits
+    assert warm_count == 1
+    mock_collateral.get_bundle.assert_awaited_once_with("col-alpha")
+    mock_collateral.pin_bundle.assert_awaited_once_with("col-alpha")
+
+    # 2. Terminal completion unpins collateral
+    await controller.update_job_outcome(
+        "job-col-1", TerminalOutcome.COMPLETED, reason="Done"
+    )
+    mock_collateral.unpin_bundle.assert_awaited_once_with("col-alpha")
+
+
+@pytest.mark.asyncio
+async def test_local_scheduler_controller_cancel_unpins_collateral() -> None:
+    """Verify job and run cancellation cleanly unpins pinned collateral bundles."""
+    mock_collateral = AsyncMock(spec=CollateralServicePort)
+    bundle = CollateralBundle(
+        id="col-cancel",
+        job_id="j-c1",
+        filename="data.tar.gz",
+        sha256_checksum="b" * 64,
+        staging_uri="file:///tmp/quarantine/col-cancel/data.tar.gz",
+        size_bytes=2048,
+    )
+    mock_collateral.get_bundle.return_value = bundle
+
+    queue = InMemoryJobQueueAdapter()
+    controller = LocalSchedulerControllerAdapter(
+        queue=queue,
+        collateral_service=mock_collateral,
+    )
+
+    run1 = RunSpec(id="run-c1", name="cancel-job-run")
+    job1 = JobSpec(
+        id="j-c1",
+        run_id=run1.id,
+        name="job-c1",
+        command="sleep 10",
+        collateral_ids=["col-cancel"],
+    )
+    await controller.submit_run(RunSubmission(run_spec=run1, jobs=[job1]))
+
+    # Cancel job unpins
+    res_cancel_job = await controller.cancel_job("j-c1")
+    st1 = res_cancel_job.state
+    assert st1 == JobState.DONE
+    mock_collateral.unpin_bundle.assert_awaited_once_with("col-cancel")
+
+    mock_collateral.reset_mock()
+
+    # Cancel run unpins
+    run2 = RunSpec(id="run-c2", name="cancel-run-run")
+    job2 = JobSpec(
+        id="j-c2",
+        run_id=run2.id,
+        name="job-c2",
+        command="sleep 10",
+        collateral_ids=["col-cancel"],
+    )
+    await controller.submit_run(RunSubmission(run_spec=run2, jobs=[job2]))
+
+    res_cancel_run = await controller.cancel_run("run-c2")
+    out = res_cancel_run.outcome
+    assert out == RunOutcome.CANCELLED
+    mock_collateral.unpin_bundle.assert_awaited_once_with("col-cancel")

@@ -14,12 +14,17 @@ from hexastack_cqrs.infra.registries.command import CommandRegistry
 from hexastack_cqrs.infra.registries.handler import HandlerRegistry
 from hexastack_cqrs.infra.registries.query import QueryRegistry
 
+from hexaqueue_collateral.ports.service import CollateralServicePort
 from hexaqueue_core.domain.cqrs import (
     CancelJobCommand,
     CancelRunCommand,
     CreateBastionSessionCommand,
     CreatePtySessionCommand,
+    EvictExpiredCollateralCommand,
     ExplainJobQuery,
+    FindCollateralByChecksumQuery,
+    GetCollateralBundleQuery,
+    GetCollateralDownloadUrlQuery,
     GetDeadLetterQueueQuery,
     GetFairShareTreeQuery,
     GetJobLogDownloadUrlQuery,
@@ -33,6 +38,7 @@ from hexaqueue_core.domain.cqrs import (
     ListComputeNodesQuery,
     ListJobsQuery,
     NotifyLogUploadCompleteCommand,
+    PinCollateralCommand,
     RegisterCollateralCommand,
     RegisterNodeCommand,
     ReleaseJobCommand,
@@ -40,6 +46,7 @@ from hexaqueue_core.domain.cqrs import (
     SettleBudgetCommand,
     SubmitRunCommand,
     SubmitSuiteCommand,
+    UnpinCollateralCommand,
 )
 from hexaqueue_core.ports.logging import LogChunk
 from hexaqueue_core.ports.storage import PresignedStoragePort
@@ -54,6 +61,7 @@ def create_hexaqueue_execution_pipeline(
     log_store: dict[str, list[LogChunk]] | None = None,
     nodes: list[NodeTelemetryPulse] | None = None,
     storage_port: PresignedStoragePort | None = None,
+    collateral_service: CollateralServicePort | None = None,
 ) -> ExecutionPipeline:
     """Construct an ExecutionPipeline with all Hexaqueue CQRS command and query handlers.
 
@@ -62,6 +70,7 @@ def create_hexaqueue_execution_pipeline(
         log_store: Optional in-memory dictionary for historical job log chunks.
         nodes: Optional list of registered worker node telemetry pulses.
         storage_port: Optional presigned storage port for log artifacts.
+        collateral_service: Optional collateral service instance.
 
     Returns:
         Configured and populated ExecutionPipeline ready for synchronous dispatch.
@@ -75,6 +84,7 @@ def create_hexaqueue_execution_pipeline(
         log_store=log_store,
         nodes=nodes,
         storage_port=storage_port,
+        collateral_service=collateral_service,
     )
     handler_reg = HandlerRegistry()
     command_reg = CommandRegistry()
@@ -121,6 +131,24 @@ def create_hexaqueue_execution_pipeline(
     handler_reg.register(
         RegisterCollateralCommand,
         lambda cmd: run_coro_sync(service.handle_register_collateral(cmd)),
+    )
+
+    command_reg.register(PinCollateralCommand)
+    handler_reg.register(
+        PinCollateralCommand,
+        lambda cmd: run_coro_sync(service.handle_pin_collateral(cmd)),
+    )
+
+    command_reg.register(UnpinCollateralCommand)
+    handler_reg.register(
+        UnpinCollateralCommand,
+        lambda cmd: run_coro_sync(service.handle_unpin_collateral(cmd)),
+    )
+
+    command_reg.register(EvictExpiredCollateralCommand)
+    handler_reg.register(
+        EvictExpiredCollateralCommand,
+        lambda cmd: run_coro_sync(service.handle_evict_expired_collateral(cmd)),
     )
 
     command_reg.register(CreatePtySessionCommand)
@@ -230,6 +258,24 @@ def create_hexaqueue_execution_pipeline(
     handler_reg.register(
         ListComputeNodesQuery,
         lambda qry: run_coro_sync(service.handle_list_compute_nodes(qry)),
+    )
+
+    query_reg.register(GetCollateralBundleQuery)
+    handler_reg.register(
+        GetCollateralBundleQuery,
+        lambda qry: run_coro_sync(service.handle_get_collateral_bundle(qry)),
+    )
+
+    query_reg.register(FindCollateralByChecksumQuery)
+    handler_reg.register(
+        FindCollateralByChecksumQuery,
+        lambda qry: run_coro_sync(service.handle_find_collateral_by_checksum(qry)),
+    )
+
+    query_reg.register(GetCollateralDownloadUrlQuery)
+    handler_reg.register(
+        GetCollateralDownloadUrlQuery,
+        lambda qry: run_coro_sync(service.handle_get_collateral_download_url(qry)),
     )
 
     return ExecutionPipeline(

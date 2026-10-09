@@ -8,20 +8,25 @@ Notes/Architectural Intent:
 
 import time
 from typing import Any
-from uuid import uuid4
 
+from hexaqueue_collateral.domain.models import IngestionRequest
 from hexaqueue_core.domain.collateral import (
     CollateralBundle,
-    CollateralState,
 )
 from hexaqueue_core.domain.cqrs import (
     ClusterStatsReport,
     DeadLetterQueueReport,
+    EvictExpiredCollateralCommand,
+    FindCollateralByChecksumQuery,
+    GetCollateralBundleQuery,
+    GetCollateralDownloadUrlQuery,
     GetDeadLetterQueueQuery,
     GetFairShareTreeQuery,
     GetQueueStatsQuery,
+    PinCollateralCommand,
     RegisterCollateralCommand,
     SettleBudgetCommand,
+    UnpinCollateralCommand,
 )
 from hexaqueue_core.domain.explainability import (
     FairShareTreeReport,
@@ -45,17 +50,97 @@ class ClusterCqrsMixin(BaseCqrsService):
         Returns:
             Registered CollateralBundle.
         """
-        checksum = cmd.checksum_sha256.zfill(64)
-        return CollateralBundle(
-            id=f"col-{uuid4().hex[:8]}",
-            job_id="global",
+        req = IngestionRequest(
             filename=cmd.name,
-            size_bytes=cmd.size_bytes,
-            sha256_checksum=checksum,
-            tier=cmd.tier,
+            job_id=cmd.user_id,
             kind=cmd.kind,
-            state=CollateralState.REGISTERED,
-            staging_uri=f"s3://staging/collateral/{cmd.name}",
+            sha256_checksum=cmd.checksum_sha256.lower().strip().zfill(64),
+            size_bytes=cmd.size_bytes,
+            tier=cmd.tier,
+            ttl_seconds=cmd.ttl_seconds,
+        )
+        desc = await self.collateral_service.register(req)
+        return desc.bundle
+
+    async def handle_get_collateral_bundle(
+        self, qry: GetCollateralBundleQuery
+    ) -> CollateralBundle:
+        """Handle GetCollateralBundleQuery.
+
+        Args:
+            qry: Query payload.
+
+        Returns:
+            CollateralBundle metadata snapshot.
+        """
+        return await self.collateral_service.get_bundle(qry.collateral_id)
+
+    async def handle_find_collateral_by_checksum(
+        self, qry: FindCollateralByChecksumQuery
+    ) -> CollateralBundle | None:
+        """Handle FindCollateralByChecksumQuery.
+
+        Args:
+            qry: Query payload.
+
+        Returns:
+            Matching CollateralBundle if present in CAS active storage, or None.
+        """
+        return await self.collateral_service.find_by_checksum(qry.sha256_checksum)
+
+    async def handle_get_collateral_download_url(
+        self, qry: GetCollateralDownloadUrlQuery
+    ) -> str:
+        """Handle GetCollateralDownloadUrlQuery.
+
+        Args:
+            qry: Query payload.
+
+        Returns:
+            Preauthenticated direct download URL or verified file URI.
+        """
+        return await self.collateral_service.get_download_url(qry.collateral_id)
+
+    async def handle_pin_collateral(
+        self, cmd: PinCollateralCommand
+    ) -> CollateralBundle:
+        """Handle PinCollateralCommand.
+
+        Args:
+            cmd: Command payload.
+
+        Returns:
+            Updated CollateralBundle with incremented active pin count.
+        """
+        return await self.collateral_service.pin_bundle(cmd.collateral_id)
+
+    async def handle_unpin_collateral(
+        self, cmd: UnpinCollateralCommand
+    ) -> CollateralBundle:
+        """Handle UnpinCollateralCommand.
+
+        Args:
+            cmd: Command payload.
+
+        Returns:
+            Updated CollateralBundle with decremented active pin count.
+        """
+        return await self.collateral_service.unpin_bundle(cmd.collateral_id)
+
+    async def handle_evict_expired_collateral(
+        self, cmd: EvictExpiredCollateralCommand
+    ) -> list[str]:
+        """Handle EvictExpiredCollateralCommand.
+
+        Args:
+            cmd: Command payload.
+
+        Returns:
+            List of evicted collateral bundle IDs.
+        """
+        return await self.collateral_service.evict_expired(
+            max_age_seconds=cmd.max_age_seconds,
+            high_watermark_bytes=cmd.high_watermark_bytes,
         )
 
     async def handle_settle_budget(self, cmd: SettleBudgetCommand) -> dict[str, Any]:

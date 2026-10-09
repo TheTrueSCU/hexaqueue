@@ -964,6 +964,7 @@ name = "hexaqueue-server"
 version = "0.5.0"
 source = { editable = "packages/hexaqueue_server" }
 dependencies = [
+    { name = "hexaqueue-collateral" },
     { name = "hexaqueue-core" },
     { name = "hexastack-auth" },
     { name = "hexastack-core" },
@@ -977,6 +978,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "hexaqueue-collateral", editable = "packages/hexaqueue_collateral" },
     { name = "hexaqueue-core", editable = "packages/hexaqueue_core" },
     { name = "hexastack-auth", specifier = ">=0.8.0" },
     { name = "hexastack-core", specifier = ">=0.8.0" },
@@ -993,6 +995,7 @@ name = "hexaqueue-worker"
 version = "0.5.0"
 source = { editable = "packages/hexaqueue_worker" }
 dependencies = [
+    { name = "hexaqueue-collateral" },
     { name = "hexaqueue-core" },
     { name = "hexastack-auth" },
     { name = "hexastack-core" },
@@ -1007,6 +1010,7 @@ sentry = [
 
 [package.metadata]
 requires-dist = [
+    { name = "hexaqueue-collateral", editable = "packages/hexaqueue_collateral" },
     { name = "hexaqueue-core", editable = "packages/hexaqueue_core" },
     { name = "hexastack-auth", specifier = ">=0.8.0" },
     { name = "hexastack-core", specifier = ">=0.8.0" },

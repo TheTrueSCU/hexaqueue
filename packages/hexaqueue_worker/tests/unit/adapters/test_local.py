@@ -1,15 +1,19 @@
 """Unit tests for LocalSubprocessWorker adapter."""
 
 import asyncio
+import hashlib
 import importlib
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
 
+from hexaqueue_collateral.ports.service import CollateralServicePort
 from hexaqueue_core.adapters.logging.in_memory import InMemoryLogStreamAdapter
 from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
 from hexaqueue_core.adapters.storage.in_memory import InMemoryStorageVolumeAdapter
 from hexaqueue_core.adapters.storage.presigned import InMemoryPresignedStorageAdapter
+from hexaqueue_core.domain.collateral import CollateralBundle, CollateralState
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import TerminalOutcome
 from hexaqueue_core.domain.resources import ResourceRequirements
@@ -434,3 +438,187 @@ async def test_worker_upload_job_logs() -> None:
         compress=False,
     )
     assert key_failed == "logs/job-log-fail/stdout_stderr.log"
+
+
+@pytest.mark.asyncio
+async def test_worker_collateral_rehydration_and_caching(tmp_path: Path) -> None:
+    """Verify worker downloads, validates sha256, caches, and symlinks collateral into scratch."""
+    content = b"sample dataset payload line 1\nline 2\n"
+    content_hash = hashlib.sha256(content).hexdigest()
+
+    # Create source file
+    source_file = tmp_path / "dataset.csv"
+    source_file.write_bytes(content)
+
+    mock_collateral = AsyncMock(spec=CollateralServicePort)
+    bundle = CollateralBundle(
+        id="col-csv-1",
+        job_id="job-csv",
+        filename="dataset.csv",
+        sha256_checksum=content_hash,
+        size_bytes=len(content),
+        state=CollateralState.APPROVED,
+        staging_uri=str(source_file),
+        active_uri=str(source_file),
+    )
+    mock_collateral.get_bundle.return_value = bundle
+    mock_collateral.get_download_url.return_value = f"file://{source_file}"
+
+    queue = InMemoryJobQueueAdapter()
+    storage = InMemoryStorageVolumeAdapter()
+    controller = AsyncMock()
+    cache_dir = tmp_path / "cas_cache"
+
+    worker = LocalSubprocessWorker(
+        queue=queue,
+        controller=controller,
+        storage=storage,
+        collateral_service=mock_collateral,
+        config=WorkerConfig(
+            worker_id="cas-worker-1",
+            collateral_cache_dir=str(cache_dir),
+        ),
+    )
+
+    job = JobSpec(
+        id="job-csv-exec",
+        run_id="run-csv",
+        name="csv-job",
+        command="cat dataset.csv",
+        collateral_ids=["col-csv-1"],
+        resources=ResourceRequirements(walltime_seconds=10),
+    )
+
+    # 1. First execution -> downloads and caches
+    result = await worker.execute_job(job)
+    exit_code = result.exit_code
+    assert exit_code == 0
+    outcome = result.outcome
+    assert outcome == TerminalOutcome.COMPLETED
+
+    # Verify cached file exists
+    expected_cached = cache_dir / content_hash / "dataset.csv"
+    cached_exists = expected_cached.exists()
+    assert cached_exists is True
+    cached_content = expected_cached.read_bytes()
+    assert cached_content == content
+
+    # Verify worker cached hashes
+    hashes = worker.cached_collateral_hashes
+    assert content_hash in hashes
+
+    # Verify heartbeat reports cached hashes
+    hb_res = await worker.heartbeat_controller()
+    assert hb_res is not None
+    controller.heartbeat_node.assert_awaited_once_with(
+        worker_id="cas-worker-1",
+        active_job_ids=[],
+        cached_collateral_hashes=[content_hash],
+    )
+
+    # Verify metrics report cached count
+    metrics = await worker.get_metrics()
+    cas_count = metrics.cached_collateral_count
+    assert cas_count == 1
+
+    # 2. Second execution -> hits cache without calling get_download_url
+    mock_collateral.get_download_url.reset_mock()
+    job2 = job.model_copy(update={"id": "job-csv-exec-2"})
+    result2 = await worker.execute_job(job2)
+    exit_code2 = result2.exit_code
+    assert exit_code2 == 0
+    download_url_calls = mock_collateral.get_download_url.call_count
+    assert download_url_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_worker_collateral_unapproved_rejection(tmp_path: Path) -> None:
+    """Verify worker rejects execution if required collateral is not in APPROVED state."""
+    mock_collateral = AsyncMock(spec=CollateralServicePort)
+    bundle = CollateralBundle(
+        id="col-bad-state",
+        job_id="job-bad",
+        filename="threat.bin",
+        sha256_checksum="0" * 64,
+        size_bytes=100,
+        state=CollateralState.QUARANTINED,
+        quarantine_reason="Malware detected",
+        staging_uri="file:///tmp/threat.bin",
+    )
+    mock_collateral.get_bundle.return_value = bundle
+
+    queue = InMemoryJobQueueAdapter()
+    storage = InMemoryStorageVolumeAdapter()
+    controller = AsyncMock()
+
+    worker = LocalSubprocessWorker(
+        queue=queue,
+        controller=controller,
+        storage=storage,
+        collateral_service=mock_collateral,
+    )
+
+    job = JobSpec(
+        id="job-unapproved",
+        run_id="run-bad",
+        name="unapproved-job",
+        command="ls -la",
+        collateral_ids=["col-bad-state"],
+    )
+
+    with pytest.raises(Exception, match="not APPROVED"):
+        await worker.execute_job(job)
+
+    # Controller notified of failure
+    controller.update_job_outcome.assert_awaited_once()
+    call_args = controller.update_job_outcome.call_args[1]
+    res_outcome = call_args["outcome"]
+    assert res_outcome == TerminalOutcome.FAILED
+
+
+@pytest.mark.asyncio
+async def test_worker_collateral_checksum_mismatch(tmp_path: Path) -> None:
+    """Verify worker aborts and raises when downloaded payload fails sha256 verification."""
+    source_file = tmp_path / "corrupt.bin"
+    source_file.write_bytes(b"tampered content")
+
+    mock_collateral = AsyncMock(spec=CollateralServicePort)
+    bundle = CollateralBundle(
+        id="col-mismatch",
+        job_id="job-tampered",
+        filename="corrupt.bin",
+        sha256_checksum="f" * 64,  # Expected digest != sha256(b"tampered content")
+        size_bytes=16,
+        state=CollateralState.APPROVED,
+        staging_uri=str(source_file),
+        active_uri=str(source_file),
+    )
+    mock_collateral.get_bundle.return_value = bundle
+
+    queue = InMemoryJobQueueAdapter()
+    storage = InMemoryStorageVolumeAdapter()
+    controller = AsyncMock()
+
+    worker = LocalSubprocessWorker(
+        queue=queue,
+        controller=controller,
+        storage=storage,
+        collateral_service=mock_collateral,
+        config=WorkerConfig(collateral_cache_dir=str(tmp_path / "cas")),
+    )
+
+    job = JobSpec(
+        id="job-corrupt-exec",
+        run_id="run-tampered",
+        name="corrupt-job",
+        command="cat corrupt.bin",
+        collateral_ids=["col-mismatch"],
+    )
+
+    with pytest.raises(Exception, match="integrity verification failed"):
+        await worker.execute_job(job)
+
+    controller.update_job_outcome.assert_awaited_once()
+    call_args = controller.update_job_outcome.call_args[1]
+    res_outcome = call_args["outcome"]
+    assert res_outcome == TerminalOutcome.FAILED

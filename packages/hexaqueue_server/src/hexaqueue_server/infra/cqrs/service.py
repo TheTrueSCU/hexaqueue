@@ -7,6 +7,8 @@ Notes/Architectural Intent:
 
 from typing import Any
 
+from hexaqueue_collateral.adapters.local import LocalCollateralServiceAdapter
+from hexaqueue_collateral.ports.service import CollateralServicePort
 from hexaqueue_core.adapters.storage.presigned import InMemoryPresignedStorageAdapter
 from hexaqueue_core.ports.logging import LogChunk
 from hexaqueue_core.ports.storage import PresignedStoragePort
@@ -34,6 +36,7 @@ class HexaqueueCqrsService(
         log_store: dict[str, list[LogChunk]] | None = None,
         nodes: list[NodeTelemetryPulse] | None = None,
         storage_port: PresignedStoragePort | None = None,
+        collateral_service: CollateralServicePort | None = None,
     ) -> None:
         """Initialize the unified application service.
 
@@ -42,11 +45,15 @@ class HexaqueueCqrsService(
             log_store: Optional in-memory store for historical log chunks.
             nodes: Optional list of registered worker node telemetry pulses.
             storage_port: Optional presigned storage port (defaults to InMemoryPresignedStorageAdapter).
+            collateral_service: Optional collateral service instance (defaults to LocalCollateralServiceAdapter).
         """
         self.controller = controller
         self.log_store = log_store if log_store is not None else {}
         self.nodes = nodes if nodes is not None else []
         self.storage_port = storage_port or InMemoryPresignedStorageAdapter()
+        self.collateral_service = collateral_service or LocalCollateralServiceAdapter(
+            storage_port=self.storage_port
+        )
         self.log_artifacts: dict[str, dict[str, Any]] = {}
 
 

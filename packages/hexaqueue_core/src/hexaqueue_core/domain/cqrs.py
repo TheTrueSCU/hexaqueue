@@ -168,8 +168,131 @@ class RegisterCollateralCommand(Command):
     tier: CollateralTier = Field(
         default=CollateralTier.TEMPORARY, description="Collateral retention tier"
     )
+    ttl_seconds: int | None = Field(
+        default=None,
+        ge=1,
+        description="Optional custom time-to-live in seconds for TEMPORARY collateral",
+    )
     user_id: str = Field(default="default", description="Submitting user identity")
     version: str = Field(default="latest", description="Version string")
+
+
+class PinCollateralCommand(Command):
+    """Command to declare active execution pinning on a collateral bundle.
+
+    Args:
+        collateral_id: Target collateral bundle identifier.
+        user_id: Submitting user identity.
+        elevate: Explicit administrative privilege elevation flag.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    collateral_id: str = Field(description="Collateral bundle identifier")
+    elevate: bool = Field(
+        default=False, description="Explicit administrative elevation flag"
+    )
+    user_id: str = Field(default="default", description="Submitting user identity")
+
+
+class UnpinCollateralCommand(Command):
+    """Command to release active execution pinning on a collateral bundle.
+
+    Args:
+        collateral_id: Target collateral bundle identifier.
+        user_id: Submitting user identity.
+        elevate: Explicit administrative privilege elevation flag.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    collateral_id: str = Field(description="Collateral bundle identifier")
+    elevate: bool = Field(
+        default=False, description="Explicit administrative elevation flag"
+    )
+    user_id: str = Field(default="default", description="Submitting user identity")
+
+
+class EvictExpiredCollateralCommand(Command):
+    """Command to trigger garbage collection eviction of expired temporary collateral.
+
+    Args:
+        max_age_seconds: Optional default TTL in seconds since last access.
+        high_watermark_bytes: Optional storage capacity threshold in bytes.
+        user_id: Submitting user identity.
+        elevate: Explicit administrative privilege elevation flag.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    elevate: bool = Field(
+        default=False, description="Explicit administrative elevation flag"
+    )
+    high_watermark_bytes: int | None = Field(
+        default=None,
+        ge=1,
+        description="Optional storage budget high watermark in bytes",
+    )
+    max_age_seconds: int | None = Field(
+        default=None, ge=1, description="Optional maximum age in seconds"
+    )
+    user_id: str = Field(default="default", description="Submitting user identity")
+
+
+class GetCollateralBundleQuery(Query):
+    """Query to retrieve metadata for a collateral bundle.
+
+    Args:
+        collateral_id: Target collateral bundle identifier.
+        user_id: Requesting user identity.
+        elevate: Explicit administrative privilege elevation flag.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    collateral_id: str = Field(description="Collateral bundle identifier")
+    elevate: bool = Field(
+        default=False, description="Explicit administrative elevation flag"
+    )
+    user_id: str = Field(default="default", description="Requesting user identity")
+
+
+class FindCollateralByChecksumQuery(Query):
+    """Query to look up an approved collateral bundle by SHA-256 CAS digest.
+
+    Args:
+        sha256_checksum: Hexadecimal 64-character SHA-256 digest.
+        user_id: Requesting user identity.
+        elevate: Explicit administrative privilege elevation flag.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    elevate: bool = Field(
+        default=False, description="Explicit administrative elevation flag"
+    )
+    sha256_checksum: str = Field(
+        min_length=64, max_length=64, description="Hexadecimal SHA-256 checksum digest"
+    )
+    user_id: str = Field(default="default", description="Requesting user identity")
+
+
+class GetCollateralDownloadUrlQuery(Query):
+    """Query to vend a presigned or direct download URL for approved collateral.
+
+    Args:
+        collateral_id: Target collateral bundle identifier.
+        user_id: Requesting user identity.
+        elevate: Explicit administrative privilege elevation flag.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    collateral_id: str = Field(description="Collateral bundle identifier")
+    elevate: bool = Field(
+        default=False, description="Explicit administrative elevation flag"
+    )
+    user_id: str = Field(default="default", description="Requesting user identity")
 
 
 class CreatePtySessionCommand(Command):
@@ -685,7 +808,11 @@ __all__ = [
     "CreateBastionSessionCommand",
     "CreatePtySessionCommand",
     "DeadLetterQueueReport",
+    "EvictExpiredCollateralCommand",
     "ExplainJobQuery",
+    "FindCollateralByChecksumQuery",
+    "GetCollateralBundleQuery",
+    "GetCollateralDownloadUrlQuery",
     "GetDeadLetterQueueQuery",
     "GetFairShareTreeQuery",
     "GetJobLogDownloadUrlQuery",
@@ -700,6 +827,7 @@ __all__ = [
     "ListJobsQuery",
     "NodesReport",
     "NotifyLogUploadCompleteCommand",
+    "PinCollateralCommand",
     "PresignedDownloadUrl",
     "PresignedUploadToken",
     "RegisterCollateralCommand",
@@ -710,4 +838,5 @@ __all__ = [
     "StreamLogsQuery",
     "SubmitRunCommand",
     "SubmitSuiteCommand",
+    "UnpinCollateralCommand",
 ]

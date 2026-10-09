@@ -65,3 +65,52 @@ def test_cluster_stats_fairshare_and_dlq_queries(
     # DLQ query
     dlq_report = pipeline.execute(GetDeadLetterQueueQuery(limit=10))
     assert dlq_report.total_count == 0
+
+
+def test_collateral_lifecycle_cqrs_handlers(
+    hermetic_cqrs_pipeline: tuple[Any, Any],
+) -> None:
+    """Verify GetCollateralBundle, PinCollateral, UnpinCollateral, and EvictExpired handlers."""
+    from hexaqueue_core.domain.cqrs import (
+        EvictExpiredCollateralCommand,
+        FindCollateralByChecksumQuery,
+        GetCollateralBundleQuery,
+        PinCollateralCommand,
+        UnpinCollateralCommand,
+    )
+
+    _, pipeline = hermetic_cqrs_pipeline
+
+    checksum = "b" * 64
+    reg_cmd = RegisterCollateralCommand(
+        name="dataset.tar.gz",
+        checksum_sha256=checksum,
+        size_bytes=8192,
+    )
+    bundle = pipeline.execute(reg_cmd)
+    bundle_id = bundle.id
+
+    # 1. Get bundle
+    fetched = pipeline.execute(GetCollateralBundleQuery(collateral_id=bundle_id))
+    assert fetched.id == bundle_id
+    assert fetched.filename == "dataset.tar.gz"
+
+    # 2. Find by checksum (registered, not approved yet -> None)
+    found_unapproved = pipeline.execute(
+        FindCollateralByChecksumQuery(sha256_checksum=checksum)
+    )
+    assert found_unapproved is None
+
+    # 3. Pin bundle
+    pinned = pipeline.execute(PinCollateralCommand(collateral_id=bundle_id))
+    assert pinned.active_pin_count == 1
+
+    # 4. Unpin bundle
+    unpinned = pipeline.execute(UnpinCollateralCommand(collateral_id=bundle_id))
+    assert unpinned.active_pin_count == 0
+
+    # 5. Evict expired
+    evicted = pipeline.execute(
+        EvictExpiredCollateralCommand(max_age_seconds=10, high_watermark_bytes=1000)
+    )
+    assert isinstance(evicted, list)
