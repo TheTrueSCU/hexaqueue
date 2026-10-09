@@ -7,6 +7,7 @@ Notes/Architectural Intent:
 
 import asyncio
 from collections.abc import Sequence
+from datetime import UTC, datetime
 
 from hexaqueue_core.domain.config import ExecutionMode
 from hexaqueue_core.domain.dag import JobDagEngine, TriggerCondition
@@ -22,13 +23,23 @@ from hexaqueue_core.domain.lifecycle import (
     compute_run_outcome,
     compute_run_state,
 )
+from hexaqueue_core.domain.node import (
+    ComputeNodeProfile,
+    NodeHealthState,
+)
 from hexaqueue_core.domain.notification import (
     NotificationTrigger,
     map_lifecycle_to_trigger,
 )
+from hexaqueue_core.domain.retry import DeadLetterRecord
 from hexaqueue_core.infra.notification import NotificationDispatcher
+from hexaqueue_core.ports.coordination import LeaderElectionPort
 from hexaqueue_core.ports.queue import JobQueuePort
 from hexaqueue_server.domain.models import RunStatusReport, RunSubmission
+from hexaqueue_server.domain.placement import (
+    PlacementDecision,
+    WarmCachePlacementEngine,
+)
 from hexaqueue_server.ports.controller import SchedulerControllerPort
 
 
@@ -41,6 +52,9 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
         notification_dispatcher: NotificationDispatcher | None = None,
         governor: FreeTierGovernor | None = None,
         mode: ExecutionMode = ExecutionMode.DEVELOPMENT,
+        leader_election: LeaderElectionPort | None = None,
+        controller_id: str = "controller-main",
+        placement_engine: WarmCachePlacementEngine | None = None,
     ) -> None:
         """Initialize controller with task queue and optional notification dispatcher.
 
@@ -49,6 +63,9 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             notification_dispatcher: Optional NotificationDispatcher for cluster lifecycle alerts.
             governor: Optional FreeTierGovernor for zero-cost resource clamping.
             mode: Cluster execution mode (e.g. ExecutionMode.FREE_TIER).
+            leader_election: Optional LeaderElectionPort for HA active/standby leases.
+            controller_id: Unique identifier of this controller instance.
+            placement_engine: Optional WarmCachePlacementEngine for warm cache aware scheduling.
 
         Notes/Architectural Intent:
             When operating under Free-Tier Safety Mode (`mode == ExecutionMode.FREE_TIER`
@@ -65,13 +82,34 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
         self._governor = governor or (
             FreeTierGovernor() if self._mode == ExecutionMode.FREE_TIER else None
         )
+        self._leader_election = leader_election
+        self._controller_id = controller_id
+        self._placement_engine = placement_engine or WarmCachePlacementEngine()
         self._runs: dict[str, RunSubmission] = {}
         self._jobs: dict[str, JobSpec] = {}
         self._dag_engines: dict[str, JobDagEngine] = {}
+        self._nodes: dict[str, ComputeNodeProfile] = {}
+        self._dead_letters: list[DeadLetterRecord] = []
         self._lock = asyncio.Lock()
+
+    async def _check_leadership(self) -> None:
+        """Verify that this controller holds active leadership before mutating state.
+
+        Raises:
+            HexaqueueError: If controller is in standby mode without a valid lease.
+        """
+        if self._leader_election is not None:
+            is_leader = await self._leader_election.is_leader(self._controller_id)
+            if not is_leader:
+                msg = (
+                    f"Controller '{self._controller_id}' is operating in standby mode "
+                    "and cannot accept mutations without holding the leader lease"
+                )
+                raise HexaqueueError(msg)
 
     async def submit_run(self, submission: RunSubmission) -> RunStatusReport:
         """Submit a DAG pipeline run for scheduling."""
+        await self._check_leadership()
         run_id = submission.run_spec.id
 
         async with self._lock:
@@ -152,39 +190,21 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
 
         for job in submission.jobs:
             if job.id in blocked_reasons:
-                self._jobs[job.id] = JobSpec(
-                    id=job.id,
-                    run_id=job.run_id,
-                    name=job.name,
-                    command=job.command,
-                    args=job.args,
-                    env=job.env,
-                    resources=job.resources,
-                    collateral_ids=job.collateral_ids,
-                    tags=job.tags,
-                    notifications=job.notifications,
-                    status=JobStatus(
-                        state=JobState.BLOCKED,
-                        reason=blocked_reasons[job.id],
-                    ),
+                self._jobs[job.id] = job.model_copy(
+                    update={
+                        "status": JobStatus(
+                            state=JobState.BLOCKED,
+                            reason=blocked_reasons[job.id],
+                        ),
+                    }
                 )
                 continue
 
             self._jobs[job.id] = job
             is_ready = dag.is_job_ready(job.id, {})
             if is_ready:
-                pending_job = JobSpec(
-                    id=job.id,
-                    run_id=job.run_id,
-                    name=job.name,
-                    command=job.command,
-                    args=job.args,
-                    env=job.env,
-                    resources=job.resources,
-                    collateral_ids=job.collateral_ids,
-                    tags=job.tags,
-                    notifications=job.notifications,
-                    status=JobStatus(state=JobState.PENDING),
+                pending_job = job.model_copy(
+                    update={"status": JobStatus(state=JobState.PENDING)}
                 )
                 self._jobs[job.id] = pending_job
                 await self._queue.enqueue(pending_job)
@@ -278,6 +298,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
         reason: str | None = None,
     ) -> None:
         """Record terminal outcome and advance eligible downstream dependents."""
+        await self._check_leadership()
         async with self._lock:
             if job_id not in self._jobs:
                 msg = f"Job with ID '{job_id}' not found"
@@ -346,37 +367,19 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                     continue
 
                 if dag.is_job_ready(j_id, outcomes):
-                    ready_job = JobSpec(
-                        id=stored.id,
-                        run_id=stored.run_id,
-                        name=stored.name,
-                        command=stored.command,
-                        args=stored.args,
-                        env=stored.env,
-                        resources=stored.resources,
-                        collateral_ids=stored.collateral_ids,
-                        tags=stored.tags,
-                        notifications=stored.notifications,
-                        status=JobStatus(state=JobState.PENDING),
+                    ready_job = stored.model_copy(
+                        update={"status": JobStatus(state=JobState.PENDING)}
                     )
                     self._jobs[j_id] = ready_job
                     await self._queue.enqueue(ready_job)
                 elif dag.is_job_blocked(j_id, outcomes):
-                    blocked_job = JobSpec(
-                        id=stored.id,
-                        run_id=stored.run_id,
-                        name=stored.name,
-                        command=stored.command,
-                        args=stored.args,
-                        env=stored.env,
-                        resources=stored.resources,
-                        collateral_ids=stored.collateral_ids,
-                        tags=stored.tags,
-                        notifications=stored.notifications,
-                        status=JobStatus(
-                            state=JobState.BLOCKED,
-                            reason="Upstream prerequisite task failed",
-                        ),
+                    blocked_job = stored.model_copy(
+                        update={
+                            "status": JobStatus(
+                                state=JobState.BLOCKED,
+                                reason="Upstream prerequisite task failed",
+                            ),
+                        }
                     )
                     self._jobs[j_id] = blocked_job
                     outcomes[j_id] = TerminalOutcome.FAILED
@@ -415,6 +418,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
 
     async def cancel_run(self, run_id: str) -> RunStatusReport:
         """Cancel run and all active / pending jobs."""
+        await self._check_leadership()
         async with self._lock:
             if run_id not in self._runs:
                 msg = f"Run with ID '{run_id}' not found"
@@ -465,6 +469,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
         Raises:
             HexaqueueError: If job is not registered.
         """
+        await self._check_leadership()
         async with self._lock:
             if job_id not in self._jobs:
                 msg = f"Job with ID '{job_id}' not found"
@@ -515,6 +520,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
         Raises:
             HexaqueueError: If job is not registered.
         """
+        await self._check_leadership()
         async with self._lock:
             if job_id not in self._jobs:
                 msg = f"Job with ID '{job_id}' not found"
@@ -555,6 +561,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
         Raises:
             HexaqueueError: If job is not registered.
         """
+        await self._check_leadership()
         async with self._lock:
             if job_id not in self._jobs:
                 msg = f"Job with ID '{job_id}' not found"
@@ -585,6 +592,240 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                 await self._queue.enqueue(released_job)
 
             return self._jobs[job_id]
+
+    async def register_node(self, profile: ComputeNodeProfile) -> None:
+        """Register a compute worker node with the central controller.
+
+        Args:
+            profile: Initial compute node profile and resource capacity.
+        """
+        await self._check_leadership()
+        async with self._lock:
+            self._nodes[profile.node_id] = profile
+
+    async def heartbeat_node(
+        self,
+        worker_id: str,
+        active_job_ids: list[str] | None = None,
+        cached_collateral_hashes: list[str] | None = None,
+    ) -> ComputeNodeProfile:
+        """Record a heartbeat pulse from a compute worker node.
+
+        Args:
+            worker_id: Unique worker node identifier.
+            active_job_ids: Optional list of in-flight job IDs on the worker.
+            cached_collateral_hashes: Optional list of CAS hashes present in node's local disk cache.
+
+        Returns:
+            Updated ComputeNodeProfile instance.
+
+        Raises:
+            HexaqueueError: If worker_id is not registered.
+        """
+        await self._check_leadership()
+        async with self._lock:
+            if worker_id not in self._nodes:
+                msg = f"Worker node '{worker_id}' is not registered"
+                raise HexaqueueError(msg)
+
+            current = self._nodes[worker_id]
+            updated = current.touch_heartbeat()
+            if active_job_ids is not None:
+                updated = updated.model_copy(
+                    update={"active_job_ids": frozenset(active_job_ids)}
+                )
+            if cached_collateral_hashes:
+                updated = updated.model_copy(
+                    update={
+                        "cached_collateral_hashes": updated.cached_collateral_hashes
+                        | set(cached_collateral_hashes)
+                    }
+                )
+            self._nodes[worker_id] = updated
+            return updated
+
+    async def list_nodes(self) -> list[ComputeNodeProfile]:
+        """Retrieve all currently registered compute worker nodes.
+
+        Returns:
+            List of ComputeNodeProfile instances.
+        """
+        async with self._lock:
+            return list(self._nodes.values())
+
+    async def evaluate_node_failures(
+        self,
+        timeout_unhealthy_seconds: float = 15.0,
+        timeout_dead_seconds: float = 30.0,
+    ) -> list[ComputeNodeProfile]:
+        """Audit heartbeat recency, mark degraded nodes, and evict/recover jobs from dead nodes.
+
+        Args:
+            timeout_unhealthy_seconds: Missed pulse threshold before marking UNHEALTHY.
+            timeout_dead_seconds: Missed pulse threshold before marking DEAD and evicting.
+
+        Returns:
+            List of newly declared DEAD or DRAINED ComputeNodeProfile instances.
+        """
+        await self._check_leadership()
+        async with self._lock:
+            now = datetime.now(UTC)
+            dead_nodes: list[ComputeNodeProfile] = []
+            for node_id, profile in list(self._nodes.items()):
+                elapsed = (now - profile.last_heartbeat_at).total_seconds()
+                if (
+                    elapsed > timeout_dead_seconds
+                    and profile.health_state != NodeHealthState.DEAD
+                    and profile.health_state != NodeHealthState.DRAINED
+                ):
+                    dead_profile = profile.mark_dead()
+                    self._nodes[node_id] = dead_profile
+                    await self._recover_dead_node_jobs(
+                        node_id, elapsed, timeout_dead_seconds, now
+                    )
+                    drained_profile = dead_profile.mark_drained()
+                    self._nodes[node_id] = drained_profile
+                    dead_nodes.append(drained_profile)
+                elif (
+                    elapsed > timeout_unhealthy_seconds
+                    and profile.health_state == NodeHealthState.HEALTHY
+                ):
+                    self._nodes[node_id] = profile.mark_unhealthy()
+
+            return dead_nodes
+
+    async def _recover_dead_node_jobs(
+        self,
+        node_id: str,
+        elapsed: float,
+        timeout_dead_seconds: float,
+        now: datetime,
+    ) -> None:
+        """Evict and automatically retry or dead-letter in-flight jobs on a dead worker."""
+        in_flight = [
+            j
+            for j in self._jobs.values()
+            if j.assigned_worker_id == node_id
+            and j.state in (JobState.PROVISIONING, JobState.RUNNING, JobState.PENDING)
+        ]
+        for job in in_flight:
+            if job.retry_count < job.retry_policy.max_retries:
+                new_retry = job.retry_count + 1
+                requeued_job = job.model_copy(
+                    update={
+                        "assigned_worker_id": None,
+                        "retry_count": new_retry,
+                        "status": JobStatus(
+                            reason=(
+                                f"RETRY_AUTO: Worker {node_id} died, attempt "
+                                f"{new_retry}/{job.retry_policy.max_retries}"
+                            ),
+                            state=JobState.PENDING,
+                        ),
+                    }
+                )
+                self._jobs[job.id] = requeued_job
+                await self._queue.enqueue(requeued_job)
+            else:
+                dlq_record = DeadLetterRecord(
+                    diagnostics={
+                        "elapsed_seconds": f"{elapsed:.1f}",
+                        "worker_id": node_id,
+                    },
+                    failure_reason=(
+                        f"Worker {node_id} heartbeat timeout exceeded "
+                        f"({elapsed:.1f}s > {timeout_dead_seconds}s). Max retries exhausted."
+                    ),
+                    job_id=job.id,
+                    last_worker_id=node_id,
+                    retry_count=job.retry_count,
+                    run_id=job.run_id,
+                    timestamp=now,
+                )
+                self._dead_letters.append(dlq_record)
+                failed_job = job.model_copy(
+                    update={
+                        "assigned_worker_id": None,
+                        "status": JobStatus(
+                            outcome=TerminalOutcome.FAILED,
+                            reason="MAX_RETRIES_EXCEEDED_NODE_DEATH",
+                            state=JobState.DONE,
+                        ),
+                    }
+                )
+                self._jobs[job.id] = failed_job
+                if job.run_id in self._runs:
+                    submission = self._runs[job.run_id]
+                    dag = self._dag_engines[job.run_id]
+                    await self._advance_dependents(submission, dag)
+                    await self._check_and_notify_run_completion(submission)
+
+    async def list_dead_letters(self, limit: int = 50) -> list[DeadLetterRecord]:
+        """Retrieve preserved dead-lettered job failure records.
+
+        Args:
+            limit: Maximum count of dead-letter records to return.
+
+        Returns:
+            List of DeadLetterRecord entries.
+        """
+        async with self._lock:
+            return list(self._dead_letters[-limit:])
+
+    async def schedule_placement(
+        self,
+        job_id: str,
+        collateral_hash_map: dict[str, str] | None = None,
+    ) -> PlacementDecision:
+        """Evaluate and assign an optimal compute worker node for a pending job.
+
+        Args:
+            job_id: Unique job identifier.
+            collateral_hash_map: Optional mapping of collateral IDs to CAS hashes.
+
+        Returns:
+            PlacementDecision containing selected node or auto-scaling burst recommendation.
+
+        Raises:
+            HexaqueueError: If job is not found or controller is in standby mode.
+        """
+        await self._check_leadership()
+        async with self._lock:
+            if job_id not in self._jobs:
+                msg = f"Job with ID '{job_id}' not found"
+                raise HexaqueueError(msg)
+
+            job = self._jobs[job_id]
+            backlog_size = sum(
+                1 for j in self._jobs.values() if j.state == JobState.PENDING
+            )
+            decision = self._placement_engine.evaluate_placement(
+                job=job,
+                nodes=list(self._nodes.values()),
+                collateral_hash_map=collateral_hash_map,
+                backlog_size=backlog_size,
+            )
+
+            if decision.selected_node_id is not None:
+                assigned_node_id = decision.selected_node_id
+                updated_job = job.model_copy(
+                    update={
+                        "assigned_worker_id": assigned_node_id,
+                        "status": JobStatus(state=JobState.PROVISIONING),
+                    }
+                )
+                self._jobs[job_id] = updated_job
+
+                if assigned_node_id in self._nodes:
+                    node = self._nodes[assigned_node_id]
+                    updated_node = node.model_copy(
+                        update={
+                            "active_job_ids": node.active_job_ids | frozenset([job_id]),
+                        }
+                    )
+                    self._nodes[assigned_node_id] = updated_node
+
+            return decision
 
 
 __all__ = [

@@ -1,10 +1,12 @@
 """Tests for LocalSchedulerControllerAdapter."""
 
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
 from hexastack_core.ports.notification import NotificationPort
 
+from hexaqueue_core.adapters.coordination.in_memory import InMemoryLeaderElectionAdapter
 from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
 from hexaqueue_core.domain.config import ExecutionMode
 from hexaqueue_core.domain.dag import DependencyCycleError
@@ -21,11 +23,17 @@ from hexaqueue_core.domain.lifecycle import (
     RunState,
     TerminalOutcome,
 )
+from hexaqueue_core.domain.node import (
+    ComputeNodeProfile,
+    NodeHealthState,
+    NodeProvisioningTier,
+)
 from hexaqueue_core.domain.notification import (
     NotificationPolicy,
     NotificationTrigger,
 )
 from hexaqueue_core.domain.resources import ResourceRequirements
+from hexaqueue_core.domain.retry import JobRetryPolicy
 from hexaqueue_core.domain.run import RunSpec
 from hexaqueue_core.infra.notification import NotificationDispatcher
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
@@ -727,6 +735,247 @@ async def test_local_scheduler_controller_notifications_job_timed_out() -> None:
     await controller.update_job_outcome(
         j1.id, TerminalOutcome.TIMED_OUT, reason="Execution deadline exceeded"
     )
-    assert mock_port.notify.call_count == 2
+    call_cnt = mock_port.notify.call_count
+    assert call_cnt == 2
     run_call = mock_port.notify.call_args_list[1][1]
     assert "**Failed Jobs:** 1" in run_call["body"]
+
+
+@pytest.mark.asyncio
+async def test_local_scheduler_controller_standby_leader_rejection() -> None:
+    """Verify that standby controller rejects mutation requests until lease is acquired."""
+    election = InMemoryLeaderElectionAdapter()
+    queue = InMemoryJobQueueAdapter()
+    controller = LocalSchedulerControllerAdapter(
+        queue=queue,
+        leader_election=election,
+        controller_id="controller-standby",
+    )
+
+    run = RunSpec(id="run-standby-test", name="standby-test")
+    j1 = JobSpec(id="j-standby", run_id=run.id, name="job-standby", command="echo")
+    submission = RunSubmission(run_spec=run, jobs=[j1])
+
+    # Standby cannot submit run
+    with pytest.raises(HexaqueueError) as exc_info:
+        await controller.submit_run(submission)
+    err_msg = str(exc_info.value)
+    assert "operating in standby mode" in err_msg
+
+    # Standby cannot register node
+    profile = ComputeNodeProfile(node_id="worker-01")
+    with pytest.raises(HexaqueueError):
+        await controller.register_node(profile)
+
+    # Acquire leadership
+    acq_ok = await election.acquire_leadership(
+        "controller-standby", lease_duration_seconds=10.0
+    )
+    assert acq_ok is True
+
+    # Now mutation succeeds
+    rep = await controller.submit_run(submission)
+    run_id = rep.run_id
+    assert run_id == "run-standby-test"
+
+    reg_res = await controller.register_node(profile)
+    assert reg_res is None
+
+
+@pytest.mark.asyncio
+async def test_local_scheduler_controller_node_registration_and_heartbeat() -> None:
+    """Verify compute node registration, pulse touching, and list retrieval."""
+    queue = InMemoryJobQueueAdapter()
+    controller = LocalSchedulerControllerAdapter(queue=queue)
+
+    profile = ComputeNodeProfile(
+        node_id="worker-node-alpha", tier=NodeProvisioningTier.STATIC
+    )
+    await controller.register_node(profile)
+
+    nodes = await controller.list_nodes()
+    node_count = len(nodes)
+    assert node_count == 1
+    node_id = nodes[0].node_id
+    assert node_id == "worker-node-alpha"
+
+    # Pulse heartbeat with cached hashes
+    updated = await controller.heartbeat_node(
+        worker_id="worker-node-alpha",
+        active_job_ids=["job-x"],
+        cached_collateral_hashes=["hash-123"],
+    )
+    assert "hash-123" in updated.cached_collateral_hashes
+    assert "job-x" in updated.active_job_ids
+
+    # Unregistered heartbeat raises HexaqueueError
+    with pytest.raises(HexaqueueError):
+        await controller.heartbeat_node(worker_id="unknown-node")
+
+
+@pytest.mark.asyncio
+async def test_local_scheduler_controller_evaluate_node_failures_and_retry() -> None:
+    """Verify dead node detection re-enqueues in-flight jobs within max_retries."""
+    queue = InMemoryJobQueueAdapter()
+    controller = LocalSchedulerControllerAdapter(queue=queue)
+
+    run = RunSpec(id="run-recover", name="recover-run")
+    retry_policy = JobRetryPolicy(max_retries=2, initial_backoff_seconds=1.0)
+    j1 = JobSpec(
+        id="j-recover-1",
+        run_id=run.id,
+        name="job-recover",
+        command="python",
+        retry_policy=retry_policy,
+        retry_count=0,
+    )
+    submission = RunSubmission(run_spec=run, jobs=[j1])
+    await controller.submit_run(submission)
+
+    # Dequeue and mark as running on worker-dead
+    popped = await queue.dequeue()
+    assert popped is not None
+
+    # Register worker with old heartbeat (>30s ago)
+    old_time = datetime.now(UTC) - timedelta(seconds=45)
+    dead_profile = ComputeNodeProfile(
+        node_id="worker-dead",
+        tier=NodeProvisioningTier.STATIC,
+        last_heartbeat_at=old_time,
+    )
+    await controller.register_node(dead_profile)
+
+    # Assign job to worker-dead and set to RUNNING
+    job_ref = await controller.get_job("j-recover-1")
+    running_job = job_ref.model_copy(
+        update={
+            "assigned_worker_id": "worker-dead",
+            "status": running_job.status.model_copy(update={"state": JobState.RUNNING})
+            if (running_job := job_ref)
+            else None,
+        }
+    )
+    controller._jobs["j-recover-1"] = running_job
+
+    # Evaluate node failures
+    dead_nodes = await controller.evaluate_node_failures(
+        timeout_unhealthy_seconds=15.0,
+        timeout_dead_seconds=30.0,
+    )
+    dead_count = len(dead_nodes)
+    assert dead_count == 1
+    drained_state = dead_nodes[0].health_state
+    assert drained_state == NodeHealthState.DRAINED
+
+    # Check job was retried and re-enqueued
+    requeued_job = await queue.dequeue()
+    assert requeued_job is not None
+    job_id = requeued_job.id
+    assert job_id == "j-recover-1"
+    retry_cnt = requeued_job.retry_count
+    assert retry_cnt == 1
+    assigned_worker = requeued_job.assigned_worker_id
+    assert assigned_worker is None
+
+
+@pytest.mark.asyncio
+async def test_local_scheduler_controller_evaluate_node_failures_dlq_routing() -> None:
+    """Verify dead node failure routes exhausted jobs to DLQ when max_retries exceeded."""
+    queue = InMemoryJobQueueAdapter()
+    controller = LocalSchedulerControllerAdapter(queue=queue)
+
+    run = RunSpec(id="run-dlq", name="dlq-run")
+    retry_policy = JobRetryPolicy(max_retries=1)
+    j1 = JobSpec(
+        id="j-dlq-1",
+        run_id=run.id,
+        name="job-dlq",
+        command="python",
+        retry_policy=retry_policy,
+        retry_count=1,  # Exhausted!
+    )
+    submission = RunSubmission(run_spec=run, jobs=[j1])
+    await controller.submit_run(submission)
+    await queue.dequeue()
+
+    old_time = datetime.now(UTC) - timedelta(seconds=50)
+    dead_profile = ComputeNodeProfile(
+        node_id="worker-crash",
+        last_heartbeat_at=old_time,
+    )
+    await controller.register_node(dead_profile)
+
+    job_ref = await controller.get_job("j-dlq-1")
+    controller._jobs["j-dlq-1"] = job_ref.model_copy(
+        update={
+            "assigned_worker_id": "worker-crash",
+            "status": job_ref.status.model_copy(update={"state": JobState.RUNNING}),
+        }
+    )
+
+    # Evaluate failures
+    await controller.evaluate_node_failures(
+        timeout_unhealthy_seconds=15.0, timeout_dead_seconds=30.0
+    )
+
+    # Verify job moved to terminal FAILED
+    failed_job = await controller.get_job("j-dlq-1")
+    st = failed_job.state
+    assert st == JobState.DONE
+    out = failed_job.outcome
+    assert out == TerminalOutcome.FAILED
+
+    # Verify record in DLQ
+    dlq_records = await controller.list_dead_letters()
+    dlq_count = len(dlq_records)
+    assert dlq_count == 1
+    record = dlq_records[0]
+    rec_job_id = record.job_id
+    assert rec_job_id == "j-dlq-1"
+    last_worker = record.last_worker_id
+    assert last_worker == "worker-crash"
+
+
+@pytest.mark.asyncio
+async def test_local_scheduler_controller_schedule_placement() -> None:
+    """Verify schedule_placement evaluates warm cache affinity and binds job to node."""
+    queue = InMemoryJobQueueAdapter()
+    controller = LocalSchedulerControllerAdapter(queue=queue)
+
+    # Register cold and warm nodes
+    node_cold = ComputeNodeProfile(
+        node_id="node-cold", tier=NodeProvisioningTier.STATIC
+    )
+    node_warm = ComputeNodeProfile(
+        node_id="node-warm",
+        tier=NodeProvisioningTier.STATIC,
+        cached_collateral_hashes=frozenset(["hash-dataset-1"]),
+    )
+    await controller.register_node(node_cold)
+    await controller.register_node(node_warm)
+
+    run = RunSpec(id="run-placement", name="placement-run")
+    j1 = JobSpec(
+        id="j-place-1",
+        run_id=run.id,
+        name="job-place",
+        command="python",
+        collateral_ids=["col-1"],
+    )
+    submission = RunSubmission(run_spec=run, jobs=[j1])
+    await controller.submit_run(submission)
+
+    decision = await controller.schedule_placement(
+        job_id="j-place-1",
+        collateral_hash_map={"col-1": "hash-dataset-1"},
+    )
+    sel_id = decision.selected_node_id
+    assert sel_id == "node-warm"
+    assert decision.warm_hits == 1
+
+    # Verify job state updated to PROVISIONING and bound to node
+    updated_job = await controller.get_job("j-place-1")
+    worker = updated_job.assigned_worker_id
+    assert worker == "node-warm"
+    state = updated_job.state
+    assert state == JobState.PROVISIONING

@@ -8,6 +8,9 @@ from hexaqueue_core.ports.budget import (
     CostRate,
     CostRateModelPort,
 )
+from hexaqueue_core.ports.coordination import (
+    LeaderElectionPort,
+)
 from hexaqueue_core.ports.explainability import (
     SchedulerExplainabilityPort,
 )
@@ -59,6 +62,7 @@ __all__ = [
     "FreeTierGovernorPort",
     "GpuDeviceManagerPort",
     "JobQueuePort",
+    "LeaderElectionPort",
     "LogChunk",
     "LogStreamPort",
     "NodeCapacity",

@@ -2,6 +2,7 @@
 
 from hexaqueue_core.adapters import (
     budget,
+    coordination,
     logging,
     queue,
     resources,
@@ -12,6 +13,9 @@ from hexaqueue_core.adapters import (
 from hexaqueue_core.adapters.budget import (
     InMemoryBudgetAccountingAdapter,
     ZeroCostRateModelAdapter,
+)
+from hexaqueue_core.adapters.coordination import (
+    InMemoryLeaderElectionAdapter,
 )
 from hexaqueue_core.adapters.logging import (
     InMemoryLogStreamAdapter,
@@ -35,8 +39,10 @@ from hexaqueue_core.adapters.storage import (
 
 __all__ = [
     "budget",
+    "coordination",
     "InMemoryBudgetAccountingAdapter",
     "InMemoryJobQueueAdapter",
+    "InMemoryLeaderElectionAdapter",
     "InMemoryLogStreamAdapter",
     "InMemoryStorageVolumeAdapter",
     "LocalComputeResourceAdapter",

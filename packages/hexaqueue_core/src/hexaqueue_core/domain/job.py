@@ -15,6 +15,7 @@ from hexaqueue_core.domain.container import ContainerSpec
 from hexaqueue_core.domain.lifecycle import JobState, JobStatus, TerminalOutcome
 from hexaqueue_core.domain.notification import NotificationPolicy
 from hexaqueue_core.domain.resources import ResourceRequirements
+from hexaqueue_core.domain.retry import JobRetryPolicy
 
 
 class JobSpec(BaseModel):
@@ -71,6 +72,19 @@ class JobSpec(BaseModel):
     )
     container: ContainerSpec | None = Field(
         default=None, description="Optional container execution specification"
+    )
+    retry_policy: JobRetryPolicy = Field(
+        default_factory=JobRetryPolicy,
+        description="Automatic retry and recovery policy",
+    )
+    retry_count: int = Field(
+        default=0, ge=0, description="Total execution attempts executed"
+    )
+    assigned_worker_id: str | None = Field(
+        default=None, description="Worker node identifier currently assigned"
+    )
+    last_checkpoint_id: str | None = Field(
+        default=None, description="Snapshot checkpoint identifier if checkpointable"
     )
     status: JobStatus = Field(default_factory=JobStatus, description="Lifecycle status")
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

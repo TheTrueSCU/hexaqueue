@@ -4,7 +4,10 @@ from abc import ABC, abstractmethod
 
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import TerminalOutcome
+from hexaqueue_core.domain.node import ComputeNodeProfile
+from hexaqueue_core.domain.retry import DeadLetterRecord
 from hexaqueue_server.domain.models import RunStatusReport, RunSubmission
+from hexaqueue_server.domain.placement import PlacementDecision
 
 
 class SchedulerControllerPort(ABC):
@@ -118,6 +121,89 @@ class SchedulerControllerPort(ABC):
 
         Returns:
             Updated JobSpec returned to PENDING or appropriate state.
+        """
+
+    @abstractmethod
+    async def register_node(self, profile: ComputeNodeProfile) -> None:
+        """Register a compute worker node with the central controller.
+
+        Args:
+            profile: Initial compute node profile and resource capacity.
+        """
+
+    @abstractmethod
+    async def heartbeat_node(
+        self,
+        worker_id: str,
+        active_job_ids: list[str] | None = None,
+        cached_collateral_hashes: list[str] | None = None,
+    ) -> ComputeNodeProfile:
+        """Record a heartbeat pulse from a compute worker node.
+
+        Args:
+            worker_id: Unique worker node identifier.
+            active_job_ids: Optional list of in-flight job IDs on the worker.
+            cached_collateral_hashes: Optional list of CAS hashes present in node's local disk cache.
+
+        Returns:
+            Updated ComputeNodeProfile instance.
+
+        Raises:
+            HexaqueueError: If worker_id is not registered.
+        """
+
+    @abstractmethod
+    async def list_nodes(self) -> list[ComputeNodeProfile]:
+        """Retrieve all currently registered compute worker nodes.
+
+        Returns:
+            List of ComputeNodeProfile instances.
+        """
+
+    @abstractmethod
+    async def evaluate_node_failures(
+        self,
+        timeout_unhealthy_seconds: float = 15.0,
+        timeout_dead_seconds: float = 30.0,
+    ) -> list[ComputeNodeProfile]:
+        """Audit heartbeat recency, mark degraded nodes, and evict/recover jobs from dead nodes.
+
+        Args:
+            timeout_unhealthy_seconds: Missed pulse threshold before marking UNHEALTHY.
+            timeout_dead_seconds: Missed pulse threshold before marking DEAD and evicting.
+
+        Returns:
+            List of newly declared DEAD or DRAINED ComputeNodeProfile instances.
+        """
+
+    @abstractmethod
+    async def list_dead_letters(self, limit: int = 50) -> list[DeadLetterRecord]:
+        """Retrieve preserved dead-lettered job failure records.
+
+        Args:
+            limit: Maximum count of dead-letter records to return.
+
+        Returns:
+            List of DeadLetterRecord entries.
+        """
+
+    @abstractmethod
+    async def schedule_placement(
+        self,
+        job_id: str,
+        collateral_hash_map: dict[str, str] | None = None,
+    ) -> PlacementDecision:
+        """Evaluate and assign an optimal compute worker node for a pending job.
+
+        Args:
+            job_id: Unique job identifier.
+            collateral_hash_map: Optional mapping of collateral IDs to CAS hashes.
+
+        Returns:
+            PlacementDecision containing selected node or auto-scaling burst recommendation.
+
+        Raises:
+            HexaqueueError: If job is not found or controller is in standby mode.
         """
 
 
