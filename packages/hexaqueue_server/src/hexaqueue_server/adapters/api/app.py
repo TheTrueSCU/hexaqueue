@@ -50,10 +50,22 @@ def create_server_app(
     effective_pipeline = pipeline
     if effective_pipeline is None:
         from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
+        from hexaqueue_monitor.adapters.ledger import InMemoryBudgetLedgerAdapter
+        from hexaqueue_monitor.adapters.local import LocalClusterMonitorAdapter
 
         queue = InMemoryJobQueueAdapter()
-        controller = LocalSchedulerControllerAdapter(queue=queue)
-        effective_pipeline = create_hexaqueue_execution_pipeline(controller)
+        budget_port = InMemoryBudgetLedgerAdapter()
+        cluster_monitor = LocalClusterMonitorAdapter()
+        controller = LocalSchedulerControllerAdapter(
+            queue=queue,
+            budget_port=budget_port,
+            cluster_monitor=cluster_monitor,
+        )
+        effective_pipeline = create_hexaqueue_execution_pipeline(
+            controller,
+            budget_port=budget_port,
+            cluster_monitor=cluster_monitor,
+        )
 
     container = Container()
     container.register(ExecutionPipeline, instance=effective_pipeline)
