@@ -79,3 +79,37 @@ def test_node_registration_heartbeat_and_queries(
     # 4. Get nodes telemetry query
     nodes = pipeline.execute(GetNodesQuery())
     assert len(nodes) >= 1
+
+
+def test_node_registration_and_heartbeat_authorization(
+    hermetic_cqrs_pipeline: tuple[Any, Any],
+) -> None:
+    """Verify unauthorized registration and heartbeat spoofing are blocked."""
+    _, pipeline = hermetic_cqrs_pipeline
+    profile = ComputeNodeProfile(
+        node_id="cqrs-worker-unauth",
+        tier=NodeProvisioningTier.STATIC,
+    )
+
+    # Registration by unauthorized user without elevation -> rejected
+    with pytest.raises(PermissionDeniedError) as exc_reg:
+        pipeline.execute(
+            RegisterNodeCommand(profile=profile, user_id="unauth-client", elevate=False)
+        )
+    assert "requires worker credentials or explicit administrative elevation" in str(
+        exc_reg.value
+    )
+
+    # Heartbeat spoofing by unauthorized user without elevation -> rejected
+    with pytest.raises(PermissionDeniedError) as exc_hb:
+        pipeline.execute(
+            HeartbeatNodeCommand(
+                worker_id="cqrs-worker-1",
+                active_job_ids=[],
+                user_id="attacker",
+                elevate=False,
+            )
+        )
+    assert "requires worker credentials or explicit administrative elevation" in str(
+        exc_hb.value
+    )

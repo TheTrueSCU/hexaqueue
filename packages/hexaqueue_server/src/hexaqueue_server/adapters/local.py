@@ -308,22 +308,14 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             run_id = current_job.run_id
 
             # Update job to terminal state
-            terminal_job = JobSpec(
-                id=current_job.id,
-                run_id=current_job.run_id,
-                name=current_job.name,
-                command=current_job.command,
-                args=current_job.args,
-                env=current_job.env,
-                resources=current_job.resources,
-                collateral_ids=current_job.collateral_ids,
-                tags=current_job.tags,
-                notifications=current_job.notifications,
-                status=JobStatus(
-                    state=JobState.DONE,
-                    outcome=outcome,
-                    reason=reason,
-                ),
+            terminal_job = current_job.model_copy(
+                update={
+                    "status": JobStatus(
+                        state=JobState.DONE,
+                        outcome=outcome,
+                        reason=reason,
+                    )
+                }
             )
             self._jobs[job_id] = terminal_job
 
@@ -429,22 +421,14 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                 current = self._jobs[job.id]
                 if current.state != JobState.DONE:
                     await self._queue.remove(job.id)
-                    cancelled_job = JobSpec(
-                        id=current.id,
-                        run_id=current.run_id,
-                        name=current.name,
-                        command=current.command,
-                        args=current.args,
-                        env=current.env,
-                        resources=current.resources,
-                        collateral_ids=current.collateral_ids,
-                        tags=current.tags,
-                        notifications=current.notifications,
-                        status=JobStatus(
-                            state=JobState.DONE,
-                            outcome=TerminalOutcome.CANCELLED,
-                            reason="Run cancelled by user request",
-                        ),
+                    cancelled_job = current.model_copy(
+                        update={
+                            "status": JobStatus(
+                                state=JobState.DONE,
+                                outcome=TerminalOutcome.CANCELLED,
+                                reason="Run cancelled by user request",
+                            )
+                        }
                     )
                     self._jobs[job.id] = cancelled_job
                     await self._dispatcher.async_dispatch_job_event(
@@ -478,22 +462,14 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             current = self._jobs[job_id]
             if current.state != JobState.DONE:
                 await self._queue.remove(job_id)
-                cancelled_job = JobSpec(
-                    id=current.id,
-                    run_id=current.run_id,
-                    name=current.name,
-                    command=current.command,
-                    args=current.args,
-                    env=current.env,
-                    resources=current.resources,
-                    collateral_ids=current.collateral_ids,
-                    tags=current.tags,
-                    notifications=current.notifications,
-                    status=JobStatus(
-                        state=JobState.DONE,
-                        outcome=TerminalOutcome.CANCELLED,
-                        reason="Job cancelled by user request",
-                    ),
+                cancelled_job = current.model_copy(
+                    update={
+                        "status": JobStatus(
+                            state=JobState.DONE,
+                            outcome=TerminalOutcome.CANCELLED,
+                            reason="Job cancelled by user request",
+                        )
+                    }
                 )
                 self._jobs[job_id] = cancelled_job
                 await self._dispatcher.async_dispatch_job_event(
@@ -529,21 +505,13 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             current = self._jobs[job_id]
             if current.state == JobState.PENDING:
                 await self._queue.remove(job_id)
-                held_job = JobSpec(
-                    id=current.id,
-                    run_id=current.run_id,
-                    name=current.name,
-                    command=current.command,
-                    args=current.args,
-                    env=current.env,
-                    resources=current.resources,
-                    collateral_ids=current.collateral_ids,
-                    tags=current.tags,
-                    notifications=current.notifications,
-                    status=JobStatus(
-                        state=JobState.BLOCKED,
-                        reason="Administratively held",
-                    ),
+                held_job = current.model_copy(
+                    update={
+                        "status": JobStatus(
+                            state=JobState.BLOCKED,
+                            reason="Administratively held",
+                        )
+                    }
                 )
                 self._jobs[job_id] = held_job
 
@@ -572,21 +540,13 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                 current.state == JobState.BLOCKED
                 and current.status.reason == "Administratively held"
             ):
-                released_job = JobSpec(
-                    id=current.id,
-                    run_id=current.run_id,
-                    name=current.name,
-                    command=current.command,
-                    args=current.args,
-                    env=current.env,
-                    resources=current.resources,
-                    collateral_ids=current.collateral_ids,
-                    tags=current.tags,
-                    notifications=current.notifications,
-                    status=JobStatus(
-                        state=JobState.PENDING,
-                        reason=None,
-                    ),
+                released_job = current.model_copy(
+                    update={
+                        "status": JobStatus(
+                            state=JobState.PENDING,
+                            reason=None,
+                        )
+                    }
                 )
                 self._jobs[job_id] = released_job
                 await self._queue.enqueue(released_job)

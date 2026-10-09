@@ -96,8 +96,12 @@ class LogsCqrsMixin(BaseCqrsService):
                     raise PermissionDeniedError(msg)
             except PermissionDeniedError:
                 raise
-            except Exception:
-                pass
+            except Exception as exc:
+                msg = (
+                    f"Permission denied: Job '{cmd.job_id}' not found in active registry to verify ownership. "
+                    "Explicit administrative elevation (--admin / elevate=true) is required."
+                )
+                raise PermissionDeniedError(msg) from exc
 
         storage_key = f"logs/{cmd.job_id}/stdout_stderr.log"
         policy = LogRetentionPolicy.for_outcome(cmd.outcome)
@@ -124,7 +128,37 @@ class LogsCqrsMixin(BaseCqrsService):
 
         Returns:
             Dictionary recording log artifact status.
+
+        Raises:
+            PermissionDeniedError: If unauthorized cross-tenant notification or invalid storage key prefix.
         """
+        if not cmd.elevate:
+            try:
+                job = await self.controller.get_job(cmd.job_id)
+                owner = _extract_job_owner(job)
+                if owner != cmd.user_id:
+                    msg = (
+                        f"Permission denied: You are not the owner of job '{cmd.job_id}' (owned by '{owner}'). "
+                        "Explicit administrative elevation (--admin / elevate=true) is required."
+                    )
+                    raise PermissionDeniedError(msg)
+            except PermissionDeniedError:
+                raise
+            except Exception as exc:
+                msg = (
+                    f"Permission denied: Job '{cmd.job_id}' not found in active registry to verify ownership. "
+                    "Explicit administrative elevation (--admin / elevate=true) is required."
+                )
+                raise PermissionDeniedError(msg) from exc
+
+        expected_prefix = f"logs/{cmd.job_id}/"
+        if not cmd.storage_key.startswith(expected_prefix):
+            msg = (
+                f"Permission denied: Invalid storage key '{cmd.storage_key}'. "
+                f"Storage key must start with '{expected_prefix}'."
+            )
+            raise PermissionDeniedError(msg)
+
         self.log_artifacts[cmd.job_id] = {
             "storage_key": cmd.storage_key,
             "sha256_checksum": cmd.sha256_checksum,

@@ -107,9 +107,24 @@ class RunsCqrsMixin(BaseCqrsService):
         if not qry.elevate:
             jobs = await self.controller.list_jobs()
             run_jobs = [j for j in jobs if j.run_id == qry.run_id]
-            if run_jobs and not any(
-                _extract_job_owner(j) == qry.user_id for j in run_jobs
-            ):
+            is_authorized = False
+            if run_jobs:
+                is_authorized = any(
+                    _extract_job_owner(j) == qry.user_id for j in run_jobs
+                )
+            else:
+                runs_map = getattr(self.controller, "_runs", None)
+                if runs_map and qry.run_id in runs_map:
+                    run_spec = runs_map[qry.run_id].run_spec
+                    is_authorized = any(
+                        tag == f"owner:{qry.user_id}"
+                        or (
+                            tag.startswith("owner:")
+                            and tag.split(":", 1)[1] == qry.user_id
+                        )
+                        for tag in run_spec.tags
+                    )
+            if not is_authorized:
                 msg = (
                     f"Permission denied: You do not have access to run '{qry.run_id}'. "
                     "Explicit administrative elevation (--admin / elevate=true) is required."

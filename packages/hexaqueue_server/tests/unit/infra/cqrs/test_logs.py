@@ -56,6 +56,7 @@ def test_presigned_log_flow(hermetic_cqrs_pipeline: tuple[Any, Any]) -> None:
             storage_key=token.storage_key,
             sha256_checksum="b" * 64,
             size_bytes=512,
+            elevate=True,
         )
     )
     assert complete_res["status"] == "recorded"
@@ -70,3 +71,36 @@ def test_presigned_log_flow(hermetic_cqrs_pipeline: tuple[Any, Any]) -> None:
     )
     dl_url = dl.download_url
     assert "download/logs/job-log-1/stdout_stderr.log" in dl_url
+
+
+def test_notify_log_upload_permissions(hermetic_cqrs_pipeline: tuple[Any, Any]) -> None:
+    """Verify prefix validation and tenancy authorization in notify log upload."""
+    _, pipeline = hermetic_cqrs_pipeline
+    import pytest
+
+    from hexaqueue_core.domain.exceptions import PermissionDeniedError
+
+    # Invalid storage key prefix with elevate=True -> rejected
+    with pytest.raises(PermissionDeniedError) as exc_prefix:
+        pipeline.execute(
+            NotifyLogUploadCompleteCommand(
+                job_id="job-log-1",
+                storage_key="arbitrary/evil.log",
+                elevate=True,
+            )
+        )
+    assert "must start with 'logs/job-log-1/'" in str(exc_prefix.value)
+
+    # Cross-tenant notification without elevate -> rejected
+    with pytest.raises(PermissionDeniedError) as exc_tenant:
+        pipeline.execute(
+            NotifyLogUploadCompleteCommand(
+                job_id="job-log-1",
+                storage_key="logs/job-log-1/test.log",
+                user_id="evil-user",
+                elevate=False,
+            )
+        )
+    assert "Permission denied: Job 'job-log-1' not found in active registry" in str(
+        exc_tenant.value
+    )

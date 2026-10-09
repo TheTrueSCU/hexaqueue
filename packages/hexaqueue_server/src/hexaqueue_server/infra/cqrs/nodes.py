@@ -80,7 +80,21 @@ class NodesCqrsMixin(BaseCqrsService):
 
         Args:
             cmd: Command payload.
+
+        Raises:
+            PermissionDeniedError: If unauthorized non-worker caller attempts registration without elevation.
         """
+        is_worker = cmd.user_id.startswith("worker") or cmd.user_id in (
+            cmd.profile.node_id,
+            "system",
+        )
+        if not cmd.elevate and not is_worker:
+            msg = (
+                f"Permission denied: Registration of node '{cmd.profile.node_id}' "
+                "requires worker credentials or explicit administrative elevation."
+            )
+            raise PermissionDeniedError(msg)
+
         await self.controller.register_node(cmd.profile)
 
     async def handle_heartbeat_node(
@@ -93,7 +107,21 @@ class NodesCqrsMixin(BaseCqrsService):
 
         Returns:
             Updated ComputeNodeProfile.
+
+        Raises:
+            PermissionDeniedError: If unauthorized caller attempts to spoof worker heartbeat.
         """
+        is_worker = cmd.user_id.startswith("worker") or cmd.user_id in (
+            cmd.worker_id,
+            "system",
+        )
+        if not cmd.elevate and not is_worker:
+            msg = (
+                f"Permission denied: Emitting heartbeat for node '{cmd.worker_id}' "
+                "requires worker credentials or explicit administrative elevation."
+            )
+            raise PermissionDeniedError(msg)
+
         return await self.controller.heartbeat_node(
             worker_id=cmd.worker_id,
             active_job_ids=cmd.active_job_ids,
