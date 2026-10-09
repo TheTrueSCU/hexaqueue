@@ -16,11 +16,16 @@ class WorkerConfig(BaseModel):
         concurrency: Maximum number of concurrent jobs to execute.
         poll_interval_seconds: Polling interval when waiting for queued jobs.
         scratch_base_dir: Optional base directory for isolating scratch workspaces.
+        collateral_cache_dir: Optional local directory for caching collateral bundles by CAS SHA-256.
         grace_period_seconds: Timeout to wait after SIGTERM before SIGKILL.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    collateral_cache_dir: str | None = Field(
+        default=None,
+        description="Local directory for caching collateral bundles by CAS SHA-256",
+    )
     concurrency: int = Field(
         default=4, ge=1, description="Maximum concurrent job execution limit"
     )
@@ -47,12 +52,18 @@ class WorkerMetrics(BaseModel):
         total_executed: Total count of jobs executed since startup.
         total_failed: Total count of failed jobs.
         total_completed: Total count of successfully completed jobs.
+        cached_collateral_count: Count of distinct CAS collateral bundles in local cache.
         is_running: Whether the worker execution loop is active.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     active_jobs: int = Field(ge=0, description="Number of currently executing jobs")
+    cached_collateral_count: int = Field(
+        default=0,
+        ge=0,
+        description="Count of distinct CAS collateral bundles in local cache",
+    )
     is_running: bool = Field(description="Whether the worker daemon is running")
     total_completed: int = Field(
         default=0, ge=0, description="Total completed jobs count"

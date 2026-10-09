@@ -11,6 +11,7 @@ import concurrent.futures
 from collections.abc import Coroutine
 from typing import Any, cast
 
+from hexaqueue_collateral.ports.service import CollateralServicePort
 from hexaqueue_core.domain.exceptions import PermissionDeniedError
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.ports.logging import LogChunk
@@ -92,11 +93,12 @@ class BaseCqrsService:
         telemetry registries inherited by modular domain handlers.
     """
 
+    collateral_service: CollateralServicePort
     controller: SchedulerControllerPort
+    log_artifacts: dict[str, dict[str, Any]]
     log_store: dict[str, list[LogChunk]]
     nodes: list[NodeTelemetryPulse]
     storage_port: PresignedStoragePort
-    log_artifacts: dict[str, dict[str, Any]]
 
 
 __all__ = [

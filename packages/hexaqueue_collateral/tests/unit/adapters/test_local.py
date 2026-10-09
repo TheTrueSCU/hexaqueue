@@ -544,3 +544,114 @@ async def test_local_collateral_with_presigned_storage() -> None:
         assert is_hit is False
         assert url.startswith("https://s3.example.com/upload/collateral/")
         assert "artifact.tar.gz" in url
+
+
+@pytest.mark.asyncio
+async def test_local_collateral_get_download_url() -> None:
+    """Verify get_download_url returns local file:// URI or presigned URL for approved bundle."""
+    from hexaqueue_core.adapters.storage.presigned import (
+        InMemoryPresignedStorageAdapter,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage_port = InMemoryPresignedStorageAdapter(
+            endpoint_url="https://s3.example.com"
+        )
+        service = LocalCollateralServiceAdapter(
+            base_dir=tmpdir,
+            security_port=BenignScanner(),
+            storage_port=storage_port,
+        )
+
+        content = b"downloadable content"
+        sha256 = hashlib.sha256(content).hexdigest()
+
+        req = IngestionRequest(
+            job_id="job-dl-1",
+            filename="data.bin",
+            size_bytes=len(content),
+            sha256_checksum=sha256,
+        )
+        desc = await service.register(req)
+        await service.stage_file(desc.bundle.id, content)
+
+        # Before approval: raises HexaqueueError
+        with pytest.raises(HexaqueueError, match="not APPROVED"):
+            await service.get_download_url(desc.bundle.id)
+
+        # After approval: vends presigned download URL
+        await service.process_quarantine(desc.bundle.id)
+        url = await service.get_download_url(desc.bundle.id)
+        assert url.startswith("https://s3.example.com/download/collateral/")
+        assert sha256 in url
+
+        # When storage_port is None, returns file:// URI
+        local_service = LocalCollateralServiceAdapter(
+            base_dir=tmpdir,
+            security_port=BenignScanner(),
+            storage_port=None,
+        )
+        req2 = IngestionRequest(
+            job_id="job-dl-2",
+            filename="data2.bin",
+            size_bytes=len(content),
+            sha256_checksum=sha256,
+        )
+        desc2 = await local_service.register(req2)
+        # Cache hit from disk discovery or stage
+        if not desc2.is_cache_hit:
+            await local_service.stage_file(desc2.bundle.id, content)
+            await local_service.process_quarantine(desc2.bundle.id)
+        local_url = await local_service.get_download_url(desc2.bundle.id)
+        assert local_url.startswith("file://")
+
+
+@pytest.mark.asyncio
+async def test_local_collateral_bundle_custom_ttl_eviction() -> None:
+    """Verify bundles with custom ttl_seconds are evicted when their specific TTL expires."""
+    from datetime import UTC, datetime, timedelta
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        service = LocalCollateralServiceAdapter(
+            base_dir=tmpdir, security_port=BenignScanner()
+        )
+
+        content1 = b"short ttl payload"
+        sha1 = hashlib.sha256(content1).hexdigest()
+        req1 = IngestionRequest(
+            job_id="job-ttl-1",
+            filename="short.txt",
+            size_bytes=len(content1),
+            sha256_checksum=sha1,
+            ttl_seconds=10,  # 10s custom TTL
+        )
+        desc1 = await service.register(req1)
+        await service.stage_file(desc1.bundle.id, content1)
+        b1 = await service.process_quarantine(desc1.bundle.id)
+
+        content2 = b"long ttl payload"
+        sha2 = hashlib.sha256(content2).hexdigest()
+        req2 = IngestionRequest(
+            job_id="job-ttl-2",
+            filename="long.txt",
+            size_bytes=len(content2),
+            sha256_checksum=sha2,
+            ttl_seconds=3600,  # 1h custom TTL
+        )
+        desc2 = await service.register(req2)
+        await service.stage_file(desc2.bundle.id, content2)
+        b2 = await service.process_quarantine(desc2.bundle.id)
+
+        # Artificially age b1 by 15 seconds (exceeding its 10s TTL)
+        service._bundles[b1.id] = b1.model_copy(
+            update={"last_accessed_at": datetime.now(UTC) - timedelta(seconds=15)}
+        )
+        # Artificially age b2 by 15 seconds (well within its 3600s TTL)
+        service._bundles[b2.id] = b2.model_copy(
+            update={"last_accessed_at": datetime.now(UTC) - timedelta(seconds=15)}
+        )
+
+        # Evict without general max_age_seconds: only b1 should be evicted due to its custom TTL
+        evicted = await service.evict_expired()
+        assert b1.id in evicted
+        assert b2.id not in evicted

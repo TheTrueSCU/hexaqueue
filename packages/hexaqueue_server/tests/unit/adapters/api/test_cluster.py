@@ -68,3 +68,66 @@ def test_cluster_collateral_and_budget(hermetic_api_client: TestClient) -> None:
     budget_data = resp_budget.json()
     assert budget_data["status"] == "SETTLED"
     assert budget_data["settled_amount_cents"] == 2500
+
+
+def test_cluster_collateral_endpoints(hermetic_api_client: TestClient) -> None:
+    """Verify collateral metadata inspection, pin, unpin, checksum lookup, and evict endpoints."""
+    client = hermetic_api_client
+
+    sha256 = "c" * 64
+    reg_resp = client.post(
+        "/v1/collateral/upload",
+        json={
+            "name": "data.tar",
+            "checksum_sha256": sha256,
+            "size_bytes": 2048,
+            "tier": "TEMPORARY",
+            "ttl_seconds": 60,
+        },
+        headers={"X-Hexaqueue-User": "bob"},
+    )
+    reg_code = reg_resp.status_code
+    assert reg_code == 200
+    col_id = reg_resp.json()["id"]
+
+    # 1. Get by ID
+    get_resp = client.get(
+        f"/v1/collateral/{col_id}",
+        headers={"X-Hexaqueue-User": "bob"},
+    )
+    assert get_resp.status_code == 200
+    assert get_resp.json()["filename"] == "data.tar"
+    assert get_resp.json()["ttl_seconds"] == 60
+
+    # 2. Checksum lookup (unapproved -> null)
+    chk_resp = client.get(
+        f"/v1/collateral/checksum/{sha256}",
+        headers={"X-Hexaqueue-User": "bob"},
+    )
+    assert chk_resp.status_code == 200
+    assert chk_resp.json() is None
+
+    # 3. Pin collateral
+    pin_resp = client.post(
+        f"/v1/collateral/{col_id}/pin",
+        headers={"X-Hexaqueue-User": "bob"},
+    )
+    assert pin_resp.status_code == 200
+    assert pin_resp.json()["active_pin_count"] == 1
+
+    # 4. Unpin collateral
+    unpin_resp = client.post(
+        f"/v1/collateral/{col_id}/unpin",
+        headers={"X-Hexaqueue-User": "bob"},
+    )
+    assert unpin_resp.status_code == 200
+    assert unpin_resp.json()["active_pin_count"] == 0
+
+    # 5. Evict collateral
+    evict_resp = client.post(
+        "/v1/collateral/evict",
+        json={"max_age_seconds": 3600},
+        headers={"X-Hexaqueue-User": "operator", "X-Hexaqueue-Role": "admin"},
+    )
+    assert evict_resp.status_code == 200
+    assert isinstance(evict_resp.json(), list)

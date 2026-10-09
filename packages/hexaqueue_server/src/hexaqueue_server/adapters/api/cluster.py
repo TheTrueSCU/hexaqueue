@@ -19,11 +19,17 @@ from hexaqueue_core.domain.collateral import CollateralBundle
 from hexaqueue_core.domain.cqrs import (
     ClusterStatsReport,
     DeadLetterQueueReport,
+    EvictExpiredCollateralCommand,
+    FindCollateralByChecksumQuery,
+    GetCollateralBundleQuery,
+    GetCollateralDownloadUrlQuery,
     GetDeadLetterQueueQuery,
     GetFairShareTreeQuery,
     GetQueueStatsQuery,
+    PinCollateralCommand,
     RegisterCollateralCommand,
     SettleBudgetCommand,
+    UnpinCollateralCommand,
 )
 from hexaqueue_core.domain.explainability import FairShareTreeReport
 from hexaqueue_server.adapters.api.auth import get_auth_context
@@ -66,7 +72,7 @@ def create_cluster_router() -> APIRouter:
         qry = GetQueueStatsQuery(user_id=user_id, elevate=is_elevated)
         return _dispatch(pipeline, qry)
 
-    # 3. Collateral Ingestion
+    # 3. Collateral Ingestion & Lifecycle
     @router.post(
         "/collateral/upload",
         response_model=CollateralBundle,
@@ -86,6 +92,107 @@ def create_cluster_router() -> APIRouter:
             tier=cmd.tier,
             kind=cmd.kind,
             target_path=cmd.target_path,
+            ttl_seconds=cmd.ttl_seconds,
+            user_id=user_id,
+            elevate=is_elevated,
+        )
+        return _dispatch(pipeline, effective_cmd)
+
+    @router.get(
+        "/collateral/checksum/{sha256_checksum}",
+        response_model=CollateralBundle | None,
+        summary="Find approved collateral by SHA-256 CAS digest",
+    )
+    def find_collateral_by_checksum(
+        sha256_checksum: str,
+        pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
+    ) -> CollateralBundle | None:
+        user_id, is_elevated = auth
+        qry = FindCollateralByChecksumQuery(
+            sha256_checksum=sha256_checksum, user_id=user_id, elevate=is_elevated
+        )
+        return _dispatch(pipeline, qry)
+
+    @router.get(
+        "/collateral/{collateral_id}",
+        response_model=CollateralBundle,
+        summary="Retrieve collateral bundle metadata",
+    )
+    def get_collateral_bundle(
+        collateral_id: str,
+        pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
+    ) -> CollateralBundle:
+        user_id, is_elevated = auth
+        qry = GetCollateralBundleQuery(
+            collateral_id=collateral_id, user_id=user_id, elevate=is_elevated
+        )
+        return _dispatch(pipeline, qry)
+
+    @router.get(
+        "/collateral/{collateral_id}/download",
+        response_model=dict[str, str],
+        summary="Vend direct presigned download URL for approved collateral",
+    )
+    def get_collateral_download_url(
+        collateral_id: str,
+        pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
+    ) -> dict[str, str]:
+        user_id, is_elevated = auth
+        qry = GetCollateralDownloadUrlQuery(
+            collateral_id=collateral_id, user_id=user_id, elevate=is_elevated
+        )
+        url = _dispatch(pipeline, qry)
+        return {"download_url": url}
+
+    @router.post(
+        "/collateral/{collateral_id}/pin",
+        response_model=CollateralBundle,
+        summary="Pin collateral bundle against eviction",
+    )
+    def pin_collateral(
+        collateral_id: str,
+        pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
+    ) -> CollateralBundle:
+        user_id, is_elevated = auth
+        cmd = PinCollateralCommand(
+            collateral_id=collateral_id, user_id=user_id, elevate=is_elevated
+        )
+        return _dispatch(pipeline, cmd)
+
+    @router.post(
+        "/collateral/{collateral_id}/unpin",
+        response_model=CollateralBundle,
+        summary="Unpin collateral bundle to permit reclamation",
+    )
+    def unpin_collateral(
+        collateral_id: str,
+        pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
+    ) -> CollateralBundle:
+        user_id, is_elevated = auth
+        cmd = UnpinCollateralCommand(
+            collateral_id=collateral_id, user_id=user_id, elevate=is_elevated
+        )
+        return _dispatch(pipeline, cmd)
+
+    @router.post(
+        "/collateral/evict",
+        response_model=list[str],
+        summary="Trigger garbage collection eviction for expired temporary collateral",
+    )
+    def evict_expired_collateral(
+        cmd: EvictExpiredCollateralCommand,
+        pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
+    ) -> list[str]:
+        user_id, is_elevated = auth
+        effective_cmd = EvictExpiredCollateralCommand(
+            max_age_seconds=cmd.max_age_seconds,
+            high_watermark_bytes=cmd.high_watermark_bytes,
             user_id=user_id,
             elevate=is_elevated,
         )

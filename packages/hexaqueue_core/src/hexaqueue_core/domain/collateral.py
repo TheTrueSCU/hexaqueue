@@ -99,6 +99,7 @@ class CollateralBundle(BaseModel):
         active_uri: Verified clean storage URI (set only upon APPROVED state).
         quarantine_reason: Reason if QUARANTINED or REJECTED.
         active_pin_count: Number of running jobs actively referencing this bundle.
+        ttl_seconds: Optional custom time-to-live in seconds for TEMPORARY collateral.
         created_at: Creation timestamp in UTC.
         updated_at: Last state update timestamp in UTC.
 
@@ -132,6 +133,11 @@ class CollateralBundle(BaseModel):
     )
     active_pin_count: int = Field(
         default=0, ge=0, description="Active job pin reference count"
+    )
+    ttl_seconds: int | None = Field(
+        default=None,
+        ge=1,
+        description="Optional custom time-to-live in seconds for TEMPORARY collateral",
     )
     last_accessed_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
