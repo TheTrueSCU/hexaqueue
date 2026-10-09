@@ -88,6 +88,8 @@ def test_zero_cost_rate_model() -> None:
     model = ZeroCostRateModelAdapter()
     cost = model.calculate_estimated_cost(ResourceRequirements())
     assert cost == 0.0
+    actual = model.calculate_actual_cost(walltime_seconds=120.0)
+    assert actual == 0.0
 
 
 __all__ = [

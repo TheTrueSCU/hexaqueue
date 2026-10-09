@@ -182,6 +182,28 @@ class ZeroCostRateModelAdapter(CostRateModelPort):
         """
         return 0.0
 
+    def calculate_actual_cost(
+        self,
+        walltime_seconds: float,
+        cpus: int = 1,
+        ram_mb: int = 1024,
+        gpus: int = 0,
+        provider: CspProvider = CspProvider.LOCAL,
+    ) -> float:
+        """Always return 0.0 credits for zero-cost profile.
+
+        Args:
+            walltime_seconds: Elapsed execution duration in seconds.
+            cpus: Assigned CPU core count.
+            ram_mb: Consumed RAM in megabytes.
+            gpus: Assigned GPU accelerator count.
+            provider: Target cloud provider.
+
+        Returns:
+            0.0 credits.
+        """
+        return 0.0
+
 
 __all__ = [
     "InMemoryBudgetAccountingAdapter",
