@@ -236,23 +236,45 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             return
 
         res_id = self._job_reservations[job_id]
+        job_spec = self._jobs.get(job_id)
+        if consumed_credits is not None:
+            actual_credits = consumed_credits
+        elif (
+            self._cost_model is not None
+            and job_spec is not None
+            and walltime_seconds is not None
+            and walltime_seconds > 0.0
+            and hasattr(self._cost_model, "calculate_actual_cost")
+        ):
+            provider = self._resolve_job_provider(job_spec)
+            actual_credits = self._cost_model.calculate_actual_cost(
+                walltime_seconds=walltime_seconds,
+                cpus=job_spec.resources.cpus,
+                ram_mb=job_spec.resources.ram_mb,
+                gpus=job_spec.resources.gpus,
+                provider=provider,
+            )
+        else:
+            actual_credits = 0.0
+
         if outcome == TerminalOutcome.PREEMPTED:
-            seg_credits = consumed_credits if consumed_credits is not None else 1.0
             with contextlib.suppress(Exception):
-                await self._budget_port.settle_segment(res_id, seg_credits)
+                await self._budget_port.settle_segment(res_id, actual_credits)
         elif outcome == TerminalOutcome.CANCELLED:
-            if walltime_seconds is not None and walltime_seconds > 0.0:
-                act_credits = consumed_credits if consumed_credits is not None else 1.0
+            if (
+                walltime_seconds is not None
+                and walltime_seconds > 0.0
+                and actual_credits > 0.0
+            ):
                 with contextlib.suppress(Exception):
-                    await self._budget_port.settle_budget(res_id, act_credits)
+                    await self._budget_port.settle_budget(res_id, actual_credits)
             else:
                 with contextlib.suppress(Exception):
                     await self._budget_port.release_budget(res_id)
             del self._job_reservations[job_id]
         else:
-            act_credits = consumed_credits if consumed_credits is not None else 1.0
             with contextlib.suppress(Exception):
-                await self._budget_port.settle_budget(res_id, act_credits)
+                await self._budget_port.settle_budget(res_id, actual_credits)
             del self._job_reservations[job_id]
 
     async def _enqueue_initial_jobs(

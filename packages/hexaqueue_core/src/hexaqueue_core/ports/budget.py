@@ -52,6 +52,28 @@ class CostRateModelPort(ABC):
             Estimated total HQ Credits required for the job.
         """
 
+    @abstractmethod
+    def calculate_actual_cost(
+        self,
+        walltime_seconds: float,
+        cpus: int = 1,
+        ram_mb: int = 1024,
+        gpus: int = 0,
+        provider: CspProvider = CspProvider.LOCAL,
+    ) -> float:
+        """Calculate exact credit consumption based on measured execution walltime.
+
+        Args:
+            walltime_seconds: Elapsed execution duration in seconds.
+            cpus: Assigned CPU core count.
+            ram_mb: Consumed RAM in megabytes.
+            gpus: Assigned GPU accelerator count.
+            provider: Target cloud provider.
+
+        Returns:
+            Calculated total credits rounded to 4 decimal places.
+        """
+
 
 class BudgetAccountingPort(ABC):
     """Abstract port interface for two-phase budget reservations and credit balance tracking."""
