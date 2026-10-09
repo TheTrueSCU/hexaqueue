@@ -12,10 +12,12 @@ from hexaqueue_core.adapters.logging.broadcast import (
 )
 from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
 from hexaqueue_core.adapters.storage.in_memory import InMemoryStorageVolumeAdapter
+from hexaqueue_core.adapters.storage.presigned import InMemoryPresignedStorageAdapter
 from hexaqueue_core.domain.config import ExecutionMode
 from hexaqueue_core.domain.freetier import FreeTierGovernor
 from hexaqueue_core.infra.notification import NotificationDispatcher
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
+from hexaqueue_server.infra.cqrs import create_hexaqueue_execution_pipeline
 from hexaqueue_worker.adapters.local import LocalSubprocessWorker
 from hexaqueue_worker.adapters.pty import LocalPtyBridgeAdapter
 from hexaqueue_worker.adapters.telemetry import LocalTelemetryCollector
@@ -63,12 +65,18 @@ class LocalCliSession:
             governor=governor,
             mode=resolved_mode,
         )
+        self.presigned_storage = InMemoryPresignedStorageAdapter()
+        self.pipeline = create_hexaqueue_execution_pipeline(
+            controller=self.controller,
+            storage_port=self.presigned_storage,
+        )
         self.worker = LocalSubprocessWorker(
             queue=self.queue,
             controller=self.controller,
             storage=self.storage,
             log_port=self.log_stream,
             config=WorkerConfig(concurrency=concurrency, poll_interval_seconds=0.01),
+            presigned_storage=self.presigned_storage,
         )
 
     async def start(self) -> None:

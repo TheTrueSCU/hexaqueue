@@ -2,13 +2,23 @@
 
 import pytest
 
-from hexaqueue_core.ports.storage import StorageVolumePort, VolumeAllocation
+from hexaqueue_core.ports.storage import (
+    PresignedStoragePort,
+    StorageVolumePort,
+    VolumeAllocation,
+)
 
 
 def test_storage_volume_port_is_abstract() -> None:
     """Verify StorageVolumePort cannot be instantiated directly."""
     with pytest.raises(TypeError):
         StorageVolumePort()  # type: ignore[abstract]
+
+
+def test_presigned_storage_port_is_abstract() -> None:
+    """Verify PresignedStoragePort cannot be instantiated directly."""
+    with pytest.raises(TypeError):
+        PresignedStoragePort()  # type: ignore[abstract]
 
 
 def test_volume_allocation_model() -> None:

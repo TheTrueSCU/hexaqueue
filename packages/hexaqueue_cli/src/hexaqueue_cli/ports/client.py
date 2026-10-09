@@ -82,6 +82,26 @@ class ClientPort(ABC):
         """Retrieve historical logs for a job."""
 
     @abstractmethod
+    async def get_log_download_url(
+        self,
+        job_id: str,
+        expires_in_seconds: int = 900,
+        user_id: str = "default",
+        elevate: bool = False,
+    ) -> str:
+        """Retrieve presigned direct download URL for job execution logs.
+
+        Args:
+            job_id: Target job identifier.
+            expires_in_seconds: Presigned download link expiration TTL in seconds.
+            user_id: Identity of requesting user.
+            elevate: Explicit administrative privilege elevation flag.
+
+        Returns:
+            Preauthenticated direct object storage download URL.
+        """
+
+    @abstractmethod
     def stream_logs(
         self, job_id: str, follow: bool = False, tail: int | None = None
     ) -> AsyncIterator[LogChunk]:

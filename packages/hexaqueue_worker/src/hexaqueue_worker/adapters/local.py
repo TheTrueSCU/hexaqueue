@@ -8,19 +8,26 @@ Notes/Architectural Intent:
 
 import asyncio
 import contextlib
+import gzip
 import importlib
 from typing import Any
 
 from hexaqueue_core.adapters.runtime.local import LocalSubprocessExecutionRuntimeAdapter
 from hexaqueue_core.adapters.storage.local import LocalDiskStorageVolumeAdapter
+from hexaqueue_core.adapters.storage.presigned import InMemoryPresignedStorageAdapter
 from hexaqueue_core.domain.gpu import GpuAllocation
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import TerminalOutcome
+from hexaqueue_core.domain.retention import LogRetentionPolicy
 from hexaqueue_core.ports.gpu import GpuDeviceManagerPort
 from hexaqueue_core.ports.logging import LogStreamPort
 from hexaqueue_core.ports.queue import JobQueuePort
 from hexaqueue_core.ports.runtime import ExecutionRuntimePort, ProcessExecutionResult
-from hexaqueue_core.ports.storage import StorageVolumePort, VolumeAllocation
+from hexaqueue_core.ports.storage import (
+    PresignedStoragePort,
+    StorageVolumePort,
+    VolumeAllocation,
+)
 from hexaqueue_worker.domain.models import WorkerConfig, WorkerMetrics
 from hexaqueue_worker.ports.worker import WorkerDaemonPort
 
@@ -77,11 +84,13 @@ class LocalSubprocessWorker(WorkerDaemonPort):
         log_port: LogStreamPort | None = None,
         gpu_manager: GpuDeviceManagerPort | None = None,
         config: WorkerConfig | None = None,
+        presigned_storage: PresignedStoragePort | None = None,
     ) -> None:
         self._queue = queue
         self._controller = controller
         self._log_port = log_port
         self._gpu_manager = gpu_manager
+        self._presigned_storage = presigned_storage
         self._runtime = runtime or LocalSubprocessExecutionRuntimeAdapter(
             log_port=self._log_port
         )
@@ -261,6 +270,52 @@ class LocalSubprocessWorker(WorkerDaemonPort):
                 total_failed=self._total_failed,
                 is_running=self._running,
             )
+
+    async def upload_job_logs(
+        self,
+        job_id: str,
+        outcome: TerminalOutcome,
+        log_data: str | bytes,
+        compress: bool = True,
+    ) -> str:
+        """Upload finished execution logs directly to presigned storage bucket.
+
+        Args:
+            job_id: Finished job identifier.
+            outcome: TerminalOutcome for differential retention resolution.
+            log_data: Log text content or raw bytes.
+            compress: Whether to gzip compress the log payload.
+
+        Returns:
+            Destination storage key, or empty string if presigned storage is not configured.
+
+        Notes/Architectural Intent:
+            During CLEANUP phase, workers bypass the server REST API by directly
+            archiving logs into object storage with differential retention tags
+            (ShortPass for COMPLETED vs LongFail for failures).
+        """
+        if self._presigned_storage is None:
+            return ""
+
+        policy = LogRetentionPolicy.for_outcome(outcome)
+        ext = ".log.gz" if compress else ".log"
+        key = f"logs/{job_id}/stdout_stderr{ext}"
+        payload = log_data.encode("utf-8") if isinstance(log_data, str) else log_data
+        if compress:
+            payload = gzip.compress(payload)
+
+        await self._presigned_storage.generate_presigned_upload_url(
+            key=key,
+            content_type="application/gzip" if compress else "text/plain",
+            expires_in_seconds=300,
+        )
+        if isinstance(self._presigned_storage, InMemoryPresignedStorageAdapter):
+            self._presigned_storage.put_object(
+                key=key,
+                data=payload,
+                metadata={policy.tag_key: policy.tag_value},
+            )
+        return key
 
 
 __all__ = [

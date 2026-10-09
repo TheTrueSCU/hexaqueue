@@ -226,6 +226,10 @@ def test_main_cli_job_lifecycle_commands(
     assert res_tail.exit_code == 0
     assert "log line from job" in res_tail.stdout
 
+    res_url = runner.invoke(app, ["logs", job.id, "--url"])
+    assert res_url.exit_code == 0
+    assert "stdout_stderr.log" in res_url.stdout
+
 
 def test_main_cli_error_paths() -> None:
     """Verify CLI error paths return exit code 1."""

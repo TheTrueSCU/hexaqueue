@@ -143,6 +143,28 @@ class LocalClientAdapter(ClientPort):
             c async for c in self._session.log_stream.stream_logs(job_id, follow=False)
         ]
 
+    async def get_log_download_url(
+        self,
+        job_id: str,
+        expires_in_seconds: int = 900,
+        user_id: str = "default",
+        elevate: bool = False,
+    ) -> str:
+        """Retrieve presigned direct download URL for job execution logs."""
+        from hexaqueue_core.domain.cqrs import (
+            GetJobLogDownloadUrlQuery,
+            PresignedDownloadUrl,
+        )
+
+        qry = GetJobLogDownloadUrlQuery(
+            job_id=job_id,
+            expires_in_seconds=expires_in_seconds,
+            user_id=user_id,
+            elevate=elevate,
+        )
+        res: PresignedDownloadUrl = self._session.pipeline.execute(qry)
+        return res.download_url
+
     async def stream_logs(
         self, job_id: str, follow: bool = False, tail: int | None = None
     ) -> AsyncIterator[LogChunk]:

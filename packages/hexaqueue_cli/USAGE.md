@@ -296,10 +296,13 @@ Usage: hq logs [OPTIONS] {job_id}
      job_id: Target job identifier.
      follow: Stream chunks asynchronously in real time.
      tail: Number of historical lines to tail.
+     url_only: Print preauthenticated direct storage download URL.
 
  Notes/Architectural Intent:
      Demuxes real-time stdout, stderr, and system log chunks with ANSI
  fidelity.
+     Supports control-plane deference via direct presigned object storage
+ download URLs.
 
 ╭─ Arguments ──────────────────────────────────────────────────────────────────╮
 │ *    job_id      <str>  Job ID to fetch logs for [required]                  │
@@ -307,6 +310,8 @@ Usage: hq logs [OPTIONS] {job_id}
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
 │ --follow  -f             Follow stream output in real time                   │
 │ --tail    -n      <int>  Number of lines to show from end                    │
+│ --url                    Print presigned direct download URL instead of      │
+│                          fetching                                            │
 │ --help                   Show this message and exit.                         │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```

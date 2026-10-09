@@ -522,3 +522,51 @@ def test_api_stream_run_status(hermetic_api_client: TestClient) -> None:
         assert resp.status_code == 200
         lines = list(resp.iter_lines())
         assert any("event: error" in line for line in lines)
+
+
+def test_api_presigned_logs(hermetic_api_client: TestClient) -> None:
+    """Verify presigned log upload and download endpoints."""
+    client = hermetic_api_client
+
+    # 1. Request presigned upload URL
+    resp_upload = client.post(
+        "/v1/jobs/job-api-1/logs/upload-url",
+        json={
+            "job_id": "job-api-1",
+            "outcome": "COMPLETED",
+            "size_bytes": 1024,
+            "expires_in_seconds": 300,
+        },
+        headers={"X-Hexaqueue-User": "alice"},
+    )
+    status_code = resp_upload.status_code
+    assert status_code == 200
+    token_data = resp_upload.json()
+    assert token_data["job_id"] == "job-api-1"
+    assert "upload/logs/job-api-1/stdout_stderr.log" in token_data["upload_url"]
+    assert token_data["retention_policy"]["tier"] == "SHORT_PASS"
+
+    # 2. Notify complete
+    resp_complete = client.post(
+        "/v1/jobs/job-api-1/logs/complete",
+        json={
+            "job_id": "job-api-1",
+            "storage_key": token_data["storage_key"],
+            "sha256_checksum": "c" * 64,
+            "size_bytes": 1024,
+        },
+        headers={"X-Hexaqueue-User": "alice"},
+    )
+    assert resp_complete.status_code == 200
+    complete_data = resp_complete.json()
+    assert complete_data["status"] == "recorded"
+
+    # 3. Get download URL
+    resp_dl = client.get(
+        "/v1/jobs/job-api-1/logs/download-url?expires_in_seconds=600",
+        headers={"X-Hexaqueue-User": "alice"},
+    )
+    assert resp_dl.status_code == 200
+    dl_data = resp_dl.json()
+    assert dl_data["job_id"] == "job-api-1"
+    assert "download/logs/job-api-1/stdout_stderr.log" in dl_data["download_url"]

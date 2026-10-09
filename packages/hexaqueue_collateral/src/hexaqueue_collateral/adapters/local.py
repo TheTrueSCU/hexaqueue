@@ -2,12 +2,14 @@
 
 Notes/Architectural Intent:
     Implements full direct-to-disk staging, incremental SHA256 checksum
-    verification, and promotion to verified content-addressable active storage
-    located at ~/.hexaqueue/collateral/active/<sha256>/<filename>.
+    verification, Content-Addressable Storage (CAS) deduplication, active
+    job reference pinning, and least-recently-used (LRU) garbage collection eviction
+    at ~/.hexaqueue/collateral/active/<sha256>/<filename>.
 """
 
 import hashlib
 import shutil
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import BinaryIO
 from uuid import uuid4
@@ -16,7 +18,9 @@ from hexaqueue_collateral.domain.models import IngestionRequest, StagedUploadDes
 from hexaqueue_collateral.ports.service import CollateralServicePort
 from hexaqueue_core.domain.collateral import (
     CollateralBundle,
+    CollateralKind,
     CollateralState,
+    CollateralTier,
     can_transition_collateral,
 )
 from hexaqueue_core.domain.exceptions import (
@@ -24,21 +28,24 @@ from hexaqueue_core.domain.exceptions import (
     HexaqueueError,
 )
 from hexaqueue_core.ports.security import SecurityQuarantinePort
+from hexaqueue_core.ports.storage import PresignedStoragePort
 
 
 class LocalCollateralServiceAdapter(CollateralServicePort):
-    """Local filesystem implementation of CollateralServicePort."""
+    """Local filesystem implementation of CollateralServicePort with CAS caching."""
 
     def __init__(
         self,
         base_dir: str | Path | None = None,
         security_port: SecurityQuarantinePort | None = None,
+        storage_port: PresignedStoragePort | None = None,
     ) -> None:
         """Initialize local collateral service with storage directories.
 
         Args:
             base_dir: Base directory for collateral storage (defaults to ~/.hexaqueue/collateral).
             security_port: Optional security scanner port (defaults to NoOp if None).
+            storage_port: Optional presigned storage port for upload link vending.
         """
         self._base_dir = (
             Path(base_dir) if base_dir else Path.home() / ".hexaqueue" / "collateral"
@@ -53,6 +60,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
         self._quarantine_dir.mkdir(exist_ok=True)
 
         self._security_port = security_port
+        self._storage_port = storage_port
         self._bundles: dict[str, CollateralBundle] = {}
 
     async def register(self, request: IngestionRequest) -> StagedUploadDescriptor:
@@ -62,8 +70,27 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
             request: IngestionRequest specification.
 
         Returns:
-            StagedUploadDescriptor with target upload paths.
+            StagedUploadDescriptor with target upload paths and cache hit indicator.
+
+        Raises:
+            HexaqueueError: If path traversal is detected in filename.
+
+        Notes/Architectural Intent:
+            Checks for an existing approved bundle matching the SHA-256 digest in CAS.
+            If present in active storage, returns an immediate cache hit without re-staging.
         """
+        # CAS Cache Deduplication Lookup
+        existing = await self.find_by_checksum(request.sha256_checksum)
+        if existing is not None and existing.state == CollateralState.APPROVED:
+            touched = existing.touch()
+            self._bundles[touched.id] = touched
+            return StagedUploadDescriptor(
+                bundle=touched,
+                upload_url=f"file://{touched.active_uri}",
+                staging_path=str(touched.active_uri),
+                is_cache_hit=True,
+            )
+
         collateral_id = f"col-{uuid4().hex[:10]}"
         safe_filename = Path(request.filename).name
         dest_staging_path = (
@@ -87,10 +114,18 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
         )
         self._bundles[collateral_id] = bundle
 
+        if self._storage_port is not None:
+            upload_url = await self._storage_port.generate_presigned_upload_url(
+                key=f"collateral/{collateral_id}/{safe_filename}"
+            )
+        else:
+            upload_url = f"file://{dest_staging_path}"
+
         return StagedUploadDescriptor(
             bundle=bundle,
-            upload_url=f"file://{dest_staging_path}",
+            upload_url=upload_url,
             staging_path=str(dest_staging_path),
+            is_cache_hit=False,
         )
 
     async def stage_file(
@@ -100,6 +135,9 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
     ) -> CollateralBundle:
         """Stage file contents directly and verify integrity against registered checksum."""
         bundle = await self.get_bundle(collateral_id)
+        if bundle.state == CollateralState.APPROVED:
+            return bundle
+
         if not can_transition_collateral(bundle.state, CollateralState.UPLOADED):
             msg = f"Cannot stage file: illegal state transition from {bundle.state} to UPLOADED"
             raise HexaqueueError(msg)
@@ -177,6 +215,9 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
     async def process_quarantine(self, collateral_id: str) -> CollateralBundle:
         """Execute security inspection and promote or isolate collateral."""
         bundle = await self.get_bundle(collateral_id)
+        if bundle.state == CollateralState.APPROVED:
+            return bundle
+
         if bundle.state != CollateralState.UPLOADED:
             msg = f"Cannot process quarantine for collateral in state {bundle.state}"
             raise HexaqueueError(msg)
@@ -272,6 +313,118 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
             msg = f"Collateral with id '{collateral_id}' not found"
             raise HexaqueueError(msg)
         return self._bundles[collateral_id]
+
+    async def find_by_checksum(self, sha256_checksum: str) -> CollateralBundle | None:
+        """Search Content-Addressable Storage for an existing approved bundle by digest."""
+        clean_sha = sha256_checksum.lower().strip()
+        for bundle in self._bundles.values():
+            if (
+                bundle.sha256_checksum.lower() == clean_sha
+                and bundle.state == CollateralState.APPROVED
+                and bundle.active_uri is not None
+                and Path(bundle.active_uri).exists()
+            ):
+                return bundle
+
+        # Disk discovery in active CAS directory
+        target_dir = self._active_dir / clean_sha
+        if target_dir.is_dir():
+            files = list(target_dir.iterdir())
+            if files:
+                active_file = files[0]
+                collateral_id = f"cas-{clean_sha[:12]}"
+                discovered = CollateralBundle(
+                    id=collateral_id,
+                    job_id="cas-discovered",
+                    filename=active_file.name,
+                    size_bytes=active_file.stat().st_size,
+                    sha256_checksum=clean_sha,
+                    kind=CollateralKind.BUNDLE,
+                    tier=CollateralTier.TEMPORARY,
+                    state=CollateralState.APPROVED,
+                    staging_uri=str(active_file),
+                    active_uri=str(active_file),
+                )
+                self._bundles[collateral_id] = discovered
+                return discovered
+        return None
+
+    async def pin_bundle(self, collateral_id: str) -> CollateralBundle:
+        """Pin a collateral bundle to declare active usage by a running job."""
+        bundle = await self.get_bundle(collateral_id)
+        pinned = bundle.pin()
+        self._bundles[collateral_id] = pinned
+        return pinned
+
+    async def unpin_bundle(self, collateral_id: str) -> CollateralBundle:
+        """Unpin a collateral bundle upon job termination, release, or cancellation."""
+        bundle = await self.get_bundle(collateral_id)
+        try:
+            unpinned = bundle.unpin()
+        except ValueError as exc:
+            raise HexaqueueError(str(exc)) from exc
+        self._bundles[collateral_id] = unpinned
+        return unpinned
+
+    async def evict_expired(
+        self,
+        max_age_seconds: int | None = None,
+        high_watermark_bytes: int | None = None,
+    ) -> list[str]:
+        """Evict eligible unpinned temporary collateral bundles based on TTL and LRU thresholds."""
+        now = datetime.now(UTC)
+        evicted_ids: list[str] = []
+
+        # Find eligible candidates: TEMPORARY tier and active_pin_count == 0
+        eligible = [
+            b
+            for b in self._bundles.values()
+            if b.tier == CollateralTier.TEMPORARY
+            and b.active_pin_count == 0
+            and b.state == CollateralState.APPROVED
+        ]
+
+        # 1. TTL-based eviction
+        if max_age_seconds is not None:
+            cutoff = now - timedelta(seconds=max_age_seconds)
+            for b in list(eligible):
+                if b.last_accessed_at < cutoff:
+                    self._purge_bundle(b)
+                    evicted_ids.append(b.id)
+                    eligible.remove(b)
+
+        # 2. High-watermark LRU eviction
+        if high_watermark_bytes is not None:
+            # Calculate current total storage of active temporary bundles
+            total_bytes = sum(
+                b.size_bytes
+                for b in self._bundles.values()
+                if b.tier == CollateralTier.TEMPORARY
+            )
+            if total_bytes > high_watermark_bytes:
+                # Sort eligible candidates by last_accessed_at ascending (oldest first)
+                eligible.sort(key=lambda b: b.last_accessed_at)
+                for b in eligible:
+                    if total_bytes <= high_watermark_bytes:
+                        break
+                    self._purge_bundle(b)
+                    evicted_ids.append(b.id)
+                    total_bytes -= b.size_bytes
+
+        return evicted_ids
+
+    def _purge_bundle(self, bundle: CollateralBundle) -> None:
+        """Purge bundle files from disk and remove from memory registry."""
+        if bundle.active_uri:
+            active_path = Path(bundle.active_uri)
+            if active_path.exists():
+                active_path.unlink()
+                # Remove parent hash directory if empty
+                parent_dir = active_path.parent
+                if parent_dir.is_dir() and not any(parent_dir.iterdir()):
+                    parent_dir.rmdir()
+        if bundle.id in self._bundles:
+            del self._bundles[bundle.id]
 
 
 __all__ = [

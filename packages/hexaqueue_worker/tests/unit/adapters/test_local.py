@@ -9,6 +9,7 @@ import pytest
 from hexaqueue_core.adapters.logging.in_memory import InMemoryLogStreamAdapter
 from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
 from hexaqueue_core.adapters.storage.in_memory import InMemoryStorageVolumeAdapter
+from hexaqueue_core.adapters.storage.presigned import InMemoryPresignedStorageAdapter
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import TerminalOutcome
 from hexaqueue_core.domain.resources import ResourceRequirements
@@ -397,3 +398,39 @@ async def test_worker_execute_job_crash_without_sentry(
 
     metrics = await worker.get_metrics()
     assert metrics.total_failed == 1
+
+
+@pytest.mark.asyncio
+async def test_worker_upload_job_logs() -> None:
+    """Verify worker differential log uploading to presigned storage."""
+    queue = InMemoryJobQueueAdapter()
+    worker_no_storage = LocalSubprocessWorker(queue=queue)
+    empty_key = await worker_no_storage.upload_job_logs(
+        job_id="job-log-1",
+        outcome=TerminalOutcome.COMPLETED,
+        log_data="Execution successful\n",
+    )
+    assert empty_key == ""
+
+    presigned_storage = InMemoryPresignedStorageAdapter(
+        endpoint_url="https://s3.example.com"
+    )
+    worker = LocalSubprocessWorker(queue=queue, presigned_storage=presigned_storage)
+
+    # Test completed job (ShortPass)
+    key_completed = await worker.upload_job_logs(
+        job_id="job-log-pass",
+        outcome=TerminalOutcome.COMPLETED,
+        log_data="Step 1 OK\nStep 2 OK\n",
+        compress=True,
+    )
+    assert key_completed == "logs/job-log-pass/stdout_stderr.log.gz"
+
+    # Test failed job (LongFail)
+    key_failed = await worker.upload_job_logs(
+        job_id="job-log-fail",
+        outcome=TerminalOutcome.FAILED,
+        log_data="Traceback: Fatal error\n",
+        compress=False,
+    )
+    assert key_failed == "logs/job-log-fail/stdout_stderr.log"

@@ -103,3 +103,38 @@ def test_collateral_transitions() -> None:
         can_transition_collateral(CollateralState.APPROVED, CollateralState.APPROVED)
         is True
     )
+
+
+def test_collateral_bundle_pin_unpin_touch() -> None:
+    """Verify pin, unpin, and touch lifecycle behaviors on CollateralBundle."""
+    bundle = CollateralBundle(
+        id="bundle-1",
+        job_id="job-1",
+        filename="test.tar.gz",
+        kind=CollateralKind.BUNDLE,
+        tier=CollateralTier.TEMPORARY,
+        sha256_checksum="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        size_bytes=1024,
+        staging_uri="file:///tmp/staging/bundle-1",
+    )
+    pin_count_0 = bundle.active_pin_count
+    assert pin_count_0 == 0
+
+    pinned = bundle.pin()
+    pin_count_1 = pinned.active_pin_count
+    access_count_1 = pinned.access_count
+    assert pin_count_1 == 1
+    assert access_count_1 == 1
+
+    touched = pinned.touch()
+    access_count_2 = touched.access_count
+    pin_count_touched = touched.active_pin_count
+    assert access_count_2 == 2
+    assert pin_count_touched == 1
+
+    unpinned = touched.unpin()
+    pin_count_unpinned = unpinned.active_pin_count
+    assert pin_count_unpinned == 0
+
+    with pytest.raises(ValueError, match="active_pin_count is already 0"):
+        unpinned.unpin()

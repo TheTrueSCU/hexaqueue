@@ -195,21 +195,21 @@
 <!-- pydantic -->
 <g id="node11" class="node">
 <title>pydantic</title><style>.edge>path:hover{stroke-width:8}</style>
-<polygon fill="#1919e6" stroke="black" points="378.89,-828.98 375.89,-832.98 354.89,-832.98 351.89,-828.98 319.89,-828.98 319.89,-792.98 378.89,-792.98 378.89,-828.98"/>
+<polygon fill="#0c0cf3" stroke="black" points="378.89,-828.98 375.89,-832.98 354.89,-832.98 351.89,-828.98 319.89,-828.98 319.89,-792.98 378.89,-792.98 378.89,-828.98"/>
 <text text-anchor="middle" x="349.39" y="-808.48" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#ffffff">pydantic</text>
 </g>
 <!-- pydantic&#45;&gt;hexaqueue_collateral_domain_models -->
 <g id="edge19" class="edge">
 <title>pydantic&#45;&gt;hexaqueue_collateral_domain_models</title><style>.edge>path:hover{stroke-width:8}</style>
 <path fill="none" stroke="black" d="M349.39,-718.98C331.99,-674.75 325.03,-620.14 322.24,-584.26"/>
-<polygon fill="#1919e6" stroke="black" points="325.73,-583.93 321.53,-574.21 318.75,-584.43 325.73,-583.93"/>
+<polygon fill="#0c0cf3" stroke="black" points="325.73,-583.93 321.53,-574.21 318.75,-584.43 325.73,-583.93"/>
 </g>
 <!-- pydantic&#45;&gt;hexaqueue_core -->
 <g id="edge20" class="edge">
 <title>pydantic&#45;&gt;hexaqueue_core</title><style>.edge>path:hover{stroke-width:8}</style>
 <path fill="none" stroke="black" d="M352.39,-792.93C354.96,-774.47 357.14,-744.41 349.39,-719.98"/>
 <path fill="none" stroke="black" d="M349.39,-718.98C344.42,-706.35 334.47,-696.31 323.33,-688.52"/>
-<polygon fill="#1919e6" stroke="black" points="324.96,-685.41 314.64,-683 321.21,-691.32 324.96,-685.41"/>
+<polygon fill="#0c0cf3" stroke="black" points="324.96,-685.41 314.64,-683 321.21,-691.32 324.96,-685.41"/>
 </g>
 </g>
 </svg>
