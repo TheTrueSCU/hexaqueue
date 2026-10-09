@@ -17,7 +17,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from hexaqueue_core.domain.collateral import CollateralKind, CollateralTier
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import TerminalOutcome
+from hexaqueue_core.domain.node import ComputeNodeProfile
 from hexaqueue_core.domain.retention import LogRetentionPolicy
+from hexaqueue_core.domain.retry import DeadLetterRecord
 from hexaqueue_core.domain.run import RunSpec
 from hexaqueue_core.domain.suite import SuiteSpec
 
@@ -194,9 +196,11 @@ class CreatePtySessionCommand(Command):
     elevate: bool = Field(
         default=False, description="Explicit administrative elevation flag"
     )
-    job_id: str = Field(description="Target running job identifier")
+    job_id: str = Field(default="", description="Target running job identifier")
     rows: int = Field(default=24, ge=1, le=1000, description="Terminal rows")
-    session_id: str = Field(description="Unique interactive session identifier")
+    session_id: str = Field(
+        default="", description="Unique interactive session identifier"
+    )
     term_type: str = Field(
         default="xterm-256color", description="TERM environment string"
     )
@@ -408,6 +412,116 @@ class GetNodesQuery(Query):
     user_id: str = Field(default="default", description="Requesting user identity")
 
 
+class ListComputeNodesQuery(Query):
+    """Query to list registered compute worker node profiles.
+
+    Args:
+        user_id: Identity of requesting actor.
+        elevate: Explicit administrative privilege elevation flag.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    elevate: bool = Field(
+        default=False, description="Explicit administrative elevation flag"
+    )
+    user_id: str = Field(default="default", description="Requesting user identity")
+
+
+class NodesReport(BaseModel):
+    """Report summarizing active and registered compute worker nodes.
+
+    Args:
+        nodes: List of compute node profiles.
+        total_nodes: Total count of registered nodes.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    nodes: list[ComputeNodeProfile] = Field(
+        default_factory=list, description="Registered compute node profiles"
+    )
+    total_nodes: int = Field(ge=0, description="Total node count")
+
+
+class RegisterNodeCommand(Command):
+    """Command to register a compute worker node with the central controller.
+
+    Args:
+        profile: Compute node profile including tier, capacity, and cached collateral.
+        user_id: Identity of registering worker or orchestrator.
+        elevate: Explicit administrative privilege elevation flag.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    elevate: bool = Field(
+        default=False, description="Explicit administrative elevation flag"
+    )
+    profile: ComputeNodeProfile = Field(description="Worker node profile")
+    user_id: str = Field(default="worker", description="Registering user or agent")
+
+
+class HeartbeatNodeCommand(Command):
+    """Command to emit a heartbeat pulse and synchronize active node state.
+
+    Args:
+        worker_id: Unique worker node identifier.
+        active_job_ids: List of job identifiers currently in-flight on the node.
+        cached_collateral_hashes: List of CAS SHA-256 hashes present in local disk cache.
+        user_id: Identity of reporting worker.
+        elevate: Explicit administrative privilege elevation flag.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    active_job_ids: list[str] = Field(
+        default_factory=list, description="Active executing job identifiers"
+    )
+    cached_collateral_hashes: list[str] = Field(
+        default_factory=list, description="Locally cached CAS hashes"
+    )
+    elevate: bool = Field(
+        default=False, description="Explicit administrative elevation flag"
+    )
+    user_id: str = Field(default="worker", description="Reporting worker identifier")
+    worker_id: str = Field(description="Unique worker node identifier")
+
+
+class GetDeadLetterQueueQuery(Query):
+    """Query to inspect exhausted and dead-lettered job records.
+
+    Args:
+        limit: Maximum number of dead-letter records to retrieve.
+        user_id: Identity of requesting user or operator.
+        elevate: Explicit administrative privilege elevation flag.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    elevate: bool = Field(
+        default=False, description="Explicit administrative elevation flag"
+    )
+    limit: int = Field(default=50, ge=1, description="Maximum records to return")
+    user_id: str = Field(default="default", description="Requesting user identity")
+
+
+class DeadLetterQueueReport(BaseModel):
+    """Report detailing dead-lettered jobs and diagnostic root causes.
+
+    Args:
+        records: List of DeadLetterRecord entries.
+        total_count: Total count of preserved dead-lettered records.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    records: list[DeadLetterRecord] = Field(
+        default_factory=list, description="Diagnostic dead-letter records"
+    )
+    total_count: int = Field(ge=0, description="Total dead-lettered count")
+
+
 class GetLogsQuery(Query):
     """Query to retrieve historical execution logs for a job.
 
@@ -570,7 +684,9 @@ __all__ = [
     "ClusterStatsReport",
     "CreateBastionSessionCommand",
     "CreatePtySessionCommand",
+    "DeadLetterQueueReport",
     "ExplainJobQuery",
+    "GetDeadLetterQueueQuery",
     "GetFairShareTreeQuery",
     "GetJobLogDownloadUrlQuery",
     "GetJobQuery",
@@ -578,12 +694,16 @@ __all__ = [
     "GetNodesQuery",
     "GetQueueStatsQuery",
     "GetRunStatusQuery",
+    "HeartbeatNodeCommand",
     "HoldJobCommand",
+    "ListComputeNodesQuery",
     "ListJobsQuery",
+    "NodesReport",
     "NotifyLogUploadCompleteCommand",
     "PresignedDownloadUrl",
     "PresignedUploadToken",
     "RegisterCollateralCommand",
+    "RegisterNodeCommand",
     "ReleaseJobCommand",
     "RequestLogUploadUrlCommand",
     "SettleBudgetCommand",

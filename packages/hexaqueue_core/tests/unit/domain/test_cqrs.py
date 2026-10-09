@@ -198,3 +198,53 @@ def test_presigned_log_cqrs_models() -> None:
     )
     assert dl_url.download_url == "https://s3.example.com/download"
     assert dl_url.expires_in_seconds == 1200
+
+
+def test_node_and_dlq_cqrs_models() -> None:
+    """Test CQRS commands, queries, and reports for compute nodes and DLQ."""
+    from hexaqueue_core.domain.cqrs import (
+        DeadLetterQueueReport,
+        GetDeadLetterQueueQuery,
+        HeartbeatNodeCommand,
+        ListComputeNodesQuery,
+        NodesReport,
+        RegisterNodeCommand,
+    )
+    from hexaqueue_core.domain.node import ComputeNodeProfile
+    from hexaqueue_core.domain.retry import DeadLetterRecord
+
+    profile = ComputeNodeProfile(node_id="worker-node-1")
+    reg_cmd = RegisterNodeCommand(profile=profile)
+    reg_id = reg_cmd.profile.node_id
+    assert reg_id == "worker-node-1"
+
+    list_nodes_qry = ListComputeNodesQuery()
+    qry_user = list_nodes_qry.user_id
+    assert qry_user == "default"
+
+    hb_cmd = HeartbeatNodeCommand(
+        worker_id="worker-node-1",
+        active_job_ids=["job-1"],
+        cached_collateral_hashes=["hash-abc"],
+    )
+    hb_id = hb_cmd.worker_id
+    assert hb_id == "worker-node-1"
+    assert "job-1" in hb_cmd.active_job_ids
+
+    nodes_rep = NodesReport(nodes=[profile], total_nodes=1)
+    tot_nodes = nodes_rep.total_nodes
+    assert tot_nodes == 1
+
+    dlq_query = GetDeadLetterQueueQuery(limit=25)
+    q_limit = dlq_query.limit
+    assert q_limit == 25
+
+    record = DeadLetterRecord(
+        job_id="job-err",
+        run_id="run-err",
+        failure_reason="OOMKilled",
+        retry_count=3,
+    )
+    dlq_rep = DeadLetterQueueReport(records=[record], total_count=1)
+    dlq_count = dlq_rep.total_count
+    assert dlq_count == 1
