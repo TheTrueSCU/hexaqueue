@@ -152,11 +152,28 @@ class ClusterCqrsMixin(BaseCqrsService):
         Returns:
             Budget transaction confirmation dictionary.
         """
+        if getattr(cmd, "reservation_id", "") and hasattr(self, "budget_port"):
+            target_tenant = (
+                None
+                if getattr(cmd, "elevate", False)
+                else (
+                    getattr(cmd, "project_id", "")
+                    or getattr(cmd, "user_id", "")
+                    or None
+                )
+            )
+            await self.budget_port.settle_budget(
+                cmd.reservation_id,
+                cmd.actual_credits,
+                tenant_id=target_tenant,
+            )
         return {
+            "actor": cmd.user_id,
+            "actual_credits": getattr(cmd, "actual_credits", 0.0),
             "project_id": cmd.project_id,
+            "reservation_id": getattr(cmd, "reservation_id", ""),
             "settled_amount_cents": cmd.amount_cents,
             "status": "SETTLED",
-            "actor": cmd.user_id,
         }
 
     async def handle_get_fairshare_tree(

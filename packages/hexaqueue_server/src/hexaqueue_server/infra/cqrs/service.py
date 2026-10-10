@@ -10,8 +10,13 @@ from typing import Any
 from hexaqueue_collateral.adapters.local import LocalCollateralServiceAdapter
 from hexaqueue_collateral.ports.service import CollateralServicePort
 from hexaqueue_core.adapters.storage.presigned import InMemoryPresignedStorageAdapter
+from hexaqueue_core.ports.budget import BudgetAccountingPort
 from hexaqueue_core.ports.logging import LogChunk
 from hexaqueue_core.ports.storage import PresignedStoragePort
+from hexaqueue_monitor.adapters.ledger import InMemoryBudgetLedgerAdapter
+from hexaqueue_monitor.adapters.local import LocalClusterMonitorAdapter
+from hexaqueue_monitor.ports.monitor import ClusterMonitorPort
+from hexaqueue_server.infra.cqrs.budget import BudgetCqrsMixin
 from hexaqueue_server.infra.cqrs.cluster import ClusterCqrsMixin
 from hexaqueue_server.infra.cqrs.jobs import JobsCqrsMixin
 from hexaqueue_server.infra.cqrs.logs import LogsCqrsMixin
@@ -27,6 +32,7 @@ class HexaqueueCqrsService(
     LogsCqrsMixin,
     NodesCqrsMixin,
     ClusterCqrsMixin,
+    BudgetCqrsMixin,
 ):
     """Consolidated application service orchestrating Hexaqueue domain operations."""
 
@@ -37,6 +43,8 @@ class HexaqueueCqrsService(
         nodes: list[NodeTelemetryPulse] | None = None,
         storage_port: PresignedStoragePort | None = None,
         collateral_service: CollateralServicePort | None = None,
+        budget_port: BudgetAccountingPort | None = None,
+        cluster_monitor: ClusterMonitorPort | None = None,
     ) -> None:
         """Initialize the unified application service.
 
@@ -46,6 +54,8 @@ class HexaqueueCqrsService(
             nodes: Optional list of registered worker node telemetry pulses.
             storage_port: Optional presigned storage port (defaults to InMemoryPresignedStorageAdapter).
             collateral_service: Optional collateral service instance (defaults to LocalCollateralServiceAdapter).
+            budget_port: Optional budget accounting port (defaults to InMemoryBudgetLedgerAdapter).
+            cluster_monitor: Optional cluster monitor port (defaults to LocalClusterMonitorAdapter).
         """
         self.controller = controller
         self.log_store = log_store if log_store is not None else {}
@@ -54,6 +64,8 @@ class HexaqueueCqrsService(
         self.collateral_service = collateral_service or LocalCollateralServiceAdapter(
             storage_port=self.storage_port
         )
+        self.budget_port = budget_port or InMemoryBudgetLedgerAdapter()
+        self.cluster_monitor = cluster_monitor or LocalClusterMonitorAdapter()
         self.log_artifacts: dict[str, dict[str, Any]] = {}
 
 

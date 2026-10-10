@@ -23,6 +23,7 @@ from hexaqueue_core.domain.cqrs import (
     EvictExpiredCollateralCommand,
     ExplainJobQuery,
     FindCollateralByChecksumQuery,
+    GetClusterHealthQuery,
     GetCollateralBundleQuery,
     GetCollateralDownloadUrlQuery,
     GetDeadLetterQueueQuery,
@@ -33,6 +34,7 @@ from hexaqueue_core.domain.cqrs import (
     GetNodesQuery,
     GetQueueStatsQuery,
     GetRunStatusQuery,
+    GetTenantBalanceQuery,
     HeartbeatNodeCommand,
     HoldJobCommand,
     ListComputeNodesQuery,
@@ -41,15 +43,20 @@ from hexaqueue_core.domain.cqrs import (
     PinCollateralCommand,
     RegisterCollateralCommand,
     RegisterNodeCommand,
+    ReleaseBudgetCommand,
     ReleaseJobCommand,
     RequestLogUploadUrlCommand,
+    ReserveBudgetCommand,
     SettleBudgetCommand,
+    SettleSegmentCommand,
     SubmitRunCommand,
     SubmitSuiteCommand,
     UnpinCollateralCommand,
 )
+from hexaqueue_core.ports.budget import BudgetAccountingPort
 from hexaqueue_core.ports.logging import LogChunk
 from hexaqueue_core.ports.storage import PresignedStoragePort
+from hexaqueue_monitor.ports.monitor import ClusterMonitorPort
 from hexaqueue_server.infra.cqrs.common import run_coro_sync
 from hexaqueue_server.infra.cqrs.service import HexaqueueCqrsService
 from hexaqueue_server.ports.controller import SchedulerControllerPort
@@ -62,6 +69,8 @@ def create_hexaqueue_execution_pipeline(
     nodes: list[NodeTelemetryPulse] | None = None,
     storage_port: PresignedStoragePort | None = None,
     collateral_service: CollateralServicePort | None = None,
+    budget_port: BudgetAccountingPort | None = None,
+    cluster_monitor: ClusterMonitorPort | None = None,
 ) -> ExecutionPipeline:
     """Construct an ExecutionPipeline with all Hexaqueue CQRS command and query handlers.
 
@@ -71,6 +80,8 @@ def create_hexaqueue_execution_pipeline(
         nodes: Optional list of registered worker node telemetry pulses.
         storage_port: Optional presigned storage port for log artifacts.
         collateral_service: Optional collateral service instance.
+        budget_port: Optional budget accounting port.
+        cluster_monitor: Optional cluster monitor port.
 
     Returns:
         Configured and populated ExecutionPipeline ready for synchronous dispatch.
@@ -85,6 +96,8 @@ def create_hexaqueue_execution_pipeline(
         nodes=nodes,
         storage_port=storage_port,
         collateral_service=collateral_service,
+        budget_port=budget_port,
+        cluster_monitor=cluster_monitor,
     )
     handler_reg = HandlerRegistry()
     command_reg = CommandRegistry()
@@ -167,6 +180,24 @@ def create_hexaqueue_execution_pipeline(
     handler_reg.register(
         SettleBudgetCommand,
         lambda cmd: run_coro_sync(service.handle_settle_budget(cmd)),
+    )
+
+    command_reg.register(ReserveBudgetCommand)
+    handler_reg.register(
+        ReserveBudgetCommand,
+        lambda cmd: run_coro_sync(service.handle_reserve_budget(cmd)),
+    )
+
+    command_reg.register(SettleSegmentCommand)
+    handler_reg.register(
+        SettleSegmentCommand,
+        lambda cmd: run_coro_sync(service.handle_settle_segment(cmd)),
+    )
+
+    command_reg.register(ReleaseBudgetCommand)
+    handler_reg.register(
+        ReleaseBudgetCommand,
+        lambda cmd: run_coro_sync(service.handle_release_budget(cmd)),
     )
 
     command_reg.register(RequestLogUploadUrlCommand)
@@ -276,6 +307,18 @@ def create_hexaqueue_execution_pipeline(
     handler_reg.register(
         GetCollateralDownloadUrlQuery,
         lambda qry: run_coro_sync(service.handle_get_collateral_download_url(qry)),
+    )
+
+    query_reg.register(GetTenantBalanceQuery)
+    handler_reg.register(
+        GetTenantBalanceQuery,
+        lambda qry: run_coro_sync(service.handle_get_tenant_balance(qry)),
+    )
+
+    query_reg.register(GetClusterHealthQuery)
+    handler_reg.register(
+        GetClusterHealthQuery,
+        lambda qry: run_coro_sync(service.handle_get_cluster_health(qry)),
     )
 
     return ExecutionPipeline(

@@ -1,5 +1,12 @@
 """Domain entities and value objects for Hexaqueue Core."""
 
+from hexaqueue_core.domain.budget import (
+    BudgetReservation,
+    ClusterHealthReport,
+    ExecutionSegmentRecord,
+    ReservationState,
+    TenantAccount,
+)
 from hexaqueue_core.domain.collateral import (
     CollateralBundle,
     CollateralKind,
@@ -182,17 +189,23 @@ from hexaqueue_core.domain.suite import (
     TaskSpec,
     TestSpec,
 )
+from hexaqueue_core.domain.telemetry import (
+    GpuTelemetry,
+    NodeTelemetryPulse,
+)
 
 __all__ = [
     "AWS_FREE_TIER_PROFILE",
     "AZURE_FREE_TIER_PROFILE",
     "BaseHexaqueueConfigError",
     "BatchSchedulerEngine",
+    "BudgetReservation",
     "can_transition_collateral",
     "can_transition_job",
     "CancelJobCommand",
     "CancelRunCommand",
     "ChecksumMismatchError",
+    "ClusterHealthReport",
     "ClusterStatsReport",
     "CollateralBundle",
     "CollateralKind",
@@ -216,6 +229,7 @@ __all__ = [
     "DependencyCycleError",
     "DependencySpec",
     "ExecutionMode",
+    "ExecutionSegmentRecord",
     "ExplainJobQuery",
     "FairShareNode",
     "FairShareNodeReport",
@@ -239,6 +253,7 @@ __all__ = [
     "GpuAllocation",
     "GpuAllocationError",
     "GpuDevice",
+    "GpuTelemetry",
     "GroupExpansionEngine",
     "HeartbeatNodeCommand",
     "HexaqueueConfig",
@@ -269,6 +284,7 @@ __all__ = [
     "NodeHealthState",
     "NodeProvisioningTier",
     "NodesReport",
+    "NodeTelemetryPulse",
     "NotificationPolicy",
     "NotificationTrigger",
     "NotifyLogUploadCompleteCommand",
@@ -287,6 +303,7 @@ __all__ = [
     "RegisterNodeCommand",
     "ReleaseJobCommand",
     "RequestLogUploadUrlCommand",
+    "ReservationState",
     "ResolvedContext",
     "ResolvedJobCollection",
     "ResourceOverrideSpec",
@@ -310,6 +327,7 @@ __all__ = [
     "SuiteContext",
     "SuiteSpec",
     "TaskSpec",
+    "TenantAccount",
     "TerminalOutcome",
     "TestSpec",
     "TriggerCondition",

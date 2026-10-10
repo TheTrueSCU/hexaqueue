@@ -213,6 +213,8 @@ def create_cluster_router() -> APIRouter:
         effective_cmd = SettleBudgetCommand(
             project_id=cmd.project_id,
             amount_cents=cmd.amount_cents,
+            reservation_id=cmd.reservation_id,
+            actual_credits=cmd.actual_credits,
             user_id=user_id,
             elevate=is_elevated,
         )

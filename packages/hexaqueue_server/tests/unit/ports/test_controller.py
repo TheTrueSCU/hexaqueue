@@ -11,6 +11,7 @@ from hexaqueue_core.domain.lifecycle import (
 )
 from hexaqueue_core.domain.node import ComputeNodeProfile
 from hexaqueue_core.domain.retry import DeadLetterRecord
+from hexaqueue_core.domain.telemetry import NodeTelemetryPulse
 from hexaqueue_server.domain.models import RunStatusReport, RunSubmission
 from hexaqueue_server.domain.placement import PlacementDecision
 from hexaqueue_server.ports.controller import SchedulerControllerPort
@@ -63,6 +64,8 @@ async def test_scheduler_controller_port_concrete_implementation() -> None:
             job_id: str,
             outcome: TerminalOutcome,
             reason: str | None = None,
+            walltime_seconds: float | None = None,
+            consumed_credits: float | None = None,
         ) -> None:
             pass
 
@@ -114,6 +117,7 @@ async def test_scheduler_controller_port_concrete_implementation() -> None:
             worker_id: str,
             active_job_ids: list[str] | None = None,
             cached_collateral_hashes: list[str] | None = None,
+            pulse: NodeTelemetryPulse | None = None,
         ) -> ComputeNodeProfile:
             return ComputeNodeProfile(node_id=worker_id)
 

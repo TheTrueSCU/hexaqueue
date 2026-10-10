@@ -366,11 +366,113 @@ class SettleBudgetCommand(Command):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    amount_cents: int = Field(ge=0, description="Settled consumption amount")
+    actual_credits: float = Field(
+        default=0.0, ge=0.0, description="Actual HQ credits consumed"
+    )
+    amount_cents: int = Field(default=0, ge=0, description="Settled consumption amount")
     elevate: bool = Field(
         default=False, description="Explicit administrative elevation flag"
     )
-    project_id: str = Field(description="Project identifier")
+    project_id: str = Field(default="", description="Project identifier")
+    reservation_id: str = Field(default="", description="Reservation hold token ID")
+    user_id: str = Field(default="default", description="Requesting user identity")
+
+
+class ReserveBudgetCommand(Command):
+    """Command to place a pre-emptive budget hold for job execution.
+
+    Args:
+        tenant_id: Target tenant account identifier.
+        job_id: Target job identifier.
+        estimated_credits: Maximum credits to hold.
+        user_id: Identity of requesting actor.
+        elevate: Explicit administrative privilege elevation flag.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    elevate: bool = Field(
+        default=False, description="Explicit administrative elevation flag"
+    )
+    estimated_credits: float = Field(
+        ge=0.0, description="Estimated maximum credits to hold"
+    )
+    job_id: str = Field(description="Job identifier")
+    tenant_id: str = Field(description="Tenant or project account identifier")
+    user_id: str = Field(default="default", description="Requesting user identity")
+
+
+class SettleSegmentCommand(Command):
+    """Command to settle an incremental execution segment upon preemption.
+
+    Args:
+        reservation_id: Target reservation hold identifier.
+        segment_credits: Credits consumed during this execution segment.
+        user_id: Identity of requesting actor.
+        elevate: Explicit administrative privilege elevation flag.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    elevate: bool = Field(
+        default=False, description="Explicit administrative elevation flag"
+    )
+    reservation_id: str = Field(description="Target reservation hold identifier")
+    segment_credits: float = Field(
+        ge=0.0, description="Credits consumed during this execution segment"
+    )
+    user_id: str = Field(default="default", description="Requesting user identity")
+
+
+class ReleaseBudgetCommand(Command):
+    """Command to release an active budget hold in full without billing.
+
+    Args:
+        reservation_id: Target reservation hold identifier.
+        user_id: Identity of requesting actor.
+        elevate: Explicit administrative privilege elevation flag.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    elevate: bool = Field(
+        default=False, description="Explicit administrative elevation flag"
+    )
+    reservation_id: str = Field(description="Target reservation hold identifier")
+    user_id: str = Field(default="default", description="Requesting user identity")
+
+
+class GetTenantBalanceQuery(Query):
+    """Query to retrieve tenant credit balance and active hold details.
+
+    Args:
+        tenant_id: Target tenant account identifier.
+        user_id: Identity of requesting actor.
+        elevate: Explicit administrative privilege elevation flag.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    elevate: bool = Field(
+        default=False, description="Explicit administrative elevation flag"
+    )
+    tenant_id: str = Field(description="Tenant account identifier")
+    user_id: str = Field(default="default", description="Requesting user identity")
+
+
+class GetClusterHealthQuery(Query):
+    """Query to retrieve point-in-time cluster capacity and health report.
+
+    Args:
+        user_id: Identity of requesting actor.
+        elevate: Explicit administrative privilege elevation flag.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    elevate: bool = Field(
+        default=False, description="Explicit administrative elevation flag"
+    )
     user_id: str = Field(default="default", description="Requesting user identity")
 
 
@@ -811,6 +913,7 @@ __all__ = [
     "EvictExpiredCollateralCommand",
     "ExplainJobQuery",
     "FindCollateralByChecksumQuery",
+    "GetClusterHealthQuery",
     "GetCollateralBundleQuery",
     "GetCollateralDownloadUrlQuery",
     "GetDeadLetterQueueQuery",
@@ -821,6 +924,7 @@ __all__ = [
     "GetNodesQuery",
     "GetQueueStatsQuery",
     "GetRunStatusQuery",
+    "GetTenantBalanceQuery",
     "HeartbeatNodeCommand",
     "HoldJobCommand",
     "ListComputeNodesQuery",
@@ -832,9 +936,12 @@ __all__ = [
     "PresignedUploadToken",
     "RegisterCollateralCommand",
     "RegisterNodeCommand",
+    "ReleaseBudgetCommand",
     "ReleaseJobCommand",
     "RequestLogUploadUrlCommand",
+    "ReserveBudgetCommand",
     "SettleBudgetCommand",
+    "SettleSegmentCommand",
     "StreamLogsQuery",
     "SubmitRunCommand",
     "SubmitSuiteCommand",

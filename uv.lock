@@ -966,6 +966,7 @@ source = { editable = "packages/hexaqueue_server" }
 dependencies = [
     { name = "hexaqueue-collateral" },
     { name = "hexaqueue-core" },
+    { name = "hexaqueue-monitor" },
     { name = "hexastack-auth" },
     { name = "hexastack-core" },
     { name = "hexastack-cqrs" },
@@ -980,6 +981,7 @@ dependencies = [
 requires-dist = [
     { name = "hexaqueue-collateral", editable = "packages/hexaqueue_collateral" },
     { name = "hexaqueue-core", editable = "packages/hexaqueue_core" },
+    { name = "hexaqueue-monitor", editable = "packages/hexaqueue_monitor" },
     { name = "hexastack-auth", specifier = ">=0.8.0" },
     { name = "hexastack-core", specifier = ">=0.8.0" },
     { name = "hexastack-cqrs", specifier = ">=0.8.0" },

@@ -5,11 +5,13 @@ Notes/Architectural Intent:
     and the synchronous coroutine runner for backward compatibility and clean public API.
 """
 
+from hexaqueue_server.infra.cqrs.budget import BudgetCqrsMixin
 from hexaqueue_server.infra.cqrs.common import run_coro_sync
 from hexaqueue_server.infra.cqrs.pipeline import create_hexaqueue_execution_pipeline
 from hexaqueue_server.infra.cqrs.service import HexaqueueCqrsService
 
 __all__ = [
+    "BudgetCqrsMixin",
     "create_hexaqueue_execution_pipeline",
     "HexaqueueCqrsService",
     "run_coro_sync",

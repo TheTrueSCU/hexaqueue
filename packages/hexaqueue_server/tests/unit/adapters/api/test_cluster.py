@@ -69,6 +69,48 @@ def test_cluster_collateral_and_budget(hermetic_api_client: TestClient) -> None:
     assert budget_data["status"] == "SETTLED"
     assert budget_data["settled_amount_cents"] == 2500
 
+    # 3. Reservation settlement with tenant ownership verification
+    resp_res = client.post(
+        "/v1/budget/reserve",
+        json={
+            "tenant_id": "tenant-cluster-api",
+            "job_id": "job-api-res-1",
+            "estimated_credits": 100.0,
+        },
+        headers={"X-Hexaqueue-User": "alice"},
+    )
+    res_code = resp_res.status_code
+    assert res_code == 200
+    res_id = resp_res.json()["reservation_id"]
+
+    # Unauthorized settlement by mismatched tenant fails
+    resp_unauth = client.post(
+        "/v1/budget/settle",
+        json={
+            "project_id": "tenant-intruder",
+            "reservation_id": res_id,
+            "actual_credits": 40.0,
+        },
+        headers={"X-Hexaqueue-User": "bob"},
+    )
+    unauth_code = resp_unauth.status_code
+    assert unauth_code == 400
+
+    # Authorized settlement succeeds
+    resp_auth = client.post(
+        "/v1/budget/settle",
+        json={
+            "project_id": "tenant-cluster-api",
+            "reservation_id": res_id,
+            "actual_credits": 40.0,
+        },
+        headers={"X-Hexaqueue-User": "alice"},
+    )
+    auth_code = resp_auth.status_code
+    assert auth_code == 200
+    auth_status = resp_auth.json()["status"]
+    assert auth_status == "SETTLED"
+
 
 def test_cluster_collateral_endpoints(hermetic_api_client: TestClient) -> None:
     """Verify collateral metadata inspection, pin, unpin, checksum lookup, and evict endpoints."""
