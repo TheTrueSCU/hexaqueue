@@ -112,6 +112,21 @@ def test_tenant_account_available_balance() -> None:
     assert acct_overdrawn.available_balance == 0.0
 
 
+def test_budget_reservation_finalize_expired() -> None:
+    """Verify an EXPIRED reservation can still be finalized upon job completion."""
+    res = BudgetReservation(
+        tenant_id="tenant-exp",
+        job_id="job-exp",
+        held_credits=50.0,
+        state=ReservationState.EXPIRED,
+    )
+    finalized = res.finalize_settlement(45.0)
+    final_state = finalized.state
+    final_credits = finalized.settled_credits
+    assert final_state == ReservationState.SETTLED
+    assert final_credits == 45.0
+
+
 def test_cluster_health_report() -> None:
     """Verify ClusterHealthReport instantiates with non-negative metrics."""
     report = ClusterHealthReport(
@@ -126,12 +141,16 @@ def test_cluster_health_report() -> None:
         allocated_gpus=4,
         active_jobs_count=12,
     )
-    assert report.healthy_nodes_count == 5
-    assert report.total_cpus == 64
-    assert report.allocated_gpus == 4
+    healthy_val = report.healthy_nodes_count
+    cpus_val = report.total_cpus
+    gpus_val = report.allocated_gpus
+    assert healthy_val == 5
+    assert cpus_val == 64
+    assert gpus_val == 4
 
 
 __all__ = [
+    "test_budget_reservation_finalize_expired",
     "test_budget_reservation_lifecycle",
     "test_budget_reservation_release",
     "test_cluster_health_report",

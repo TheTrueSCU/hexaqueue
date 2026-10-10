@@ -47,12 +47,22 @@ async def test_cluster_monitor_pulse_recording() -> None:
     assert len(all_pulses) == 1
 
     health = await monitor.get_cluster_health()
-    assert health.healthy_nodes_count == 1
-    assert health.unhealthy_nodes_count == 0
-    assert health.dead_nodes_count == 0
-    assert health.active_jobs_count == 3
-    assert health.total_gpus == 1
-    assert health.allocated_gpus == 1
+    healthy = health.healthy_nodes_count
+    unhealthy = health.unhealthy_nodes_count
+    dead = health.dead_nodes_count
+    jobs = health.active_jobs_count
+    gpus = health.total_gpus
+    alloc_gpus = health.allocated_gpus
+    cpus = health.total_cpus
+    alloc_cpus = health.allocated_cpus
+    assert healthy == 1
+    assert unhealthy == 0
+    assert dead == 0
+    assert jobs == 3
+    assert gpus == 1
+    assert alloc_gpus == 1
+    assert cpus == 8
+    assert alloc_cpus == 4
 
 
 @pytest.mark.asyncio
@@ -74,8 +84,14 @@ async def test_cluster_monitor_reap_dead_nodes() -> None:
     assert "worker-dead-1" in dead_nodes
 
     health = await monitor.get_cluster_health()
-    assert health.dead_nodes_count == 1
-    assert health.healthy_nodes_count == 0
+    dead = health.dead_nodes_count
+    healthy = health.healthy_nodes_count
+    cpus = health.total_cpus
+    alloc_cpus = health.allocated_cpus
+    assert dead == 1
+    assert healthy == 0
+    assert cpus == 0
+    assert alloc_cpus == 0
 
 
 __all__ = [

@@ -103,6 +103,9 @@ class LocalClusterMonitorAdapter(ClusterMonitorPort):
             unhealthy_count = 0
             dead_count = len(self._dead_nodes)
 
+            total_cpus = 0
+            allocated_cpu_f = 0.0
+
             total_ram = 0
             allocated_ram = 0
             total_gpus = 0
@@ -122,6 +125,8 @@ class LocalClusterMonitorAdapter(ClusterMonitorPort):
                     dead_count += 1
                     continue
 
+                total_cpus += 8  # Normalized default
+                allocated_cpu_f += (pulse.cpu_utilization_pct / 100.0) * 8
                 total_ram += pulse.memory_total_mb
                 allocated_ram += pulse.memory_used_mb
                 total_gpus += len(pulse.gpu_metrics)
@@ -130,14 +135,7 @@ class LocalClusterMonitorAdapter(ClusterMonitorPort):
                 )
                 active_jobs += pulse.active_jobs
 
-            total_cpus = len(self._pulses) * 8  # Normalized default
-            allocated_cpus = round(
-                sum(
-                    (pulse.cpu_utilization_pct / 100.0) * 8
-                    for w_id, pulse in self._pulses.items()
-                    if w_id not in self._dead_nodes
-                )
-            )
+            allocated_cpus = round(allocated_cpu_f)
 
             return ClusterHealthReport(
                 active_jobs_count=active_jobs,

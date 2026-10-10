@@ -160,7 +160,7 @@ class BudgetReservation(BaseModel):
         Raises:
             ValueError: If reservation is not ACTIVE or final credits is negative.
         """
-        if self.state != ReservationState.ACTIVE:
+        if self.state not in (ReservationState.ACTIVE, ReservationState.EXPIRED):
             msg = f"Cannot finalize reservation in state '{self.state}'"
             raise ValueError(msg)
         if final_actual_credits < 0.0:

@@ -115,20 +115,71 @@ async def test_budget_ledger_stale_reservation_expiration() -> None:
 
 
 @pytest.mark.asyncio
+async def test_budget_ledger_expired_reservation_settlement() -> None:
+    """Verify an expired reservation can still be settled upon job completion."""
+    ledger = InMemoryBudgetLedgerAdapter(initial_balances={"acct-exp": 100.0})
+    hold_id = await ledger.reserve_budget(
+        "acct-exp", "job-long", estimated_credits=30.0
+    )
+
+    # Force expiration of hold
+    expired = await ledger.expire_stale_reservations(max_age_seconds=0.0)
+    assert hold_id in expired
+
+    # Job finishes and settles 25.0 credits
+    await ledger.settle_budget(hold_id, actual_credits=25.0)
+
+    acct = await ledger.get_account("acct-exp")
+    bal = acct.available_balance
+    settled = acct.settled_total
+    holds = acct.active_holds_total
+    assert settled == 25.0
+    assert holds == 0.0
+    assert bal == 75.0
+
+
+@pytest.mark.asyncio
 async def test_budget_ledger_deposit() -> None:
     """Verify depositing funds increases available credit balance."""
     ledger = InMemoryBudgetLedgerAdapter(initial_balances={"acct-deposit": 50.0})
     acct = await ledger.deposit("acct-deposit", amount=150.0)
-    assert acct.credit_balance == 200.0
-    assert acct.available_balance == 200.0
+    bal = acct.credit_balance
+    avail = acct.available_balance
+    assert bal == 200.0
+    assert avail == 200.0
 
     with pytest.raises(ValueError, match="positive"):
         await ledger.deposit("acct-deposit", amount=-10.0)
 
 
+@pytest.mark.asyncio
+async def test_budget_ledger_oversettled_segment_clamping() -> None:
+    """Verify an over-settled reservation segment clamps to zero and does not cancel other holds."""
+    ledger = InMemoryBudgetLedgerAdapter(initial_balances={"acct-clamp": 100.0})
+    hold_a = await ledger.reserve_budget("acct-clamp", "job-a", estimated_credits=10.0)
+    hold_b = await ledger.reserve_budget("acct-clamp", "job-b", estimated_credits=40.0)
+    assert hold_b.startswith("hold-")
+
+    # Settle 50.0 segment on hold A (which held 10.0)
+    await ledger.settle_segment(hold_a, segment_credits=50.0)
+
+    acct = await ledger.get_account("acct-clamp")
+    # Hold A has remaining hold clamped to max(0, 10 - 50) = 0.0
+    # Hold B has remaining hold = 40.0
+    # Total active holds must be 40.0, NOT 0.0!
+    holds = acct.active_holds_total
+    settled = acct.settled_total
+    bal = acct.available_balance
+    assert holds == 40.0
+    assert settled == 50.0
+    assert bal == 10.0
+
+
 __all__ = [
     "test_budget_ledger_deposit",
+    "test_budget_ledger_expired_reservation_settlement",
     "test_budget_ledger_insufficient_credits",
+    "test_budget_ledger_oversettled_segment_clamping",
     "test_budget_ledger_segmented_preemption_no_double_counting",
     "test_budget_ledger_stale_reservation_expiration",
     "test_budget_ledger_two_phase_lifecycle",

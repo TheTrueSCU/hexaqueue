@@ -102,7 +102,7 @@ class InMemoryBudgetLedgerAdapter(BudgetAccountingPort):
                 )
                 raise HexaqueueError(msg)
 
-            if res.state != ReservationState.ACTIVE:
+            if res.state not in (ReservationState.ACTIVE, ReservationState.EXPIRED):
                 msg = f"Reservation '{reservation_id}' already in terminal state '{res.state}'"
                 raise HexaqueueError(msg)
 
@@ -260,7 +260,7 @@ class InMemoryBudgetLedgerAdapter(BudgetAccountingPort):
         deposit = self._deposits[tenant_id]
         settled = self._settled_by_tenant[tenant_id]
         active_holds = sum(
-            r.held_credits - r.settled_credits
+            max(0.0, r.held_credits - r.settled_credits)
             for r in self._reservations.values()
             if r.tenant_id == tenant_id and r.state == ReservationState.ACTIVE
         )
