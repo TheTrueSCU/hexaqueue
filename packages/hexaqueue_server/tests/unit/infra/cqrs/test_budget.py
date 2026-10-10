@@ -53,6 +53,7 @@ def test_budget_reservation_and_settlement_cqrs(
     # 4. Final settlement without double-counting
     settle_res = pipeline.execute(
         SettleBudgetCommand(
+            project_id="tenant-alpha",
             reservation_id=res_id,
             actual_credits=50.0,
         )
@@ -68,6 +69,48 @@ def test_budget_reservation_and_settlement_cqrs(
     final_holds = updated_account.active_holds_total
     assert final_bal == 9950.0
     assert final_holds == 0.0
+
+
+def test_budget_settlement_ownership_enforcement(
+    hermetic_cqrs_pipeline: tuple[Any, Any],
+) -> None:
+    """Verify unauthorized settlement across tenant boundaries is rejected unless elevated."""
+    import pytest
+
+    from hexaqueue_core.domain.exceptions import HexaqueueError
+
+    _, pipeline = hermetic_cqrs_pipeline
+
+    reserve_res = pipeline.execute(
+        ReserveBudgetCommand(
+            tenant_id="tenant-acct-1",
+            job_id="job-sec-1",
+            estimated_credits=50.0,
+        )
+    )
+    res_id = reserve_res["reservation_id"]
+
+    # Unauthorized settlement attempt by another tenant must fail
+    with pytest.raises(HexaqueueError, match="does not own reservation"):
+        pipeline.execute(
+            SettleBudgetCommand(
+                project_id="tenant-intruder",
+                reservation_id=res_id,
+                actual_credits=20.0,
+            )
+        )
+
+    # Elevated admin can settle any reservation
+    admin_settle = pipeline.execute(
+        SettleBudgetCommand(
+            project_id="tenant-intruder",
+            reservation_id=res_id,
+            actual_credits=20.0,
+            elevate=True,
+        )
+    )
+    status_val = admin_settle["status"]
+    assert status_val == "SETTLED"
 
 
 def test_budget_release_cqrs(

@@ -153,7 +153,20 @@ class ClusterCqrsMixin(BaseCqrsService):
             Budget transaction confirmation dictionary.
         """
         if getattr(cmd, "reservation_id", "") and hasattr(self, "budget_port"):
-            await self.budget_port.settle_budget(cmd.reservation_id, cmd.actual_credits)
+            target_tenant = (
+                None
+                if getattr(cmd, "elevate", False)
+                else (
+                    getattr(cmd, "project_id", "")
+                    or getattr(cmd, "user_id", "")
+                    or None
+                )
+            )
+            await self.budget_port.settle_budget(
+                cmd.reservation_id,
+                cmd.actual_credits,
+                tenant_id=target_tenant,
+            )
         return {
             "actor": cmd.user_id,
             "actual_credits": getattr(cmd, "actual_credits", 0.0),

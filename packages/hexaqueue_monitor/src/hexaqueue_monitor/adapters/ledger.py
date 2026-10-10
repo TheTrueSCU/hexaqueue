@@ -71,12 +71,18 @@ class InMemoryBudgetLedgerAdapter(BudgetAccountingPort):
             self._reservations[hold_id] = res
             return hold_id
 
-    async def settle_budget(self, reservation_id: str, actual_credits: float) -> None:
+    async def settle_budget(
+        self,
+        reservation_id: str,
+        actual_credits: float,
+        tenant_id: str | None = None,
+    ) -> None:
         """Finalize budget settlement for a finished or cancelled job.
 
         Args:
             reservation_id: Target reservation identifier.
             actual_credits: Final measured credits consumed by the job.
+            tenant_id: Optional tenant identifier to enforce reservation ownership.
 
         Raises:
             HexaqueueError: If reservation ID is invalid or already finalized.
@@ -90,6 +96,12 @@ class InMemoryBudgetLedgerAdapter(BudgetAccountingPort):
                 return
 
             res = self._reservations[reservation_id]
+            if tenant_id is not None and res.tenant_id != tenant_id:
+                msg = (
+                    f"Tenant '{tenant_id}' does not own reservation '{reservation_id}'"
+                )
+                raise HexaqueueError(msg)
+
             if res.state != ReservationState.ACTIVE:
                 msg = f"Reservation '{reservation_id}' already in terminal state '{res.state}'"
                 raise HexaqueueError(msg)
@@ -100,13 +112,17 @@ class InMemoryBudgetLedgerAdapter(BudgetAccountingPort):
             self._settled_by_tenant[res.tenant_id] += delta
 
     async def settle_segment(
-        self, reservation_id: str, segment_credits: float
+        self,
+        reservation_id: str,
+        segment_credits: float,
+        tenant_id: str | None = None,
     ) -> float:
         """Settle an incremental execution segment upon preemption without closing the reservation.
 
         Args:
             reservation_id: Target reservation identifier.
             segment_credits: Credits consumed during this execution segment.
+            tenant_id: Optional tenant identifier to enforce reservation ownership.
 
         Returns:
             Cumulative credits settled across all segments for this reservation.
@@ -120,6 +136,12 @@ class InMemoryBudgetLedgerAdapter(BudgetAccountingPort):
                 raise HexaqueueError(msg)
 
             res = self._reservations[reservation_id]
+            if tenant_id is not None and res.tenant_id != tenant_id:
+                msg = (
+                    f"Tenant '{tenant_id}' does not own reservation '{reservation_id}'"
+                )
+                raise HexaqueueError(msg)
+
             if res.state != ReservationState.ACTIVE:
                 msg = (
                     f"Cannot settle segment on inactive reservation '{reservation_id}'"
@@ -131,11 +153,16 @@ class InMemoryBudgetLedgerAdapter(BudgetAccountingPort):
             self._settled_by_tenant[res.tenant_id] += segment_credits
             return updated_res.settled_credits
 
-    async def release_budget(self, reservation_id: str) -> None:
+    async def release_budget(
+        self,
+        reservation_id: str,
+        tenant_id: str | None = None,
+    ) -> None:
         """Release an active budget hold in full without billing.
 
         Args:
             reservation_id: Target reservation identifier.
+            tenant_id: Optional tenant identifier to enforce reservation ownership.
 
         Raises:
             HexaqueueError: If reservation ID is invalid or already finalized.
@@ -146,6 +173,12 @@ class InMemoryBudgetLedgerAdapter(BudgetAccountingPort):
                 raise HexaqueueError(msg)
 
             res = self._reservations[reservation_id]
+            if tenant_id is not None and res.tenant_id != tenant_id:
+                msg = (
+                    f"Tenant '{tenant_id}' does not own reservation '{reservation_id}'"
+                )
+                raise HexaqueueError(msg)
+
             if res.state != ReservationState.ACTIVE:
                 msg = f"Cannot release reservation '{reservation_id}' in state '{res.state}'"
                 raise HexaqueueError(msg)

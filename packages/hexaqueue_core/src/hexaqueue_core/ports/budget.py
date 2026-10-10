@@ -101,15 +101,17 @@ class BudgetAccountingPort(ABC):
         self,
         reservation_id: str,
         actual_credits: float,
+        tenant_id: str | None = None,
     ) -> None:
         """Settle an active budget hold against actual measured consumption.
 
         Args:
             reservation_id: Reservation hold token ID.
             actual_credits: Final credits consumed by the executed job.
+            tenant_id: Optional tenant identifier to enforce reservation ownership.
 
         Raises:
-            HexaqueueError: If reservation ID is invalid or already settled.
+            HexaqueueError: If reservation ID is invalid, already settled, or tenant mismatch.
         """
 
     @abstractmethod
@@ -117,29 +119,36 @@ class BudgetAccountingPort(ABC):
         self,
         reservation_id: str,
         segment_credits: float,
+        tenant_id: str | None = None,
     ) -> float:
         """Settle an incremental execution segment (e.g. upon preemption).
 
         Args:
             reservation_id: Reservation hold token ID.
             segment_credits: Credits consumed during this execution segment.
+            tenant_id: Optional tenant identifier to enforce reservation ownership.
 
         Returns:
             Cumulative credits settled so far on this reservation.
 
         Raises:
-            HexaqueueError: If reservation ID is invalid or already settled.
+            HexaqueueError: If reservation ID is invalid, already settled, or tenant mismatch.
         """
 
     @abstractmethod
-    async def release_budget(self, reservation_id: str) -> None:
+    async def release_budget(
+        self,
+        reservation_id: str,
+        tenant_id: str | None = None,
+    ) -> None:
         """Release an active budget hold in full without billing.
 
         Args:
             reservation_id: Reservation hold token ID.
+            tenant_id: Optional tenant identifier to enforce reservation ownership.
 
         Raises:
-            HexaqueueError: If reservation ID is invalid or already settled.
+            HexaqueueError: If reservation ID is invalid, already settled, or tenant mismatch.
         """
 
     @abstractmethod
