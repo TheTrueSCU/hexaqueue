@@ -1,0 +1,13 @@
+WEBVTT
+
+1
+00:00:00.500 --> 00:00:02.135
+1. Staging binary artifact model weights into Content-Addressable Storage (CAS)
+
+2
+00:00:02.135 --> 00:00:03.770
+2. Verifying cryptographic SHA-256 content-addressable deduplication
+
+3
+00:00:03.770 --> 00:00:06.905
+3. Inspecting cluster telemetry and storage asset status

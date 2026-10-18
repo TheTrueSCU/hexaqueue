@@ -1,0 +1,13 @@
+WEBVTT
+
+1
+00:00:00.500 --> 00:00:02.135
+1. Submitting declarative HPC batch workload with DAG dependency enforcement
+
+2
+00:00:02.135 --> 00:00:04.805
+2. Inspecting pipeline run state and task completion status
+
+3
+00:00:04.805 --> 00:00:07.940
+3. Retrieving streaming execution logs and stdout chunks for individual jobs
