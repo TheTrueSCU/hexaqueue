@@ -95,7 +95,11 @@ def load_workflow_from_target(target: str) -> WorkflowDefinition:
         raise typer.BadParameter(msg)
 
     if isinstance(wf_candidate, Workflow):
-        return wf_candidate.compile()
+        return (
+            wf_candidate.to_definition()
+            if hasattr(wf_candidate, "to_definition")
+            else wf_candidate.compile()
+        )
     if isinstance(wf_candidate, WorkflowDefinition):
         return wf_candidate
 

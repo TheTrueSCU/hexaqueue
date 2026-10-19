@@ -140,7 +140,8 @@ Usage: hq collateral [OPTIONS] COMMAND [ARGS]...
 │ --help          Show this message and exit.                                  │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
-│ push  Stage and register a collateral artifact for compute execution.        │
+│ push   Stage and register a collateral artifact for compute execution.       │
+│ stage  Stage and register a collateral artifact for compute execution.       │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -148,6 +149,43 @@ Usage: hq collateral [OPTIONS] COMMAND [ARGS]...
 
 ```text
 Usage: hq collateral push [OPTIONS] {file_path}
+
+ Stage and register a collateral artifact for compute execution.
+
+ Args:
+     file_path: Local file path to stage.
+     name: Logical name override.
+     tier: Retention tier string.
+     kind: Collateral classification kind.
+     user: Submitting user identity.
+     admin: Administrative elevation flag.
+
+ Notes/Architectural Intent:
+     Calculates cryptographic SHA-256 digest and stages metadata through
+     the unified execution pipeline.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    file_path      <path>  Path to local collateral file or bundle to stage │
+│                             [required]                                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --name   -n      <str>  Override logical collateral name (defaults to        │
+│                         filename)                                            │
+│ --tier           <str>  Collateral retention tier (TEMPORARY, PERMANENT)     │
+│                         [default: TEMPORARY]                                 │
+│ --kind           <str>  Collateral kind (BUNDLE, OS_IMAGE, CONTAINER_IMAGE,  │
+│                         TEST_BINARY, DATASET)                                │
+│                         [default: BUNDLE]                                    │
+│ --user   -u      <str>  Submitting user identity [default: default]          │
+│ --admin                 Assert explicit administrative elevation             │
+│ --help                  Show this message and exit.                          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq collateral stage`
+
+```text
+Usage: hq collateral stage [OPTIONS] {file_path}
 
  Stage and register a collateral artifact for compute execution.
 

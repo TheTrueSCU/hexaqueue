@@ -1,0 +1,17 @@
+WEBVTT
+
+1
+00:00:01.535 --> 00:00:03.170
+1. Inspecting real-time cluster capacity, running workers, and queue backlog
+
+2
+00:00:03.170 --> 00:00:05.840
+2. Querying compute worker nodes telemetry and resource quotas
+
+3
+00:00:05.840 --> 00:00:07.475
+3. Diagnosing job dispatch latency and queue blockers with hq why
+
+4
+00:00:07.475 --> 00:00:11.645
+4. Breaking down multi-factor scheduling decision report and fair-share math

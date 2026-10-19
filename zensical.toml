@@ -5,6 +5,11 @@ site_url = "https://dopplereffect.us/hexaqueue/"
 
 nav = [
     { "Overview" = "index.md" },
+    { "Interactive Demos" = "demos.md" },
+    { "Guides" = [
+        "guides/submission.md",
+        "guides/scheduling-explainability.md"
+    ]},
     { "Architecture" = "architecture.md" },
     { "Tutorials" = [
         "tutorials/01-building-a-batch-data-pipeline.md",
