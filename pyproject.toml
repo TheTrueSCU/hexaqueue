@@ -37,7 +37,7 @@ dev = [
     "deptry>=0.23.0",
     "detect-secrets>=1.5.0",
     "faker>=33.0.0",
-    "hexaqual[all]>=0.9.1",
+    "hexaqual[all]>=0.9.3",
     "hexastack-cli>=0.9.0",
     "hypothesis>=6.120.0",
     "import-linter>=2.13",
@@ -60,6 +60,9 @@ dev = [
     "vulture>=2.14",
     "zensical>=0.0.57",
 ]
+
+[tool.ty.environment]
+extra-paths = ["packages"]
 
 [tool.coverage.run]
 branch = false
