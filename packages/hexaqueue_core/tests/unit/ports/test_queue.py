@@ -1,11 +1,12 @@
 """Tests for JobQueuePort interface."""
 
-import pytest
+import inspect
 
 from hexaqueue_core.ports.queue import JobQueuePort
 
 
 def test_job_queue_port_is_abstract() -> None:
-    """Verify JobQueuePort cannot be instantiated directly."""
-    with pytest.raises(TypeError):
-        JobQueuePort()  # type: ignore[abstract]
+    """Verify JobQueuePort is an abstract interface."""
+    assert inspect.isabstract(JobQueuePort)
+    assert "enqueue" in JobQueuePort.__abstractmethods__
+    assert "dequeue" in JobQueuePort.__abstractmethods__

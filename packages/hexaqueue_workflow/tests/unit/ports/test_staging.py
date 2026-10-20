@@ -1,8 +1,7 @@
 """Tests for ArtifactStagingPort interface contract."""
 
+import inspect
 from typing import Any
-
-import pytest
 
 from hexaqueue_workflow.ports.staging import ArtifactStagingPort
 
@@ -22,9 +21,8 @@ class DummyStagingAdapter(ArtifactStagingPort):
 
 def test_artifact_staging_port_abstract_interface() -> None:
     """Verify that ArtifactStagingPort requires all abstract methods."""
-    with pytest.raises(TypeError):
-        # Cannot instantiate ABC directly
-        ArtifactStagingPort()  # type: ignore[abstract]
+    assert inspect.isabstract(ArtifactStagingPort)
+    assert "stage_artifact" in ArtifactStagingPort.__abstractmethods__
 
     adapter = DummyStagingAdapter()
     res = adapter.stage_artifact("run-1", "step-1", "data")

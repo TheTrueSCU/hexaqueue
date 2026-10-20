@@ -1,5 +1,7 @@
 """Tests for StorageVolumePort and VolumeAllocation."""
 
+import inspect
+
 import pytest
 
 from hexaqueue_core.ports.storage import (
@@ -10,15 +12,15 @@ from hexaqueue_core.ports.storage import (
 
 
 def test_storage_volume_port_is_abstract() -> None:
-    """Verify StorageVolumePort cannot be instantiated directly."""
-    with pytest.raises(TypeError):
-        StorageVolumePort()  # type: ignore[abstract]
+    """Verify StorageVolumePort is an abstract interface."""
+    assert inspect.isabstract(StorageVolumePort)
+    assert "allocate_scratch" in StorageVolumePort.__abstractmethods__
 
 
 def test_presigned_storage_port_is_abstract() -> None:
-    """Verify PresignedStoragePort cannot be instantiated directly."""
-    with pytest.raises(TypeError):
-        PresignedStoragePort()  # type: ignore[abstract]
+    """Verify PresignedStoragePort is an abstract interface."""
+    assert inspect.isabstract(PresignedStoragePort)
+    assert "generate_presigned_upload_url" in PresignedStoragePort.__abstractmethods__
 
 
 def test_volume_allocation_model() -> None:

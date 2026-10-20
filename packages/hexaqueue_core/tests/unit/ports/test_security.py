@@ -1,14 +1,16 @@
 """Tests for SecurityQuarantinePort and SecurityScanResult."""
 
+import inspect
+
 import pytest
 
 from hexaqueue_core.ports.security import SecurityQuarantinePort, SecurityScanResult
 
 
 def test_security_quarantine_port_is_abstract() -> None:
-    """Verify SecurityQuarantinePort cannot be instantiated directly."""
-    with pytest.raises(TypeError):
-        SecurityQuarantinePort()  # type: ignore[abstract]
+    """Verify SecurityQuarantinePort is an abstract interface."""
+    assert inspect.isabstract(SecurityQuarantinePort)
+    assert "scan_collateral" in SecurityQuarantinePort.__abstractmethods__
 
 
 def test_security_scan_result_model() -> None:
