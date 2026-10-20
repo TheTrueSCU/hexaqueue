@@ -86,11 +86,7 @@ class CliPresenter:
                 if hasattr(report.state, "value")
                 else str(report.state)
             ),
-            "outcome": (
-                report.outcome.value
-                if hasattr(report.outcome, "value")
-                else (str(report.outcome) if report.outcome else None)
-            ),
+            "outcome": (report.outcome.value if report.outcome is not None else None),
             "total_jobs": report.total_jobs,
             "completed_jobs": report.completed_jobs,
             "failed_jobs": report.failed_jobs,
@@ -236,11 +232,7 @@ class CliPresenter:
         )
 
         state_val = job.state.value if hasattr(job.state, "value") else str(job.state)
-        outcome_val = (
-            job.outcome.value
-            if hasattr(job.outcome, "value")
-            else (str(job.outcome) if job.outcome else None)
-        )
+        outcome_val = job.outcome.value if job.outcome is not None else None
 
         data = {
             "id": job.id,

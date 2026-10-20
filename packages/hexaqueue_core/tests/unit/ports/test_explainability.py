@@ -1,6 +1,6 @@
 """Unit tests for SchedulerExplainabilityPort ABC."""
 
-import pytest
+import inspect
 
 from hexaqueue_core.domain.explainability import (
     FairShareNodeReport,
@@ -79,6 +79,7 @@ def test_scheduler_explainability_port_contract() -> None:
 
 
 def test_cannot_instantiate_abstract_port() -> None:
-    """Verify ABC prevents direct instantiation."""
-    with pytest.raises(TypeError):
-        SchedulerExplainabilityPort()  # type: ignore[abstract]
+    """Verify ABC declares abstract methods."""
+    assert inspect.isabstract(SchedulerExplainabilityPort)
+    assert "explain_job" in SchedulerExplainabilityPort.__abstractmethods__
+    assert "explain_fairshare" in SchedulerExplainabilityPort.__abstractmethods__

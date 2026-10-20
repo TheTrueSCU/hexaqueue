@@ -82,7 +82,9 @@ class LocalSubprocessExecutionRuntimeAdapter(ExecutionRuntimePort):
         env = os.environ.copy()
         if environment:
             env.update(environment)
-        cwd = scratch_volume.mount_path if scratch_volume else env.get("HEXAQUEUE_CWD")
+        cwd = env.get("HEXAQUEUE_CWD") or (
+            scratch_volume.mount_path if scratch_volume else None
+        )
 
         full_command = (
             shlex.join([*shlex.split(job.command), *job.args])

@@ -12,6 +12,7 @@ Notes/Architectural Intent:
 
 import asyncio
 from collections.abc import Generator
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -55,11 +56,28 @@ from hexaqueue_server.infra.cqrs import create_hexaqueue_execution_pipeline
 runner = CliRunner()
 
 
+def _get_router_paths(router: Any, prefix: str = "") -> set[str]:
+    """Recursively collect route path templates across APIRouter and mounted sub-routers."""
+    paths: set[str] = set()
+    for route in router.routes:
+        if hasattr(route, "path"):
+            paths.add(prefix + route.path)
+        elif hasattr(route, "original_router"):
+            inc_prefix = getattr(getattr(route, "include_context", None), "prefix", "")
+            paths.update(
+                _get_router_paths(route.original_router, prefix=prefix + inc_prefix)
+            )
+    return paths
+
+
 @pytest.fixture
-def hermetic_parity_environment() -> Generator[
+def hermetic_parity_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[
     tuple[LocalSchedulerControllerAdapter, TestClient, TestClient, LocalClientAdapter]
 ]:
     """Hermetic fixture wiring an identical controller to REST, Dashboard, and CLI adapters."""
+    monkeypatch.setenv("HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN", "1")
     queue = InMemoryJobQueueAdapter()
     controller = LocalSchedulerControllerAdapter(queue=queue)
 
@@ -112,8 +130,8 @@ def test_surface_parity_capability_matrix_audit() -> None:
     server_router = create_server_api_router()
     dash_router = create_dashboard_router()
 
-    server_routes = {route.path for route in server_router.routes}  # type: ignore[attr-defined]
-    dash_routes = {route.path for route in dash_router.routes}  # type: ignore[attr-defined]
+    server_routes = _get_router_paths(server_router)
+    dash_routes = _get_router_paths(dash_router)
 
     # Required REST routes
     required_rest = {

@@ -5,9 +5,8 @@ Notes/Architectural Intent:
     confirming ABC enforcement and method signature expectations.
 """
 
+import inspect
 from collections.abc import Sequence
-
-import pytest
 
 from hexaqueue_core.domain.config import CspProvider
 from hexaqueue_core.domain.freetier import (
@@ -63,9 +62,9 @@ class DummyFreeTierGovernor(FreeTierGovernorPort):
 
 
 def test_free_tier_governor_port_cannot_be_instantiated_directly() -> None:
-    """Verifies that FreeTierGovernorPort cannot be instantiated directly."""
-    with pytest.raises(TypeError):
-        FreeTierGovernorPort()  # type: ignore[abstract]
+    """Verifies that FreeTierGovernorPort is an abstract interface."""
+    assert inspect.isabstract(FreeTierGovernorPort)
+    assert "profile" in FreeTierGovernorPort.__abstractmethods__
 
 
 def test_dummy_free_tier_governor_satisfies_port() -> None:
