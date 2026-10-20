@@ -20,10 +20,27 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+
+      - name: Visualize Pipeline DAG & Critical Path via Hexaflow
+        if: always()
+        run: |
+          uvx --python 3.13 --from "hexaflow>=0.5.0" hexaflow graph render .github/workflows/ci.yml --summary --critical-path
+
+      - name: Install Copy-Paste Detection
+        run: cargo install jscpd --locked
+
       - name: Run Quality Gate via Hexaqual
-        uses: TheTrueSCU/hexaqual@1a37ad125f86dacd57616e1c1b3fab56185e50c3 # v0.9.1
+        uses: TheTrueSCU/hexaqual@7de5ade62e96ac7623b5ec649997e562eea2822d # v0.9.3
         with:
           sync-args: "--all-packages --all-extras --all-groups"
+
+      - name: Audit Repository Quality Gates
+        run: uv run hexaqual sanity --audit-gates
+
+      - name: Verify Documentation Consistency (Anti-Drift Linter)
+        run: uv run hexaqual docs drift
 
   # =========================================================================
   # Stage 2: Unit / Integration Tests & Architecture Verification
@@ -39,7 +56,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
 
@@ -81,7 +98,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
 
@@ -117,7 +134,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
 
@@ -147,7 +164,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
 

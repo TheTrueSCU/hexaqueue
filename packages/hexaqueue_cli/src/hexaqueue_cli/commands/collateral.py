@@ -119,6 +119,9 @@ def push_collateral_cmd(
     asyncio.run(_push())
 
 
+# Register stage command alias
+app.command("stage")(push_collateral_cmd)
+
 __all__ = [
     "app",
 ]

@@ -37,19 +37,22 @@ dev = [
     "deptry>=0.23.0",
     "detect-secrets>=1.5.0",
     "faker>=33.0.0",
-    "hexaqual[all]>=0.9.1",
+    "hexaqual[all]>=0.9.3",
+    "hexastack-cli>=0.9.0",
     "hypothesis>=6.120.0",
     "import-linter>=2.13",
     "inline-snapshot>=0.35.0",
     "libcst>=1.0.0",
     "mutmut<4",
     "pip-audit>=2.10.0",
+    "playwright>=1.50.0",
     "pre-commit>=4.0.0",
     "pydeps>=3.0.0",
     "pytest>=8.3.0",
     "pytest-archon>=0.0.7",
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=6.0.0",
+    "pytest-playwright>=0.7.0",
     "pytest-xdist>=3.6.0",
     "rope>=1.14.0",
     "ruff>=0.9.0",
@@ -57,6 +60,9 @@ dev = [
     "vulture>=2.14",
     "zensical>=0.0.57",
 ]
+
+[tool.ty.environment]
+extra-paths = ["packages"]
 
 [tool.coverage.run]
 branch = false
@@ -86,6 +92,7 @@ testpaths = ["packages", "tests"]
 norecursedirs = ["examples", ".venv", "dist", "build", ".hypothesis", ".mutmut-cache"]
 addopts = "-n auto --import-mode=importlib --cov-report=term-missing:skip-covered"
 markers = [
+    "demo: mark a test as a CLI demo recording walk-through",
     "integration: mark a test as requiring external infrastructure",
     "slow: mark a test as slow-running",
 ]
