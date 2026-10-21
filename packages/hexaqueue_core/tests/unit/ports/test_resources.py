@@ -1,14 +1,16 @@
 """Tests for ComputeResourcePort and NodeCapacity."""
 
+import inspect
+
 import pytest
 
 from hexaqueue_core.ports.resources import ComputeResourcePort, NodeCapacity
 
 
 def test_compute_resource_port_is_abstract() -> None:
-    """Verify ComputeResourcePort cannot be instantiated directly."""
-    with pytest.raises(TypeError):
-        ComputeResourcePort()  # type: ignore[abstract]
+    """Verify ComputeResourcePort is an abstract interface."""
+    assert inspect.isabstract(ComputeResourcePort)
+    assert "get_node_capacity" in ComputeResourcePort.__abstractmethods__
 
 
 def test_node_capacity_model() -> None:

@@ -1,5 +1,7 @@
 """Tests for SchedulerControllerPort interface."""
 
+import inspect
+
 import pytest
 
 from hexaqueue_core.domain.job import JobSpec
@@ -18,9 +20,9 @@ from hexaqueue_server.ports.controller import SchedulerControllerPort
 
 
 def test_scheduler_controller_port_is_abstract() -> None:
-    """Verify SchedulerControllerPort cannot be instantiated directly."""
-    with pytest.raises(TypeError):
-        SchedulerControllerPort()  # type: ignore[abstract]
+    """Verify SchedulerControllerPort is an abstract interface."""
+    assert inspect.isabstract(SchedulerControllerPort)
+    assert "submit_run" in SchedulerControllerPort.__abstractmethods__
 
 
 @pytest.mark.asyncio

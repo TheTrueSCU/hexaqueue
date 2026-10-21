@@ -5,9 +5,8 @@ Notes/Architectural Intent:
     confirming ABC enforcement and method signature expectations.
 """
 
+import inspect
 from typing import Any
-
-import pytest
 
 from hexaqueue_core.domain.dag import JobDagEngine
 from hexaqueue_core.domain.group import ResourceOverrideSpec
@@ -39,9 +38,9 @@ class DummySuiteCompiler(SuiteCompilerPort):
 
 
 def test_suite_compiler_port_cannot_be_instantiated_directly() -> None:
-    """Verifies that SuiteCompilerPort cannot be instantiated directly."""
-    with pytest.raises(TypeError):
-        SuiteCompilerPort()  # type: ignore[abstract]
+    """Verifies that SuiteCompilerPort is an abstract interface."""
+    assert inspect.isabstract(SuiteCompilerPort)
+    assert "compile" in SuiteCompilerPort.__abstractmethods__
 
 
 def test_dummy_suite_compiler_satisfies_port() -> None:
