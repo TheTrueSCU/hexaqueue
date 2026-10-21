@@ -6,6 +6,7 @@ Notes/Architectural Intent:
     the native C-based yara-python engine is not installed in the execution environment.
 """
 
+import importlib
 import re
 from pathlib import Path
 from typing import Any
@@ -50,8 +51,6 @@ class YaraRuleScannerAdapter(MalwareScannerEnginePort):
     def _initialize_rules(self) -> None:
         """Attempt to compile rules with yara-python if available."""
         try:
-            import importlib
-
             yara = importlib.import_module("yara")
 
             sources: dict[str, str] = {}

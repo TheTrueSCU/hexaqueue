@@ -8,6 +8,7 @@ Notes/Architectural Intent:
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -230,8 +231,6 @@ class LocalClientAdapter(ClientPort):
         is_admin: bool = False,
     ) -> SchedulingDecisionReport:
         """Generate explainability report for a job in the local session."""
-        from datetime import UTC, datetime
-
         from hexaqueue_core.domain.explainability import SchedulerExplainabilityEngine
         from hexaqueue_core.domain.redaction import MultiTenantRedactionFilter
         from hexaqueue_core.domain.scheduling import ResourceSlotPool
@@ -256,8 +255,6 @@ class LocalClientAdapter(ClientPort):
         is_admin: bool = False,
     ) -> FairShareTreeReport:
         """Generate fair-share tree report for the local session."""
-        from datetime import UTC, datetime
-
         from hexaqueue_core.domain.explainability import (
             SchedulerExplainabilityEngine,
         )
