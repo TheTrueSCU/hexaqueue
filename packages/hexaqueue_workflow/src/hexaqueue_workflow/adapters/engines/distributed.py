@@ -21,6 +21,7 @@ from hexaflow.domain.exceptions import (
     WorkflowAborted,
     WorkflowSuspended,
 )
+from hexaflow.domain.graph import WorkflowGraph
 from hexaflow.domain.models import (
     StageDefinition,
     StageExecutionMode,
@@ -141,6 +142,9 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
         workflow: WorkflowDefinition,
         initial_inputs: dict[str, Any] | None = None,
         skip_steps: set[str] | list[str] | None = None,
+        dry_run: bool = False,
+        allow_unsafe: bool = False,
+        fault_injection: dict[str, Exception] | None = None,
     ) -> WorkflowExecutionState:
         """Synchronously execute a workflow definition from start to finish.
 
@@ -148,12 +152,22 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
             workflow: Immutable specification of the workflow DAG.
             initial_inputs: Optional dictionary of input arguments.
             skip_steps: Optional collection of step names to explicitly skip.
+            dry_run: Optional flag indicating simulation dry-run mode.
+            allow_unsafe: Optional flag allowing steps with side-effects in dry-run mode.
+            fault_injection: Optional mapping of step names to Exception instances for chaos simulation.
 
         Returns:
             Terminal or suspended WorkflowExecutionState.
         """
         return asyncio.run(
-            self.run_async(workflow, initial_inputs, skip_steps=skip_steps)
+            self.run_async(
+                workflow,
+                initial_inputs,
+                skip_steps=skip_steps,
+                dry_run=dry_run,
+                allow_unsafe=allow_unsafe,
+                fault_injection=fault_injection,
+            )
         )
 
     async def run_async(
@@ -161,6 +175,9 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
         workflow: WorkflowDefinition,
         initial_inputs: dict[str, Any] | None = None,
         skip_steps: set[str] | list[str] | None = None,
+        dry_run: bool = False,
+        allow_unsafe: bool = False,
+        fault_injection: dict[str, Exception] | None = None,
     ) -> WorkflowExecutionState:
         """Asynchronously execute a workflow definition from start to finish.
 
@@ -168,6 +185,9 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
             workflow: Immutable specification of the workflow DAG.
             initial_inputs: Optional dictionary of input arguments.
             skip_steps: Optional collection of step names to explicitly skip.
+            dry_run: Optional flag indicating simulation dry-run mode.
+            allow_unsafe: Optional flag allowing steps with side-effects in dry-run mode.
+            fault_injection: Optional mapping of step names to Exception instances for chaos simulation.
 
         Returns:
             Terminal or suspended WorkflowExecutionState.
@@ -177,11 +197,18 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
             run_id=run_id,
             workflow_name=workflow.name,
             status=WorkflowStatus.RUNNING,
+            initial_inputs=dict(initial_inputs or {}),
         )
         self._store.save_run(state)
         skipped = set(skip_steps or ())
         return await self._execute_workflow(
-            state, workflow, initial_inputs or {}, skipped
+            state,
+            workflow,
+            initial_inputs or {},
+            skipped,
+            dry_run=dry_run,
+            allow_unsafe=allow_unsafe,
+            fault_injection=fault_injection,
         )
 
     def resume(
@@ -239,6 +266,94 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
         skipped = set(skip_steps or ())
         return await self._execute_workflow(
             state, workflow, patch_inputs or {}, skipped
+        )
+
+    def rewind(
+        self,
+        run_id: str,
+        workflow: WorkflowDefinition,
+        to_step: str,
+        patch_inputs: dict[str, Any] | None = None,
+        skip_steps: set[str] | list[str] | None = None,
+    ) -> WorkflowExecutionState:
+        """Synchronously rewind execution state to before a step and resume.
+
+        Notes/Architectural Intent:
+            Invalidates checkpoints for the target step and all downstream dependents,
+            then re-executes the distributed workflow DAG from the target step.
+
+        Args:
+            run_id: Execution identifier of the workflow run to rewind.
+            workflow: WorkflowDefinition specification matching the run.
+            to_step: The target step to rewind before.
+            patch_inputs: Optional override inputs for the resuming step frontier.
+            skip_steps: Optional collection of step names to explicitly skip.
+
+        Returns:
+            Updated WorkflowExecutionState outcome following replay.
+        """
+        return asyncio.run(
+            self.rewind_async(
+                run_id=run_id,
+                workflow=workflow,
+                to_step=to_step,
+                patch_inputs=patch_inputs,
+                skip_steps=skip_steps,
+            )
+        )
+
+    async def rewind_async(
+        self,
+        run_id: str,
+        workflow: WorkflowDefinition,
+        to_step: str,
+        patch_inputs: dict[str, Any] | None = None,
+        skip_steps: set[str] | list[str] | None = None,
+    ) -> WorkflowExecutionState:
+        """Asynchronously rewind execution state to before a step and resume.
+
+        Notes/Architectural Intent:
+            Leverages WorkflowGraph to compute transitive downstream descendants,
+            purges corresponding step checkpoints from the durable state store,
+            merges patch inputs into the initial input context, and re-invokes
+            distributed workflow dispatch.
+
+        Args:
+            run_id: Execution identifier of the workflow run to rewind.
+            workflow: WorkflowDefinition specification matching the run.
+            to_step: The target step to rewind before.
+            patch_inputs: Optional override inputs for the resuming step frontier.
+            skip_steps: Optional collection of step names to explicitly skip.
+
+        Returns:
+            Updated WorkflowExecutionState outcome following replay.
+
+        Raises:
+            WorkflowSuspended: If run_id is not found in state store.
+        """
+        state = self._store.get_run(run_id)
+        if not state:
+            raise WorkflowSuspended(
+                run_id, "unknown", f"Workflow run '{run_id}' not found in state store."
+            )
+
+        graph = WorkflowGraph.from_workflow(workflow)
+        downstream = graph.descendants(to_step)
+        purged = state.rewind_to(to_step, downstream)
+
+        for s in purged:
+            self._store.delete_checkpoint(run_id, s)
+
+        merged_inputs = {**state.initial_inputs, **(patch_inputs or {})}
+        state.status = WorkflowStatus.RUNNING
+        state.error_summary = None
+        self._store.save_run(state)
+        skipped = set(skip_steps or ())
+        return await self._execute_workflow(
+            state=state,
+            workflow=workflow,
+            inputs=merged_inputs,
+            skipped_steps=skipped,
         )
 
     def restart(
@@ -359,6 +474,9 @@ class HexaqueueDistributedEngine(WorkflowEnginePort):
         inputs: dict[str, Any],
         skipped_steps: set[str] | None = None,
         is_restart: bool = False,
+        dry_run: bool = False,
+        allow_unsafe: bool = False,
+        fault_injection: dict[str, Exception] | None = None,
     ) -> WorkflowExecutionState:
         """Main workflow execution loop advancing stage by stage."""
         cached_outputs: dict[str, Any] = {}

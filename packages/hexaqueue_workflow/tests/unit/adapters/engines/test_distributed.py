@@ -1390,3 +1390,135 @@ async def test_execute_workflow_resumption_and_restart_cached_outputs(
     assert captured_cached == {}
     assert "step_prior" not in re_state.step_checkpoints
     assert "step_failed_prior" not in re_state.step_checkpoints
+
+
+async def test_distributed_engine_rewind_and_rewind_async() -> None:
+    """Test rewind and rewind_async clears target and downstream checkpoints and resumes."""
+    store = InMemoryStateStore()
+    engine = HexaqueueDistributedEngine(state_store=store)
+
+    run_id = "test-rewind-run-1"
+    now = datetime.now(UTC)
+
+    wf = WorkflowDefinition(
+        name="wf_rewind",
+        stages=[
+            StageDefinition(
+                name="stage_1",
+                steps=[
+                    StepDefinition(name="step_a", action=lambda: "out_a"),
+                ],
+            ),
+            StageDefinition(
+                name="stage_2",
+                steps=[
+                    StepDefinition(name="step_b", action=lambda step_a: f"{step_a}_b"),
+                ],
+            ),
+        ],
+    )
+
+    state = WorkflowExecutionState(
+        run_id=run_id,
+        workflow_name="wf_rewind",
+        status=WorkflowStatus.COMPLETED,
+        initial_inputs={"init_key": "val1"},
+    )
+    store.save_run(state)
+
+    chk_a = CheckpointRecord(
+        run_id=run_id,
+        stage_name="stage_1",
+        step_name="step_a",
+        status=StepStatus.COMPLETED,
+        attempt_number=1,
+        input_payload={},
+        output_payload="out_a",
+        started_at=now,
+        completed_at=now,
+        duration_seconds=0.1,
+    )
+    chk_b = CheckpointRecord(
+        run_id=run_id,
+        stage_name="stage_2",
+        step_name="step_b",
+        status=StepStatus.COMPLETED,
+        attempt_number=1,
+        input_payload={"step_a": "out_a"},
+        output_payload="out_a_b",
+        started_at=now,
+        completed_at=now,
+        duration_seconds=0.1,
+    )
+    store.save_checkpoint(chk_a)
+    store.save_checkpoint(chk_b)
+    state.step_checkpoints["step_a"] = chk_a
+    state.step_checkpoints["step_b"] = chk_b
+    store.save_run(state)
+
+    # Rewind to step_b: step_b checkpoint must be purged, step_a preserved
+    rewound_state = await engine.rewind_async(
+        run_id=run_id,
+        workflow=wf,
+        to_step="step_b",
+        patch_inputs={"patched": "yes"},
+    )
+
+    assert rewound_state.status == WorkflowStatus.COMPLETED
+    assert "step_b" in rewound_state.step_checkpoints
+
+    # Rewind non-existent run raises WorkflowSuspended
+    with pytest.raises(WorkflowSuspended):
+        await engine.rewind_async(
+            run_id="non-existent",
+            workflow=wf,
+            to_step="step_b",
+        )
+
+
+def test_distributed_engine_rewind_sync() -> None:
+    """Test synchronous rewind wrapper on HexaqueueDistributedEngine."""
+    store = InMemoryStateStore()
+    engine = HexaqueueDistributedEngine(state_store=store)
+
+    run_id = "test-rewind-sync-1"
+    now = datetime.now(UTC)
+
+    wf = WorkflowDefinition(
+        name="wf_rewind_sync",
+        stages=[
+            StageDefinition(
+                name="stage_1",
+                steps=[
+                    StepDefinition(name="step_1", action=lambda: "done_1"),
+                ],
+            ),
+        ],
+    )
+
+    state = WorkflowExecutionState(
+        run_id=run_id,
+        workflow_name="wf_rewind_sync",
+        status=WorkflowStatus.COMPLETED,
+        initial_inputs={},
+    )
+    store.save_run(state)
+
+    chk = CheckpointRecord(
+        run_id=run_id,
+        stage_name="stage_1",
+        step_name="step_1",
+        status=StepStatus.COMPLETED,
+        attempt_number=1,
+        input_payload={},
+        output_payload="done_1",
+        started_at=now,
+        completed_at=now,
+        duration_seconds=0.1,
+    )
+    store.save_checkpoint(chk)
+    state.step_checkpoints["step_1"] = chk
+    store.save_run(state)
+
+    result = engine.rewind(run_id=run_id, workflow=wf, to_step="step_1")
+    assert result.status == WorkflowStatus.COMPLETED
