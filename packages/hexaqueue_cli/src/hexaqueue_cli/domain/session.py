@@ -39,20 +39,9 @@ class LocalCliSession:
         self.log_stream = BroadcastLogStreamAdapter()
         self.telemetry = LocalTelemetryCollector()
         self.pty = LocalPtyBridgeAdapter()
-        if notification_dispatcher is not None:
-            self.notification_dispatcher = notification_dispatcher
-        else:
-            try:
-                from hexastack_events.adapters.notifications.apprise import (
-                    AppriseNotificationAdapter,
-                )
-
-                port = AppriseNotificationAdapter()
-            except Exception:
-                port = None
-            self.notification_dispatcher = NotificationDispatcher(
-                notification_port=port
-            )
+        self.notification_dispatcher = (
+            notification_dispatcher or NotificationDispatcher()
+        )
 
         resolved_mode = mode or (
             ExecutionMode.FREE_TIER
@@ -95,11 +84,21 @@ _DEFAULT_SESSION: LocalCliSession | None = None
 def get_default_session(
     mode: ExecutionMode | None = None,
     governor: FreeTierGovernor | None = None,
+    notification_dispatcher: NotificationDispatcher | None = None,
 ) -> LocalCliSession:
     """Get or initialize the global in-process CLI session."""
     global _DEFAULT_SESSION
-    if _DEFAULT_SESSION is None or mode is not None or governor is not None:
-        _DEFAULT_SESSION = LocalCliSession(mode=mode, governor=governor)
+    if (
+        _DEFAULT_SESSION is None
+        or mode is not None
+        or governor is not None
+        or notification_dispatcher is not None
+    ):
+        _DEFAULT_SESSION = LocalCliSession(
+            mode=mode,
+            governor=governor,
+            notification_dispatcher=notification_dispatcher,
+        )
     return _DEFAULT_SESSION
 
 

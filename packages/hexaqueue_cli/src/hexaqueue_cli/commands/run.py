@@ -22,10 +22,22 @@ from hexaqueue_core.domain.notification import (
     NotificationPolicy,
     NotificationTrigger,
 )
+from hexaqueue_core.infra.notification import NotificationDispatcher
 from hexaqueue_server.domain.models import RunSubmission
 
 app = typer.Typer(help="Pipeline run management commands.")
 console = Console()
+
+
+def _create_apprise_dispatcher() -> NotificationDispatcher | None:
+    try:
+        from hexastack_events.adapters.notifications.apprise import (
+            AppriseNotificationAdapter,
+        )
+
+        return NotificationDispatcher(notification_port=AppriseNotificationAdapter())
+    except Exception:
+        return None
 
 
 def _attach_notifications(
@@ -50,10 +62,12 @@ async def _execute_submit_and_watch(
     free_tier: bool,
     resolved_fmt: str,
     presenter: CliPresenter,
+    has_notifications: bool = False,
 ) -> None:
     """Execute submission and optional status polling."""
     session_mode = ExecutionMode.FREE_TIER if free_tier else None
-    session = get_default_session(mode=session_mode)
+    dispatcher = _create_apprise_dispatcher() if has_notifications else None
+    session = get_default_session(mode=session_mode, notification_dispatcher=dispatcher)
     await session.start()
     client = LocalClientAdapter(session=session)
 
@@ -132,6 +146,7 @@ def submit_cmd(
             free_tier=free_tier,
             resolved_fmt=resolved_fmt,
             presenter=presenter,
+            has_notifications=bool(notify),
         )
     )
 
