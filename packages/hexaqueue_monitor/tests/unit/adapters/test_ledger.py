@@ -7,7 +7,7 @@ Notes/Architectural Intent:
 
 import pytest
 
-from hexaqueue_core.domain.exceptions import QuotaExceededError
+from hexaqueue_core.domain.exceptions import HexaqueueError, QuotaExceededError
 from hexaqueue_monitor.adapters.ledger import InMemoryBudgetLedgerAdapter
 
 
@@ -175,10 +175,82 @@ async def test_budget_ledger_oversettled_segment_clamping() -> None:
     assert bal == 10.0
 
 
+@pytest.mark.asyncio
+async def test_budget_ledger_error_cases() -> None:
+    """Verify tenant mismatch and invalid state handling for budget ledger operations."""
+    ledger = InMemoryBudgetLedgerAdapter(initial_balances={"tenant-a": 100.0})
+
+    # Unknown reservation settle returns without error
+    unknown_res = await ledger.settle_budget("nonexistent", actual_credits=10.0)
+    assert unknown_res is None
+
+    # Reserve budget for tenant-a
+    hold_id = await ledger.reserve_budget("tenant-a", "job-1", estimated_credits=30.0)
+
+    # Tenant mismatch on settle_budget
+    with pytest.raises(HexaqueueError, match="does not own reservation"):
+        await ledger.settle_budget(hold_id, actual_credits=10.0, tenant_id="tenant-b")
+
+    # Unknown reservation on settle_segment
+    with pytest.raises(HexaqueueError, match="not found"):
+        await ledger.settle_segment("nonexistent", segment_credits=5.0)
+
+    # Tenant mismatch on settle_segment
+    with pytest.raises(HexaqueueError, match="does not own reservation"):
+        await ledger.settle_segment(hold_id, segment_credits=5.0, tenant_id="tenant-b")
+
+    # Unknown reservation on release_budget
+    with pytest.raises(HexaqueueError, match="not found"):
+        await ledger.release_budget("nonexistent")
+
+    # Tenant mismatch on release_budget
+    with pytest.raises(HexaqueueError, match="does not own reservation"):
+        await ledger.release_budget(hold_id, tenant_id="tenant-b")
+
+    # Settle budget successfully
+    await ledger.settle_budget(hold_id, actual_credits=20.0, tenant_id="tenant-a")
+
+    # Settle again on terminal state
+    with pytest.raises(HexaqueueError, match="already in terminal state"):
+        await ledger.settle_budget(hold_id, actual_credits=20.0)
+
+    # Cannot settle segment on terminal state
+    with pytest.raises(
+        HexaqueueError, match="Cannot settle segment on inactive reservation"
+    ):
+        await ledger.settle_segment(hold_id, segment_credits=5.0)
+
+    # Cannot release reservation in terminal state
+    with pytest.raises(HexaqueueError, match="Cannot release reservation"):
+        await ledger.release_budget(hold_id)
+
+
+@pytest.mark.asyncio
+async def test_budget_ledger_list_active_reservations() -> None:
+    """Verify listing active reservations across tenants."""
+    ledger = InMemoryBudgetLedgerAdapter(initial_balances={"t1": 100.0, "t2": 100.0})
+
+    active = await ledger.list_active_reservations()
+    assert len(active) == 0
+
+    hold_1 = await ledger.reserve_budget("t1", "job-1", estimated_credits=20.0)
+    hold_2 = await ledger.reserve_budget("t2", "job-2", estimated_credits=30.0)
+
+    active_after = await ledger.list_active_reservations()
+    assert len(active_after) == 2
+
+    await ledger.settle_budget(hold_1, actual_credits=20.0)
+    active_remaining = await ledger.list_active_reservations()
+    assert len(active_remaining) == 1
+    assert active_remaining[0].reservation_id == hold_2
+
+
 __all__ = [
     "test_budget_ledger_deposit",
+    "test_budget_ledger_error_cases",
     "test_budget_ledger_expired_reservation_settlement",
     "test_budget_ledger_insufficient_credits",
+    "test_budget_ledger_list_active_reservations",
     "test_budget_ledger_oversettled_segment_clamping",
     "test_budget_ledger_segmented_preemption_no_double_counting",
     "test_budget_ledger_stale_reservation_expiration",
