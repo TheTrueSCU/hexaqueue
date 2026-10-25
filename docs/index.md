@@ -1,8 +1,8 @@
 # Hexaqueue
 
-> **Cloud-Agnostic HPC Batch Scheduler and Distributed Job Orchestrator for Python 3.13+.**
+> **Cloud-Agnostic HPC Batch Scheduler and Distributed Job Orchestrator for Python 3.12+.**
 
-[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![Architecture](https://img.shields.io/badge/architecture-hexagonal-emerald.svg)](architecture.md)
 [![Built with Hexastack](https://img.shields.io/badge/built%20with-hexastack-blueviolet.svg)](https://github.com/TheTrueSCU/hexastack)
 

@@ -7,16 +7,16 @@ license = "Apache-2.0"
 authors = [
     { name = "Richard West", email = "dopplereffect.us@gmail.com" }
 ]
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "hexaqueue-core",
     "hexaqueue-server",
     "hexaqueue-worker",
     "hexaqueue-workflow",
-    "hexastack-cli>=0.10.0",
-    "hexastack-core>=0.10.0",
-    "hexastack-cqrs>=0.10.0",
-    "hexastack-grpc>=0.10.0",
+    "hexastack-cli>=0.10.1",
+    "hexastack-core>=0.10.1",
+    "hexastack-cqrs>=0.10.1",
+    "hexastack-grpc>=0.10.1",
     "pyyaml>=6.0.2",
     "rich>=13.8.0",
     "typer>=0.15.0",

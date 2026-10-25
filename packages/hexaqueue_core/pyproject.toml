@@ -7,10 +7,10 @@ license = "Apache-2.0"
 authors = [
     { name = "Richard West", email = "dopplereffect.us@gmail.com" }
 ]
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
-    "hexastack-core>=0.10.0",
-    "hexastack-cqrs>=0.10.0",
+    "hexastack-core>=0.10.1",
+    "hexastack-cqrs>=0.10.1",
     "pydantic>=2.10.0",
 ]
 

@@ -3,7 +3,7 @@ name = "hexaqueue-workspace"
 version = "0.5.0"
 description = "Hexaqueue - Cloud-Agnostic HPC Batch Scheduler and Distributed Job Orchestrator"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "hexaqueue",
 ]
@@ -37,8 +37,8 @@ dev = [
     "deptry>=0.23.0",
     "detect-secrets>=1.5.0",
     "faker>=33.0.0",
-    "hexaqual[all]>=0.9.6",
-    "hexastack-cli>=0.10.0",
+    "hexaqual[all]>=0.9.7",
+    "hexastack-cli>=0.10.1",
     "hypothesis>=6.120.0",
     "import-linter>=2.13",
     "inline-snapshot>=0.35.0",
