@@ -21,6 +21,8 @@ venv/
 .coverage
 .coverage.*
 coverage/
+.benchmarks/
+benchmark_results*.json
 htmlcov/
 nosetests.xml
 coverage.xml
