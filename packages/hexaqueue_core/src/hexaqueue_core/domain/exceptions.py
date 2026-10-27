@@ -6,7 +6,12 @@ Notes/Architectural Intent:
     exception mappings.
 """
 
-from hexastack_core.domain.exceptions import HexastackError
+from hexastack_core.domain.exceptions import (
+    HexastackError,
+)
+from hexastack_core.domain.exceptions import (
+    MissingDependencyError as HexastackMissingDependencyError,
+)
 
 
 class HexaqueueError(HexastackError):
@@ -27,6 +32,10 @@ class ChecksumMismatchError(HexaqueueError):
 
 class JobStateTransitionError(HexaqueueError):
     """Exception raised when an illegal job or run lifecycle state transition is attempted."""
+
+
+class MissingDependencyError(HexaqueueError, HexastackMissingDependencyError):
+    """Exception raised when an optional third-party dependency is missing."""
 
 
 class PermissionDeniedError(HexaqueueError):
@@ -60,6 +69,7 @@ __all__ = [
     "HexaqueueConfigError",
     "HexaqueueError",
     "JobStateTransitionError",
+    "MissingDependencyError",
     "PermissionDeniedError",
     "QuotaExceededError",
     "StorageVolumeError",

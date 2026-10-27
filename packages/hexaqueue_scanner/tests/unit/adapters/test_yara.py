@@ -181,6 +181,22 @@ def test_yara_initialization_with_mock_yara() -> None:
     mock_yara.compile.assert_not_called()
 
 
+def test_yara_initialization_when_yara_missing() -> None:
+    """Verify rules compilation falls back cleanly when native yara library is not installed."""
+    from unittest.mock import patch
+
+    cfg = YaraRuleConfig(
+        inline_rules=['rule r { strings: $a = "test" condition: $a }'],
+        rule_paths=["/etc/rules.yar"],
+    )
+    with patch(
+        "importlib.import_module",
+        side_effect=ModuleNotFoundError("No module named 'yara'"),
+    ):
+        adapter = YaraRuleScannerAdapter(config=cfg)
+    assert adapter._compiled_yara_rules is None
+
+
 @pytest.mark.asyncio
 async def test_yara_file_read_error(tmp_path: Path) -> None:
     """Verify read errors during heuristic evaluation return FileReadError."""

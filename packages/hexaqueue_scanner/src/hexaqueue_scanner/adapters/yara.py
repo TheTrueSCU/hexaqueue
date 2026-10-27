@@ -6,12 +6,12 @@ Notes/Architectural Intent:
     the native C-based yara-python engine is not installed in the execution environment.
 """
 
-import importlib
 import re
 from pathlib import Path
 from typing import Any
 
 from hexaqueue_core.ports.security import SecurityScanResult
+from hexaqueue_core.utils.imports import optional_dependency
 from hexaqueue_scanner.domain.config import YaraRuleConfig
 from hexaqueue_scanner.ports.engine import MalwareScannerEnginePort
 
@@ -50,22 +50,22 @@ class YaraRuleScannerAdapter(MalwareScannerEnginePort):
 
     def _initialize_rules(self) -> None:
         """Attempt to compile rules with yara-python if available."""
-        try:
-            yara = importlib.import_module("yara")
-
-            sources: dict[str, str] = {}
-            for idx, inline in enumerate(self._config.inline_rules):
-                sources[f"inline_{idx}"] = inline
-            filepaths = {
-                f"file_{idx}": path for idx, path in enumerate(self._config.rule_paths)
-            }
-            if sources or filepaths:
-                self._compiled_yara_rules = yara.compile(
-                    sources=sources if sources else None,
-                    filepaths=filepaths if filepaths else None,
-                )
-        except ImportError:
+        yara = optional_dependency("yara")
+        if yara is None:
             self._compiled_yara_rules = None
+            return
+
+        sources: dict[str, str] = {}
+        for idx, inline in enumerate(self._config.inline_rules):
+            sources[f"inline_{idx}"] = inline
+        filepaths = {
+            f"file_{idx}": path for idx, path in enumerate(self._config.rule_paths)
+        }
+        if sources or filepaths:
+            self._compiled_yara_rules = yara.compile(
+                sources=sources if sources else None,
+                filepaths=filepaths if filepaths else None,
+            )
 
     async def ping(self) -> bool:
         """Check availability and readiness of the YARA evaluation engine.
