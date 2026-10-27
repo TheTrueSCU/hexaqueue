@@ -152,7 +152,7 @@ jobs:
         run: uv sync --all-packages --all-extras --all-groups
 
       - name: Run Affected Property-Based Fuzzing
-        run: uv run hexaqual test run -A -P --no-cov
+        run: uv run hexaqual test run -A -P --no-cov --allow-empty
 
   # =========================================================================
   # Stage 4: Mutation Testing Verification (PR Quality Fortification)

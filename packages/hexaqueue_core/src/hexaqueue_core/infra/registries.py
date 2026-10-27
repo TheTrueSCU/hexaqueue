@@ -37,7 +37,7 @@ class HexaqueueConfigRegistry(HexastackConfigRegistry):
     def __init__(self) -> None:
         """Initialize registry with HexaqueueCoreConfig schema."""
         super().__init__()
-        self._core_schema: type[HexaqueueCoreConfig] = HexaqueueCoreConfig
+        self._core_schema = HexaqueueCoreConfig
 
     def load_config_toml(
         self, raw_file_path: str | Path = "hexaqueue.toml"
@@ -70,7 +70,13 @@ class HexaqueueConfigRegistry(HexastackConfigRegistry):
                 section_data = raw_data.get(name, core_data.get(name, {}))
                 section_configs[name] = schema(**section_data)
 
-            return HexaqueueConfig(core=core_config, sections=section_configs)
+            parsed_core = (
+                core_config
+                if isinstance(core_config, HexaqueueCoreConfig)
+                else HexaqueueCoreConfig.model_validate(core_config)
+            )
+
+            return HexaqueueConfig(core=parsed_core, sections=section_configs)
         except Exception as err:
             raise HexaqueueConfigError(f"Failed to load configuration: {err}") from err
 
