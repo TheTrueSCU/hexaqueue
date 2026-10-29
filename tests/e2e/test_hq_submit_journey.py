@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from hexastack_cli.testing.narrator import CliNarrator
+from hexaqual.adapters.testing import CliNarrator
 
 from hexaqueue_cli.domain.session import LocalCliSession, set_default_session
 from hexaqueue_cli.main import app

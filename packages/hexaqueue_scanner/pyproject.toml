@@ -10,10 +10,10 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "hexaqueue-core",
-    "hexastack-auth>=0.10.1",
-    "hexastack-core>=0.10.1",
-    "hexastack-events>=0.10.1",
-    "hexastack-logging>=0.10.1",
+    "hexastack-auth>=0.11.0",
+    "hexastack-core>=0.11.0",
+    "hexastack-events>=0.11.0",
+    "hexastack-logging>=0.11.0",
 ]
 
 [build-system]

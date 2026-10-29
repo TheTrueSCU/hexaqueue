@@ -9,12 +9,12 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "hexaflow>=0.5.1",
+    "hexaflow>=0.5.2",
     "hexaqueue-core",
     "hexaqueue-server",
     "hexaqueue-worker",
-    "hexastack-core>=0.10.1",
-    "hexastack-grpc>=0.10.1",
+    "hexastack-core>=0.11.0",
+    "hexastack-grpc>=0.11.0",
     "pydantic>=2.10.0",
 ]
 

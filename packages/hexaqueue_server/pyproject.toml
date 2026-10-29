@@ -12,14 +12,14 @@ dependencies = [
     "hexaqueue-collateral",
     "hexaqueue-core",
     "hexaqueue-monitor",
-    "hexastack-auth>=0.10.1",
-    "hexastack-core>=0.10.1",
-    "hexastack-cqrs>=0.10.1",
-    "hexastack-db>=0.10.1",
-    "hexastack-events>=0.10.1",
-    "hexastack-fastapi>=0.10.1",
-    "hexastack-grpc>=0.10.1",
-    "hexastack-otel>=0.10.1",
+    "hexastack-auth>=0.11.0",
+    "hexastack-core>=0.11.0",
+    "hexastack-cqrs>=0.11.0",
+    "hexastack-db>=0.11.0",
+    "hexastack-events>=0.11.0",
+    "hexastack-fastapi>=0.11.0",
+    "hexastack-grpc>=0.11.0",
+    "hexastack-otel>=0.11.0",
 ]
 
 [build-system]
