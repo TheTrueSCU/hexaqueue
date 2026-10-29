@@ -34,7 +34,7 @@ graph TD
     end
 
     subgraph S3["Hexastack Foundation"]
-        HS_CORE["hexastack-core (DI rodi & base ports)"]
+        HS_CORE["hexastack-core (DI ContainerPort & base ports)"]
         HS_CQRS["hexastack-cqrs (Commands, Queries, Events)"]
     end
 

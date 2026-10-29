@@ -6,9 +6,9 @@ Notes/Architectural Intent:
 """
 
 from fastapi import APIRouter, FastAPI
+from hexastack_core.infra.container import create_container
 from hexastack_cqrs.infra.pipeline import ExecutionPipeline
 from hexastack_fastapi.infra import create_fastapi_app
-from rodi import Container
 
 from hexaqueue_server.adapters.api.budget import create_budget_router
 from hexaqueue_server.adapters.api.cluster import create_cluster_router
@@ -67,8 +67,8 @@ def create_server_app(
             cluster_monitor=cluster_monitor,
         )
 
-    container = Container()
-    container.register(ExecutionPipeline, instance=effective_pipeline)
+    container = create_container()
+    container.add_instance(effective_pipeline, declared_class=ExecutionPipeline)
 
     app = create_fastapi_app(container=container, pipeline=effective_pipeline)
     api_router = create_server_api_router()

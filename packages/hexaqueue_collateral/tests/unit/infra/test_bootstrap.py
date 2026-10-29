@@ -1,6 +1,6 @@
 """Tests for CollateralBootstrapper."""
 
-from rodi import Container
+from hexastack_core.infra.container import create_container
 
 from hexaqueue_collateral.infra.bootstrap import CollateralBootstrapper
 from hexaqueue_core.infra.bootstrap import HexaqueueBootstrapContext
@@ -17,7 +17,7 @@ def test_collateral_bootstrapper() -> None:
     bootstrapper.register_config(registry)
 
     context = HexaqueueBootstrapContext(
-        container=Container(),
+        container=create_container(),
         config=None,
         config_registry=registry,
     )

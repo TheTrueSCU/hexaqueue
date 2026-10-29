@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from rodi import Container
+from hexastack_core.ports.container import ContainerPort
 
 from hexaqueue_core.infra.bootstrap import (
     HexaqueueBootstrapContext,
@@ -36,7 +36,7 @@ cluster_id = "test-cluster"
     dummy = DummyBootstrapper()
     custom_called = False
 
-    def custom_hook(container: Container) -> None:
+    def custom_hook(container: ContainerPort) -> None:
         nonlocal custom_called
         custom_called = True
 

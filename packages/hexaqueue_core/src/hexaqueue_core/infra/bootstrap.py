@@ -2,8 +2,8 @@
 
 Notes/Architectural Intent:
     Coordinates multi-phase bootstrap for Hexaqueue applications.
-    Integrates with rodi Container, Hexastack CQRS, event buses, and
-    modular BootstrapperPort extensions.
+    Integrates with ContainerPort protocol, Hexastack CQRS, event buses, and
+    modular BootstrapperPort extensions without concrete DI framework lock-in.
 """
 
 from collections.abc import Callable
@@ -11,8 +11,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from hexastack_core.infra.container import create_container
 from hexastack_core.ports.bootstrap import BootstrapperPort
-from rodi import Container
+from hexastack_core.ports.container import ContainerPort
 
 from hexaqueue_core.domain.config import (
     HexaqueueConfig,
@@ -27,13 +28,13 @@ class HexaqueueBootstrapContext:
     """Runtime context passed across Hexaqueue subsystem bootstrappers.
 
     Args:
-        container: The rodi dependency injection container.
+        container: The dependency injection container conforming to ContainerPort.
         config: Loaded HexaqueueConfig instance (or None if unconfigured).
         config_registry: HexaqueueConfigRegistry instance.
         properties: Shared runtime properties map.
     """
 
-    container: Container
+    container: ContainerPort
     config: HexaqueueConfig | None
     config_registry: HexaqueueConfigRegistry
     properties: dict[str, Any] = field(default_factory=dict)
@@ -43,7 +44,7 @@ class HexaqueueBootstrapContext:
 class HexaqueueBootstrapResult:
     """Encapsulates the complete bootstrapped runtime state."""
 
-    container: Container
+    container: ContainerPort
     config: HexaqueueConfig | None
     config_registry: HexaqueueConfigRegistry
     bootstrappers: list[BootstrapperPort]
@@ -57,21 +58,21 @@ class HexaqueueBootstrapResult:
 def bootstrap_hexaqueue(
     config_path: str | Path | None = None,
     bootstrappers: list[BootstrapperPort] | None = None,
-    container: Container | None = None,
-    configure_container: Callable[[Container], None] | None = None,
+    container: ContainerPort | None = None,
+    configure_container: Callable[[ContainerPort], None] | None = None,
 ) -> HexaqueueBootstrapResult:
     """Bootstrap a complete Hexaqueue runtime with dependency injection and configuration.
 
     Args:
         config_path: Optional path to a hexaqueue.toml configuration file.
         bootstrappers: Optional explicit list of BootstrapperPort instances.
-        container: Optional pre-configured rodi Container.
+        container: Optional pre-configured ContainerPort container.
         configure_container: Optional custom container binding hook.
 
     Returns:
         HexaqueueBootstrapResult containing initialized container and models.
     """
-    di = container or Container()
+    di = container or create_container()
     sorted_bootstrappers = sorted(
         bootstrappers or [], key=lambda b: getattr(b, "order", 50)
     )

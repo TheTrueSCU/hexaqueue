@@ -1,6 +1,6 @@
 """Tests for WorkerBootstrapper."""
 
-from rodi import Container
+from hexastack_core.infra.container import create_container
 
 from hexaqueue_core.infra.bootstrap import HexaqueueBootstrapContext
 from hexaqueue_core.infra.registries import HexaqueueConfigRegistry
@@ -17,7 +17,7 @@ def test_worker_bootstrapper() -> None:
     bootstrapper.register_config(registry)
 
     ctx = HexaqueueBootstrapContext(
-        container=Container(),
+        container=create_container(),
         config=None,
         config_registry=registry,
     )
