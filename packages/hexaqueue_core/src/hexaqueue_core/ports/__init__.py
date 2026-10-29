@@ -24,6 +24,9 @@ from hexaqueue_core.ports.logging import (
     LogChunk,
     LogStreamPort,
 )
+from hexaqueue_core.ports.pool import (
+    InstancePoolGovernorPort,
+)
 from hexaqueue_core.ports.queue import (
     JobQueuePort,
 )
@@ -61,6 +64,7 @@ __all__ = [
     "ExecutionRuntimePort",
     "FreeTierGovernorPort",
     "GpuDeviceManagerPort",
+    "InstancePoolGovernorPort",
     "JobQueuePort",
     "LeaderElectionPort",
     "LogChunk",

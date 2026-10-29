@@ -5,5 +5,6 @@ from hexaqueue_server import domain
 
 def test_domain_exports() -> None:
     """Verify domain package exports."""
+    assert hasattr(domain, "BudgetAwareInstancePoolAutoscaler")
     assert hasattr(domain, "RunStatusReport")
     assert hasattr(domain, "RunSubmission")

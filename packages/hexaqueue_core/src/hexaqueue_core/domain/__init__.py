@@ -144,6 +144,12 @@ from hexaqueue_core.domain.notification import (
     NotificationTrigger,
     map_lifecycle_to_trigger,
 )
+from hexaqueue_core.domain.pool import (
+    AutoscalerDecision,
+    InstancePoolState,
+    PoolScaleRequest,
+    PoolScaleResult,
+)
 from hexaqueue_core.domain.priority import (
     JobPriorityCalculator,
     PriorityWeights,
@@ -195,6 +201,7 @@ from hexaqueue_core.domain.telemetry import (
 )
 
 __all__ = [
+    "AutoscalerDecision",
     "AWS_FREE_TIER_PROFILE",
     "AZURE_FREE_TIER_PROFILE",
     "BaseHexaqueueConfigError",
@@ -261,6 +268,7 @@ __all__ = [
     "HexaqueueCoreConfig",
     "HexaqueueError",
     "HoldJobCommand",
+    "InstancePoolState",
     "is_dependency_blocked",
     "is_dependency_satisfied",
     "JobDagEngine",
@@ -292,6 +300,8 @@ __all__ = [
     "PendingReason",
     "PendingReasonCode",
     "PermissionDeniedError",
+    "PoolScaleRequest",
+    "PoolScaleResult",
     "PreemptionPolicy",
     "PresignedDownloadUrl",
     "PresignedUploadToken",
