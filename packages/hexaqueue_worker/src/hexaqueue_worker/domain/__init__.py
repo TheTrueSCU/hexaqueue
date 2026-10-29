@@ -1,5 +1,10 @@
 """Domain package for hexaqueue-worker."""
 
+from hexaqueue_worker.domain.assembler import (
+    AssembledImageResult,
+    ImageArtifactMapping,
+    ImageAssemblySpec,
+)
 from hexaqueue_worker.domain.cgroups import CgroupConfig, CgroupLimits
 from hexaqueue_worker.domain.container import (
     ApptainerConfig,
@@ -19,10 +24,13 @@ from hexaqueue_worker.domain.telemetry import (
 
 __all__ = [
     "ApptainerConfig",
+    "AssembledImageResult",
     "CgroupConfig",
     "CgroupLimits",
     "DockerConfig",
     "GpuTelemetry",
+    "ImageArtifactMapping",
+    "ImageAssemblySpec",
     "NodeTelemetryPulse",
     "PodmanConfig",
     "PtyResizeEvent",

@@ -1,6 +1,7 @@
 """Adapters package for hexaqueue-worker."""
 
 from hexaqueue_worker.adapters.apptainer import ApptainerExecutionRuntimeAdapter
+from hexaqueue_worker.adapters.assembler import CliContainerImageAssemblerAdapter
 from hexaqueue_worker.adapters.cgroups import CgroupsV2ProcessAdapter
 from hexaqueue_worker.adapters.deference import NativeDeferenceRuntimeAdapter
 from hexaqueue_worker.adapters.docker import DockerExecutionRuntimeAdapter
@@ -17,6 +18,7 @@ from hexaqueue_worker.adapters.telemetry import LocalTelemetryCollector
 __all__ = [
     "ApptainerExecutionRuntimeAdapter",
     "CgroupsV2ProcessAdapter",
+    "CliContainerImageAssemblerAdapter",
     "DockerExecutionRuntimeAdapter",
     "LocalPtyBridgeAdapter",
     "LocalSubprocessWorker",
