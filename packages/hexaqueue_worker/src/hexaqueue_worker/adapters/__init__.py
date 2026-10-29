@@ -14,6 +14,7 @@ from hexaqueue_worker.adapters.podman import PodmanExecutionRuntimeAdapter
 from hexaqueue_worker.adapters.pty import LocalPtyBridgeAdapter
 from hexaqueue_worker.adapters.storage import NvmeScratchStorageVolumeAdapter
 from hexaqueue_worker.adapters.telemetry import LocalTelemetryCollector
+from hexaqueue_worker.adapters.vm import MicroVmExecutionRuntimeAdapter
 
 __all__ = [
     "ApptainerExecutionRuntimeAdapter",
@@ -23,6 +24,7 @@ __all__ = [
     "LocalPtyBridgeAdapter",
     "LocalSubprocessWorker",
     "LocalTelemetryCollector",
+    "MicroVmExecutionRuntimeAdapter",
     "MockGpuDeviceManagerAdapter",
     "NativeDeferenceRuntimeAdapter",
     "NvmeScratchStorageVolumeAdapter",

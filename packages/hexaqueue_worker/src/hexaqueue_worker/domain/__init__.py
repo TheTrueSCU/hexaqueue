@@ -21,6 +21,7 @@ from hexaqueue_worker.domain.telemetry import (
     GpuTelemetry,
     NodeTelemetryPulse,
 )
+from hexaqueue_worker.domain.vm import MicroVmConfig
 
 __all__ = [
     "ApptainerConfig",
@@ -31,6 +32,7 @@ __all__ = [
     "GpuTelemetry",
     "ImageArtifactMapping",
     "ImageAssemblySpec",
+    "MicroVmConfig",
     "NodeTelemetryPulse",
     "PodmanConfig",
     "PtyResizeEvent",

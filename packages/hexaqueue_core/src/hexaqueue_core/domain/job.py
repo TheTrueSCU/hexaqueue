@@ -16,6 +16,7 @@ from hexaqueue_core.domain.lifecycle import JobState, JobStatus, TerminalOutcome
 from hexaqueue_core.domain.notification import NotificationPolicy
 from hexaqueue_core.domain.resources import ResourceRequirements
 from hexaqueue_core.domain.retry import JobRetryPolicy
+from hexaqueue_core.domain.vm import VmSpec
 
 
 class JobSpec(BaseModel):
@@ -72,6 +73,9 @@ class JobSpec(BaseModel):
     )
     container: ContainerSpec | None = Field(
         default=None, description="Optional container execution specification"
+    )
+    vm: VmSpec | None = Field(
+        default=None, description="Optional virtual machine execution specification"
     )
     retry_policy: JobRetryPolicy = Field(
         default_factory=JobRetryPolicy,

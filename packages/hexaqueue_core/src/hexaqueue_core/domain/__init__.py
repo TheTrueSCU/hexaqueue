@@ -199,6 +199,10 @@ from hexaqueue_core.domain.telemetry import (
     GpuTelemetry,
     NodeTelemetryPulse,
 )
+from hexaqueue_core.domain.vm import (
+    HypervisorBackend,
+    VmSpec,
+)
 
 __all__ = [
     "AutoscalerDecision",
@@ -268,6 +272,7 @@ __all__ = [
     "HexaqueueCoreConfig",
     "HexaqueueError",
     "HoldJobCommand",
+    "HypervisorBackend",
     "InstancePoolState",
     "is_dependency_blocked",
     "is_dependency_satisfied",
@@ -342,4 +347,5 @@ __all__ = [
     "TestSpec",
     "TriggerCondition",
     "VariableInterpolationError",
+    "VmSpec",
 ]
