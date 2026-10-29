@@ -6,9 +6,11 @@ Notes/Architectural Intent:
 """
 
 from hexaqueue_workflow.ports.barrier import SplitJoinBarrierPort
+from hexaqueue_workflow.ports.provisioner import InfrastructureProvisionerPort
 from hexaqueue_workflow.ports.staging import ArtifactStagingPort
 
 __all__ = [
     "ArtifactStagingPort",
+    "InfrastructureProvisionerPort",
     "SplitJoinBarrierPort",
 ]

@@ -11,11 +11,14 @@ def test_domain_exports() -> None:
         "BarrierPartition",
         "BarrierResolutionSummary",
         "BarrierState",
+        "create_ephemeral_infra_saga",
         "DistributedWorkflowConfig",
         "HexaqueueWorkflowError",
+        "InfraPlanSpec",
+        "InfraProvisionResult",
         "JobExecutionFailedError",
         "StepMappingNotFoundError",
         "WorkflowStepJobMapping",
     ]
     exports = domain_pkg.__all__
-    assert exports == sorted(expected)
+    assert exports == sorted(expected, key=str.casefold)

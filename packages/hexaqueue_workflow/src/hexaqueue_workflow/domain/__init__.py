@@ -21,6 +21,11 @@ from hexaqueue_workflow.domain.models import (
     DistributedWorkflowConfig,
     WorkflowStepJobMapping,
 )
+from hexaqueue_workflow.domain.provisioner import (
+    InfraPlanSpec,
+    InfraProvisionResult,
+    create_ephemeral_infra_saga,
+)
 
 __all__ = [
     "ArtifactReference",
@@ -28,8 +33,11 @@ __all__ = [
     "BarrierPartition",
     "BarrierResolutionSummary",
     "BarrierState",
+    "create_ephemeral_infra_saga",
     "DistributedWorkflowConfig",
     "HexaqueueWorkflowError",
+    "InfraPlanSpec",
+    "InfraProvisionResult",
     "JobExecutionFailedError",
     "StepMappingNotFoundError",
     "WorkflowStepJobMapping",

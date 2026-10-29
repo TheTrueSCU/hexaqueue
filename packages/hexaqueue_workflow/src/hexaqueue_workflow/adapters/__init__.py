@@ -10,6 +10,7 @@ from hexaqueue_workflow.adapters.barrier.grpc import (
 from hexaqueue_workflow.adapters.engines.distributed import (
     HexaqueueDistributedEngine,
 )
+from hexaqueue_workflow.adapters.opentofu import OpenTofuProvisionerAdapter
 from hexaqueue_workflow.adapters.staging.storage import (
     StoragePortArtifactStagingAdapter,
 )
@@ -17,5 +18,6 @@ from hexaqueue_workflow.adapters.staging.storage import (
 __all__ = [
     "GrpcSplitJoinBarrierAdapter",
     "HexaqueueDistributedEngine",
+    "OpenTofuProvisionerAdapter",
     "StoragePortArtifactStagingAdapter",
 ]

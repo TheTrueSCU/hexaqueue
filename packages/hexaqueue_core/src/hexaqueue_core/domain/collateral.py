@@ -45,11 +45,12 @@ class CollateralTier(StrEnum):
 class CollateralKind(StrEnum):
     """Categorical classification of the collateral payload."""
 
-    OS_IMAGE = "OS_IMAGE"
-    CONTAINER_IMAGE = "CONTAINER_IMAGE"
-    TEST_BINARY = "TEST_BINARY"
-    DATASET = "DATASET"
     BUNDLE = "BUNDLE"
+    CONTAINER_IMAGE = "CONTAINER_IMAGE"
+    DATASET = "DATASET"
+    INFRA_PLAN = "INFRA_PLAN"
+    OS_IMAGE = "OS_IMAGE"
+    TEST_BINARY = "TEST_BINARY"
 
 
 VALID_COLLATERAL_TRANSITIONS: dict[CollateralState, set[CollateralState]] = {

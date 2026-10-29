@@ -8,6 +8,7 @@ def test_adapters_exports() -> None:
     expected = [
         "GrpcSplitJoinBarrierAdapter",
         "HexaqueueDistributedEngine",
+        "OpenTofuProvisionerAdapter",
         "StoragePortArtifactStagingAdapter",
     ]
     exports = adapters_pkg.__all__

@@ -7,6 +7,7 @@ def test_ports_exports() -> None:
     """Verify all expected ports are exported."""
     expected = [
         "ArtifactStagingPort",
+        "InfrastructureProvisionerPort",
         "SplitJoinBarrierPort",
     ]
     exports = ports_pkg.__all__
