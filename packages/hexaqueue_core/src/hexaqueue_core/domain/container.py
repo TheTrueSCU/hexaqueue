@@ -15,6 +15,7 @@ class ContainerRuntimeType(StrEnum):
     """Supported container execution runtime engines."""
 
     APPTAINER = "apptainer"
+    DOCKER = "docker"
     PODMAN = "podman"
 
 
@@ -50,12 +51,13 @@ class ContainerSpec(BaseModel):
 
     Args:
         image: Container image identifier, OCI registry URI, or SIF file path.
-        runtime: Preferred container runtime engine (Podman or Apptainer).
+        runtime: Preferred container runtime engine (Podman, Docker, or Apptainer).
         workdir: Working directory path inside the container.
         read_only_rootfs: Whether the container root filesystem is read-only.
         mounts: Additional host-to-container bind mounts.
         gpu_enabled: Whether to grant container access to allocated GPU devices.
         privileged: Whether privileged mode is requested (defaults to False for rootless).
+        isolation: Optional container isolation mode (e.g. 'process', 'hyperv' for Windows).
         entrypoint: Optional container entrypoint override.
         extra_args: Optional CLI arguments passed directly to the container runtime.
     """
@@ -77,6 +79,10 @@ class ContainerSpec(BaseModel):
         default=False, description="Enable GPU device passthrough"
     )
     privileged: bool = Field(default=False, description="Privileged execution flag")
+    isolation: str | None = Field(
+        default=None,
+        description="Optional container isolation mode (e.g. 'process', 'hyperv' for Windows)",
+    )
     entrypoint: list[str] | None = Field(
         default=None, description="Entrypoint override"
     )

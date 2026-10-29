@@ -3,6 +3,7 @@
 from hexaqueue_worker.adapters.apptainer import ApptainerExecutionRuntimeAdapter
 from hexaqueue_worker.adapters.cgroups import CgroupsV2ProcessAdapter
 from hexaqueue_worker.adapters.deference import NativeDeferenceRuntimeAdapter
+from hexaqueue_worker.adapters.docker import DockerExecutionRuntimeAdapter
 from hexaqueue_worker.adapters.gpu import (
     MockGpuDeviceManagerAdapter,
     NvmlGpuDeviceManagerAdapter,
@@ -16,6 +17,7 @@ from hexaqueue_worker.adapters.telemetry import LocalTelemetryCollector
 __all__ = [
     "ApptainerExecutionRuntimeAdapter",
     "CgroupsV2ProcessAdapter",
+    "DockerExecutionRuntimeAdapter",
     "LocalPtyBridgeAdapter",
     "LocalSubprocessWorker",
     "LocalTelemetryCollector",
