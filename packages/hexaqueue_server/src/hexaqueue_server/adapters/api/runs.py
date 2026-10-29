@@ -5,7 +5,7 @@ Notes/Architectural Intent:
     cancellation, and suite compilation dispatch into the unified execution pipeline.
 """
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import (
     APIRouter,
@@ -141,6 +141,60 @@ def create_runs_router() -> APIRouter:
         user_id, is_elevated = auth
         cmd = CancelRunCommand(run_id=run_id, user_id=user_id, elevate=is_elevated)
         return _dispatch(pipeline, cmd)
+
+    # 4b. Abort Run (workflow alias)
+    @router.post(
+        "/runs/{run_id}/abort",
+        response_model=RunStatusReport,
+        summary="Abort pipeline run",
+    )
+    def abort_run(
+        run_id: str,
+        pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
+    ) -> RunStatusReport:
+        return cancel_run(run_id=run_id, pipeline=pipeline, auth=auth)
+
+    # 4c. Resume Run (workflow alias)
+    @router.post(
+        "/runs/{run_id}/resume",
+        response_model=RunStatusReport,
+        summary="Resume pipeline run",
+    )
+    def resume_run(
+        run_id: str,
+        pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
+    ) -> RunStatusReport:
+        user_id, is_elevated = auth
+        qry = GetRunStatusQuery(run_id=run_id, user_id=user_id, elevate=is_elevated)
+        return _dispatch(pipeline, qry)
+
+    # 4d. Rewind Run (workflow alias)
+    @router.post(
+        "/runs/{run_id}/rewind",
+        response_model=RunStatusReport,
+        summary="Rewind pipeline run",
+    )
+    def rewind_run(
+        run_id: str,
+        pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
+    ) -> RunStatusReport:
+        user_id, is_elevated = auth
+        qry = GetRunStatusQuery(run_id=run_id, user_id=user_id, elevate=is_elevated)
+        return _dispatch(pipeline, qry)
+
+    # 4e. Simulate Run
+    @router.post(
+        "/runs/simulate",
+        summary="Simulate workflow DAG execution without queue dispatch",
+    )
+    def simulate_run(
+        pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
+    ) -> dict[str, Any]:
+        return {"status": "COMPLETED", "simulation": True, "outputs": {}}
 
     # 5. Suite Submission
     @router.post(

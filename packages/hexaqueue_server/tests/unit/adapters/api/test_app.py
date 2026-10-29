@@ -11,7 +11,7 @@ from hexaqueue_server.infra.cqrs import create_hexaqueue_execution_pipeline
 
 
 def test_create_server_api_router_mounts_all_subrouters() -> None:
-    """Verify router assembly mounts all core endpoint paths under /v1."""
+    """Verify router assembly mounts all core endpoint paths under /v1 and /api/v1."""
     app = create_server_app()
     paths = set(app.openapi()["paths"].keys())
 
@@ -22,6 +22,12 @@ def test_create_server_api_router_mounts_all_subrouters() -> None:
     assert "/v1/stats" in paths
     assert "/v1/dlq" in paths
     assert "/v1/fairshare" in paths
+
+    # Dual prefix compatibility for Hexastack adapters
+    assert "/api/v1/runs" in paths
+    assert "/api/v1/jobs" in paths
+    assert "/api/v1/nodes" in paths
+    assert "/api/v1/stats" in paths
 
 
 def test_create_server_app_default_and_custom_pipeline() -> None:

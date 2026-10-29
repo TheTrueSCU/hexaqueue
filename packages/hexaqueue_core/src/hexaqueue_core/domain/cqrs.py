@@ -10,9 +10,11 @@ Notes/Architectural Intent:
 """
 
 from datetime import UTC, datetime
+from typing import Any
+from uuid import uuid4
 
 from hexastack_core.domain import Command, Query
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from hexaqueue_core.domain.collateral import CollateralKind, CollateralTier
 from hexaqueue_core.domain.job import JobSpec
@@ -22,6 +24,109 @@ from hexaqueue_core.domain.retention import LogRetentionPolicy
 from hexaqueue_core.domain.retry import DeadLetterRecord
 from hexaqueue_core.domain.run import RunSpec
 from hexaqueue_core.domain.suite import SuiteSpec
+
+_ALLOWED_JOB_KEYS: frozenset[str] = frozenset(
+    {
+        "args",
+        "checkpointable",
+        "collateral_ids",
+        "command",
+        "container",
+        "created_at",
+        "env",
+        "id",
+        "name",
+        "notifications",
+        "priority",
+        "priority_bonus",
+        "resources",
+        "run_id",
+        "status",
+        "tags",
+        "updated_at",
+        "user",
+    }
+)
+
+
+def _normalize_run_spec(d: dict[str, Any]) -> tuple[RunSpec, str]:
+    """Extract or construct RunSpec from raw workflow or job dictionary.
+
+    Args:
+        d: Mutable submission dictionary.
+
+    Returns:
+        Tuple of (constructed or extracted RunSpec, run_id string).
+    """
+    if "run_spec" not in d:
+        run_id = str(d.pop("id", None) or f"run-{uuid4().hex[:8]}")
+        run_name = str(
+            d.pop("workflow_name", None) or d.pop("name", None) or "workflow_run"
+        )
+        d.pop("description", None)
+        d.pop("version", None)
+        d.pop("initial_inputs", None)
+        spec = RunSpec(id=run_id, name=run_name, tags=d.pop("tags", ["workflow"]))
+        return spec, run_id
+
+    d.pop("workflow_name", None)
+    d.pop("version", None)
+    d.pop("initial_inputs", None)
+    d.pop("description", None)
+    spec_obj = d["run_spec"]
+    if isinstance(spec_obj, RunSpec):
+        return spec_obj, spec_obj.id
+    if isinstance(spec_obj, dict):
+        return spec_obj, str(spec_obj.get("id") or f"run-{uuid4().hex[:8]}")
+    return spec_obj, f"run-{uuid4().hex[:8]}"
+
+
+def _normalize_dependencies(raw_deps: Any) -> dict[str, list[str]]:
+    """Convert parent/child dependency list into adjacency dictionary.
+
+    Args:
+        raw_deps: Raw dependencies mapping or list of edge objects.
+
+    Returns:
+        Child -> parents adjacency mapping dictionary.
+    """
+    if not isinstance(raw_deps, list):
+        return raw_deps or {}
+    norm_deps: dict[str, list[str]] = {}
+    for item in raw_deps:
+        if isinstance(item, dict):
+            parent = item.get("parent")
+            child = item.get("child")
+            if child and parent:
+                norm_deps.setdefault(str(child), []).append(str(parent))
+    return norm_deps
+
+
+def _normalize_jobs(raw_jobs: Any, run_id: str) -> list[Any]:
+    """Ensure constituent jobs define required run_id and command fields.
+
+    Args:
+        raw_jobs: Constituent jobs list or collection.
+        run_id: Root parent run identifier.
+
+    Returns:
+        Normalized list of job specification dicts or JobSpec instances.
+    """
+    if not isinstance(raw_jobs, list):
+        return []
+    norm_jobs: list[Any] = []
+    for j in raw_jobs:
+        if isinstance(j, dict):
+            j_copy = dict(j)
+            if "run_id" not in j_copy or not j_copy["run_id"]:
+                j_copy["run_id"] = run_id
+            if "command" not in j_copy or not j_copy["command"]:
+                j_copy["command"] = f"run_step {j_copy.get('name', 'step')}"
+            filtered_j = {k: v for k, v in j_copy.items() if k in _ALLOWED_JOB_KEYS}
+            norm_jobs.append(filtered_j)
+        else:
+            norm_jobs.append(j)
+    return norm_jobs
 
 
 class SubmitRunCommand(Command):
@@ -46,6 +151,19 @@ class SubmitRunCommand(Command):
     jobs: list[JobSpec] = Field(min_length=1, description="List of jobs in pipeline")
     run_spec: RunSpec = Field(description="Pipeline run specification")
     user_id: str = Field(default="default", description="Submitting user identity")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_workflow_or_spec(cls, data: Any) -> Any:
+        """Normalize workflow submissions into structured SubmitRunCommand payloads."""
+        if not isinstance(data, dict):
+            return data
+
+        d = dict(data)
+        d["run_spec"], run_id = _normalize_run_spec(d)
+        d["dependencies"] = _normalize_dependencies(d.get("dependencies"))
+        d["jobs"] = _normalize_jobs(d.get("jobs"), run_id)
+        return d
 
 
 class SubmitSuiteCommand(Command):

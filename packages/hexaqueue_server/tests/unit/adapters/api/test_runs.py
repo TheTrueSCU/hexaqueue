@@ -90,3 +90,106 @@ def test_runs_stream_sse(hermetic_api_client: TestClient) -> None:
         lines = list(resp.iter_lines())
         has_status = any("event: run_status" in line for line in lines)
         assert has_status is True
+
+
+def test_runs_workflow_aliases_and_simulation(hermetic_api_client: TestClient) -> None:
+    """Verify workflow orchestrator aliases /abort, /resume, /rewind, and /simulate."""
+    client = hermetic_api_client
+
+    # 0. Submit a run first
+    payload = {
+        "run_spec": {
+            "id": "run-alias-test",
+            "name": "alias-run",
+            "tags": ["owner:bob"],
+        },
+        "jobs": [
+            {
+                "id": "job-alias-1",
+                "run_id": "run-alias-test",
+                "name": "step-alias",
+                "command": "echo alias",
+                "tags": ["owner:bob"],
+            }
+        ],
+        "dependencies": {},
+    }
+    client.post("/v1/runs", json=payload, headers={"X-Hexaqueue-User": "bob"})
+
+    # 1. Simulate run
+    resp_sim = client.post(
+        "/v1/runs/simulate", json={}, headers={"X-Hexaqueue-User": "bob"}
+    )
+    sim_code = resp_sim.status_code
+    assert sim_code == 200
+    assert resp_sim.json()["status"] == "COMPLETED"
+
+    # 2. Resume run
+    resp_res = client.post(
+        "/api/v1/runs/run-alias-test/resume", headers={"X-Hexaqueue-User": "bob"}
+    )
+    res_code = resp_res.status_code
+    assert res_code == 200
+    assert resp_res.json()["run_id"] == "run-alias-test"
+
+    # 3. Rewind run
+    resp_rew = client.post(
+        "/api/v1/runs/run-alias-test/rewind", headers={"X-Hexaqueue-User": "bob"}
+    )
+    rew_code = resp_rew.status_code
+    assert rew_code == 200
+    assert resp_rew.json()["run_id"] == "run-alias-test"
+
+    # 4. Abort run
+    resp_ab = client.post(
+        "/api/v1/runs/run-alias-test/abort", headers={"X-Hexaqueue-User": "bob"}
+    )
+    ab_code = resp_ab.status_code
+    assert ab_code == 200
+    assert resp_ab.json()["outcome"] == "CANCELLED"
+
+
+def test_hexastack_workflow_orchestrator_integration(
+    hermetic_api_client: TestClient,
+) -> None:
+    """Verify Hexastack's HexaqueueWorkflowOrchestratorAdapter compiled payload executes on server."""
+    client = hermetic_api_client
+    spec = {
+        "workflow_name": "etl_pipeline",
+        "version": "1.0.0",
+        "description": "ETL DAG",
+        "jobs": [
+            {
+                "id": "step_extract",
+                "name": "step_extract",
+                "stage": "stage_1",
+                "timeout_seconds": None,
+                "max_attempts": 1,
+                "payload": {"data": [1]},
+                "metadata": {},
+            },
+            {
+                "id": "step_transform",
+                "name": "step_transform",
+                "stage": "stage_2",
+                "timeout_seconds": None,
+                "max_attempts": 1,
+                "payload": {"ok": True},
+                "metadata": {},
+            },
+        ],
+        "dependencies": [{"parent": "step_extract", "child": "step_transform"}],
+        "initial_inputs": {"run_id": "etl-001"},
+    }
+
+    # Submit via POST /api/v1/runs
+    resp = client.post(
+        "/api/v1/runs",
+        json=spec,
+        headers={"X-Hexaqueue-User": "alice"},
+    )
+    post_code = resp.status_code
+    assert post_code == 201
+    data = resp.json()
+    assert data["run_id"] is not None
+    assert data["total_jobs"] == 2

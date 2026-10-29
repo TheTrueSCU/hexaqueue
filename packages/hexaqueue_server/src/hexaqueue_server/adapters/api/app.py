@@ -73,6 +73,7 @@ def create_server_app(
     app = create_fastapi_app(container=container, pipeline=effective_pipeline)
     api_router = create_server_api_router()
     app.include_router(api_router)
+    app.include_router(api_router, prefix="/api")
     return app
 
 

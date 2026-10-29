@@ -34,8 +34,19 @@ class RunsCqrsMixin(BaseCqrsService):
         Returns:
             Initial RunStatusReport.
         """
+        run_spec = cmd.run_spec
+        if cmd.user_id and not any(tag.startswith("owner:") for tag in run_spec.tags):
+            run_spec = RunSpec(
+                id=run_spec.id,
+                name=run_spec.name,
+                jobs=run_spec.jobs,
+                tags=[*run_spec.tags, f"owner:{cmd.user_id}"],
+                notifications=run_spec.notifications,
+                created_at=run_spec.created_at,
+                updated_at=run_spec.updated_at,
+            )
         submission = RunSubmission(
-            run_spec=cmd.run_spec,
+            run_spec=run_spec,
             jobs=cmd.jobs,
             dependencies=cmd.dependencies,
         )
