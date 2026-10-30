@@ -13,6 +13,7 @@ from hexaqueue_core.domain.cqrs import (
     HoldJobCommand,
     ListJobsQuery,
     ReleaseJobCommand,
+    SimulatePlacementQuery,
 )
 from hexaqueue_core.domain.exceptions import PermissionDeniedError
 from hexaqueue_core.domain.explainability import (
@@ -20,6 +21,7 @@ from hexaqueue_core.domain.explainability import (
     SchedulingDecisionReport,
 )
 from hexaqueue_core.domain.job import JobSpec
+from hexaqueue_server.domain.memento import PlacementSimulationReport
 from hexaqueue_server.infra.cqrs.common import (
     BaseCqrsService,
     _check_job_mutation_permission,
@@ -168,6 +170,22 @@ class JobsCqrsMixin(BaseCqrsService):
             total_slots=16,
             summary=f"Job '{job.id}' is pending execution resources.",
             is_redacted=not effective_admin,
+        )
+
+    async def handle_simulate_placement(
+        self, qry: SimulatePlacementQuery
+    ) -> PlacementSimulationReport:
+        """Handle SimulatePlacementQuery by evaluating dry-run placement without state changes.
+
+        Args:
+            qry: Query payload containing candidate jobs.
+
+        Returns:
+            PlacementSimulationReport with hypothetical placement outcomes.
+        """
+        return await self.controller.simulate_placement(
+            candidate_jobs=qry.candidate_jobs,
+            collateral_hash_map=qry.collateral_hash_map,
         )
 
 

@@ -200,3 +200,23 @@ def test_dag_engine_init_with_dependencies():
     )
     assert not engine.is_job_ready("c1", {})
     assert engine.is_job_ready("c1", {"p1": TerminalOutcome.COMPLETED})
+
+
+def test_get_downstream_dependents():
+    """Verify recursive downstream dependency discovery for DAG rewind."""
+    dag = JobDagEngine()
+    # A -> B -> C -> D
+    # A -> E
+    dag.add_dependency("b", "a")
+    dag.add_dependency("c", "b")
+    dag.add_dependency("d", "c")
+    dag.add_dependency("e", "a")
+
+    downstream_b = dag.get_downstream_dependents({"b"})
+    assert downstream_b == {"c", "d"}
+
+    downstream_a = dag.get_downstream_dependents({"a"})
+    assert downstream_a == {"b", "c", "d", "e"}
+
+    downstream_d = dag.get_downstream_dependents({"d"})
+    assert downstream_d == set()

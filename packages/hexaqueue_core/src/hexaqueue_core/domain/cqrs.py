@@ -1021,6 +1021,38 @@ class PresignedDownloadUrl(BaseModel):
     storage_key: str = Field(description="Cloud storage object key")
 
 
+class RewindRunCommand(Command):
+    """Command to rewind a DAG run and re-execute failed/targeted tasks and downstream dependents.
+
+    Args:
+        run_id: Pipeline run identifier.
+        target_job_ids: List of job IDs to rewind and re-execute.
+        user_id: Natural identity of requesting user.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    run_id: str = Field(description="Pipeline run identifier to rewind")
+    target_job_ids: list[str] = Field(description="Target seed jobs to rewind")
+    user_id: str = Field(default="default", description="Requesting user identity")
+
+
+class SimulatePlacementQuery(Query):
+    """Query to perform speculative dry-run placement simulation without cluster side-effects.
+
+    Args:
+        candidate_jobs: Candidate job specifications to evaluate for placement.
+        collateral_hash_map: Optional mapping of collateral IDs to CAS hashes.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    candidate_jobs: list[JobSpec] = Field(description="Candidate jobs to simulate")
+    collateral_hash_map: dict[str, str] = Field(
+        default_factory=dict, description="Collateral ID to CAS hash mapping"
+    )
+
+
 __all__ = [
     "CancelJobCommand",
     "CancelRunCommand",
@@ -1058,8 +1090,10 @@ __all__ = [
     "ReleaseJobCommand",
     "RequestLogUploadUrlCommand",
     "ReserveBudgetCommand",
+    "RewindRunCommand",
     "SettleBudgetCommand",
     "SettleSegmentCommand",
+    "SimulatePlacementQuery",
     "StreamLogsQuery",
     "SubmitRunCommand",
     "SubmitSuiteCommand",

@@ -29,6 +29,7 @@ from hexaqueue_core.domain.cqrs import (
     HoldJobCommand,
     ListJobsQuery,
     ReleaseJobCommand,
+    SimulatePlacementQuery,
     SubmitRunCommand,
 )
 from hexaqueue_core.domain.explainability import SchedulingDecisionReport
@@ -37,6 +38,7 @@ from hexaqueue_core.domain.lifecycle import JobState
 from hexaqueue_core.domain.run import RunSpec
 from hexaqueue_server.adapters.api.auth import get_auth_context
 from hexaqueue_server.adapters.api.common import _dispatch
+from hexaqueue_server.domain.memento import PlacementSimulationReport
 from hexaqueue_server.domain.models import (
     TaskQueueCompleteRequest,
     TaskQueueFailRequest,
@@ -306,6 +308,19 @@ def create_jobs_router() -> APIRouter:
             term_type=cmd.term_type,
         )
         return _dispatch(pipeline, effective_cmd)
+
+    # 10. Speculative Placement Simulation
+    @router.post(
+        "/scheduler/simulate-placement",
+        response_model=PlacementSimulationReport,
+        summary="Simulate speculative placement without cluster mutations",
+    )
+    def simulate_placement(
+        qry: SimulatePlacementQuery,
+        pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+    ) -> PlacementSimulationReport:
+        """Execute a speculative dry-run placement evaluation."""
+        return _dispatch(pipeline, qry)
 
     return router
 

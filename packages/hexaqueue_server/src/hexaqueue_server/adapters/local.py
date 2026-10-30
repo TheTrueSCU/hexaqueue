@@ -44,6 +44,12 @@ from hexaqueue_core.ports.budget import BudgetAccountingPort, CostRateModelPort
 from hexaqueue_core.ports.coordination import LeaderElectionPort
 from hexaqueue_core.ports.queue import JobQueuePort
 from hexaqueue_monitor.ports.monitor import ClusterMonitorPort
+from hexaqueue_server.domain.memento import (
+    DagRewindReport,
+    PlacementSimulationItem,
+    PlacementSimulationReport,
+    SchedulerMemento,
+)
 from hexaqueue_server.domain.models import RunStatusReport, RunSubmission
 from hexaqueue_server.domain.placement import (
     PlacementDecision,
@@ -1034,6 +1040,203 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                 await self._apply_placement_assignment(job, decision.selected_node_id)
 
             return decision
+
+    def create_memento(self) -> SchedulerMemento:
+        """Capture an immutable snapshot of internal controller scheduling state.
+
+        Returns:
+            SchedulerMemento snapshot.
+        """
+        return SchedulerMemento(
+            runs=dict(self._runs),
+            jobs=dict(self._jobs),
+            nodes=dict(self._nodes),
+            job_reservations=dict(self._job_reservations),
+            dead_letters=list(self._dead_letters),
+            created_at=datetime.now(UTC),
+        )
+
+    def restore_memento(self, memento: SchedulerMemento) -> None:
+        """Restore controller state from a captured SchedulerMemento.
+
+        Args:
+            memento: Snapshot previously returned by create_memento.
+        """
+        self._runs = dict(memento.runs)
+        self._jobs = dict(memento.jobs)
+        self._nodes = dict(memento.nodes)
+        self._job_reservations = dict(memento.job_reservations)
+        self._dead_letters = list(memento.dead_letters)
+
+    async def simulate_placement(
+        self,
+        candidate_jobs: Sequence[JobSpec],
+        collateral_hash_map: dict[str, str] | None = None,
+    ) -> PlacementSimulationReport:
+        """Simulate speculative placement for candidate jobs without mutating cluster state.
+
+        Args:
+            candidate_jobs: List of JobSpec instances to simulate.
+            collateral_hash_map: Optional collateral hash mapping.
+
+        Returns:
+            PlacementSimulationReport containing hypothetical placement and preemption outcomes.
+        """
+        await self._check_leadership()
+        async with self._lock:
+            memento = self.create_memento()
+            try:
+                simulation_items: list[PlacementSimulationItem] = []
+                burst_count = 0
+                all_schedulable = True
+
+                sim_nodes = {
+                    nid: profile.model_copy() for nid, profile in self._nodes.items()
+                }
+
+                for job in candidate_jobs:
+                    resolved_hash_map = await self._resolve_collateral_hashes(
+                        job, collateral_hash_map
+                    )
+                    decision = self._placement_engine.evaluate_placement(
+                        job=job,
+                        nodes=list(sim_nodes.values()),
+                        collateral_hash_map=resolved_hash_map
+                        if resolved_hash_map
+                        else None,
+                        backlog_size=len(candidate_jobs),
+                    )
+                    if decision.should_burst_ephemeral:
+                        burst_count += 1
+
+                    if decision.selected_node_id is not None:
+                        target_node = sim_nodes[decision.selected_node_id]
+                        new_active = set(target_node.active_job_ids)
+                        new_active.add(job.id)
+                        sim_nodes[decision.selected_node_id] = target_node.model_copy(
+                            update={"active_job_ids": frozenset(new_active)}
+                        )
+                        simulation_items.append(
+                            PlacementSimulationItem(
+                                job_id=job.id,
+                                decision=decision,
+                                would_preempt=[],
+                                estimated_wait_seconds=0.0,
+                            )
+                        )
+                    else:
+                        all_schedulable = False
+                        simulation_items.append(
+                            PlacementSimulationItem(
+                                job_id=job.id,
+                                decision=decision,
+                                would_preempt=[],
+                                estimated_wait_seconds=15.0,
+                            )
+                        )
+
+                return PlacementSimulationReport(
+                    items=simulation_items,
+                    all_schedulable=all_schedulable,
+                    required_ephemeral_bursts=burst_count,
+                    simulated_at=datetime.now(UTC),
+                )
+            finally:
+                self.restore_memento(memento)
+
+    async def rewind_run(
+        self,
+        run_id: str,
+        target_job_ids: Sequence[str],
+    ) -> DagRewindReport:
+        """Rewind specified jobs and their downstream dependents, re-enqueuing ready tasks.
+
+        Args:
+            run_id: Pipeline run identifier.
+            target_job_ids: Seed job IDs to reset and restart.
+
+        Returns:
+            DagRewindReport summarizing reset, re-enqueued, and unaffected tasks.
+
+        Raises:
+            HexaqueueError: If run is not found or controller is in standby mode.
+        """
+        await self._check_leadership()
+        async with self._lock:
+            if run_id not in self._runs:
+                msg = f"Run with ID '{run_id}' not found"
+                raise HexaqueueError(msg)
+
+            submission = self._runs[run_id]
+            dag_engine = self._dag_engines.get(run_id)
+            if dag_engine is None:
+                msg = f"DAG engine not found for run '{run_id}'"
+                raise HexaqueueError(msg)
+
+            if not target_job_ids:
+                failed_ids = {
+                    j.id
+                    for j in submission.jobs
+                    if self._jobs[j.id].status.outcome
+                    in (TerminalOutcome.FAILED, TerminalOutcome.TIMED_OUT)
+                }
+                target_set = (
+                    failed_ids if failed_ids else {j.id for j in submission.jobs}
+                )
+            else:
+                target_set = set(target_job_ids)
+
+            downstream = dag_engine.get_downstream_dependents(target_set)
+            affected_ids = target_set | downstream
+
+            rewound_jobs: list[str] = []
+            re_enqueued_jobs: list[str] = []
+            unaffected_jobs: list[str] = []
+
+            for job in submission.jobs:
+                if job.id in affected_ids:
+                    rewound_jobs.append(job.id)
+                    current_job = self._jobs[job.id]
+                    updated_status = current_job.status.model_copy(
+                        update={
+                            "state": JobState.PENDING,
+                            "outcome": None,
+                            "completed_at": None,
+                            "reason": "DAG Rewind",
+                        }
+                    )
+                    updated_job = current_job.model_copy(
+                        update={
+                            "status": updated_status,
+                            "updated_at": datetime.now(UTC),
+                            "assigned_worker_id": None,
+                        }
+                    )
+                    self._jobs[job.id] = updated_job
+                else:
+                    unaffected_jobs.append(job.id)
+
+            parent_outcomes = {
+                j_id: (
+                    self._jobs[j_id].status.outcome
+                    if self._jobs[j_id].status.state == JobState.DONE
+                    else None
+                )
+                for j_id in self._jobs
+            }
+
+            for job_id in rewound_jobs:
+                if dag_engine.is_job_ready(job_id, parent_outcomes):
+                    job_to_run = self._jobs[job_id]
+                    await self._queue.enqueue(job_to_run)
+                    re_enqueued_jobs.append(job_id)
+
+            return DagRewindReport(
+                run_id=run_id,
+                rewound_job_ids=sorted(rewound_jobs),
+                re_enqueued_job_ids=sorted(re_enqueued_jobs),
+                unaffected_job_ids=sorted(unaffected_jobs),
+            )
 
 
 __all__ = [

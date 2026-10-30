@@ -178,3 +178,26 @@ def test_hexastack_task_queue_adapter_integration(
 
     # Complete task
     adapter.complete(record.id)
+
+
+def test_simulate_placement_endpoint(hermetic_api_client: TestClient) -> None:
+    """Verify POST /v1/scheduler/simulate-placement returns simulation report."""
+    client = hermetic_api_client
+    payload = {
+        "candidate_jobs": [
+            {
+                "id": "cand-1",
+                "run_id": "run-cand",
+                "name": "cand-job",
+                "command": "echo 1",
+            }
+        ],
+        "collateral_hash_map": {},
+    }
+    resp = client.post("/v1/scheduler/simulate-placement", json=payload)
+    code = resp.status_code
+    assert code == 200
+    data = resp.json()
+    assert "items" in data
+    assert "all_schedulable" in data
+    assert len(data["items"]) == 1

@@ -9,6 +9,7 @@ from typing import Annotated, Any
 
 from fastapi import (
     APIRouter,
+    Body,
     Depends,
     Query,
     Request,
@@ -21,6 +22,7 @@ from hexastack_fastapi.adapters.dependencies import get_pipeline
 from hexaqueue_core.domain.cqrs import (
     CancelRunCommand,
     GetRunStatusQuery,
+    RewindRunCommand,
     SubmitRunCommand,
     SubmitSuiteCommand,
 )
@@ -28,6 +30,10 @@ from hexaqueue_server.adapters.api.auth import get_auth_context
 from hexaqueue_server.adapters.api.common import (
     _dispatch,
     _generate_run_status_events,
+)
+from hexaqueue_server.domain.memento import (
+    DagRewindReport,
+    DagRewindRequest,
 )
 from hexaqueue_server.domain.models import RunStatusReport
 
@@ -170,20 +176,26 @@ def create_runs_router() -> APIRouter:
         qry = GetRunStatusQuery(run_id=run_id, user_id=user_id, elevate=is_elevated)
         return _dispatch(pipeline, qry)
 
-    # 4d. Rewind Run (workflow alias)
+    # 4d. Rewind Run
     @router.post(
         "/runs/{run_id}/rewind",
-        response_model=RunStatusReport,
-        summary="Rewind pipeline run",
+        response_model=DagRewindReport,
+        summary="Rewind failed or specified tasks and their downstream dependents",
     )
     def rewind_run(
         run_id: str,
         pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
         auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
-    ) -> RunStatusReport:
-        user_id, is_elevated = auth
-        qry = GetRunStatusQuery(run_id=run_id, user_id=user_id, elevate=is_elevated)
-        return _dispatch(pipeline, qry)
+        req: Annotated[DagRewindRequest | None, Body()] = None,
+    ) -> DagRewindReport:
+        user_id, _ = auth
+        effective_req = req or DagRewindRequest()
+        cmd = RewindRunCommand(
+            run_id=run_id,
+            target_job_ids=effective_req.target_job_ids,
+            user_id=user_id,
+        )
+        return _dispatch(pipeline, cmd)
 
     # 4e. Simulate Run
     @router.post(

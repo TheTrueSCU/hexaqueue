@@ -1,12 +1,18 @@
 """Scheduler controller port interface."""
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import TerminalOutcome
 from hexaqueue_core.domain.node import ComputeNodeProfile
 from hexaqueue_core.domain.retry import DeadLetterRecord
 from hexaqueue_core.domain.telemetry import NodeTelemetryPulse
+from hexaqueue_server.domain.memento import (
+    DagRewindReport,
+    PlacementSimulationReport,
+    SchedulerMemento,
+)
 from hexaqueue_server.domain.models import RunStatusReport, RunSubmission
 from hexaqueue_server.domain.placement import PlacementDecision
 
@@ -211,6 +217,57 @@ class SchedulerControllerPort(ABC):
 
         Raises:
             HexaqueueError: If job is not found or controller is in standby mode.
+        """
+
+    @abstractmethod
+    def create_memento(self) -> SchedulerMemento:
+        """Capture an immutable snapshot of internal controller scheduling state.
+
+        Returns:
+            SchedulerMemento snapshot.
+        """
+
+    @abstractmethod
+    def restore_memento(self, memento: SchedulerMemento) -> None:
+        """Restore controller state from a captured SchedulerMemento.
+
+        Args:
+            memento: Snapshot previously returned by create_memento.
+        """
+
+    @abstractmethod
+    async def simulate_placement(
+        self,
+        candidate_jobs: Sequence[JobSpec],
+        collateral_hash_map: dict[str, str] | None = None,
+    ) -> PlacementSimulationReport:
+        """Simulate speculative placement for candidate jobs without mutating cluster state.
+
+        Args:
+            candidate_jobs: List of JobSpec instances to simulate.
+            collateral_hash_map: Optional collateral hash mapping.
+
+        Returns:
+            PlacementSimulationReport containing hypothetical placement and preemption outcomes.
+        """
+
+    @abstractmethod
+    async def rewind_run(
+        self,
+        run_id: str,
+        target_job_ids: Sequence[str],
+    ) -> DagRewindReport:
+        """Rewind specified jobs and their downstream dependents, re-enqueuing ready tasks.
+
+        Args:
+            run_id: Pipeline run identifier.
+            target_job_ids: Seed job IDs to reset and restart.
+
+        Returns:
+            DagRewindReport summarizing reset, re-enqueued, and unaffected tasks.
+
+        Raises:
+            HexaqueueError: If run is not found or controller is in standby mode.
         """
 
 

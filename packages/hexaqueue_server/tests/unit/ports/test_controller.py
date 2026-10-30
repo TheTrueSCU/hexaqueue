@@ -1,6 +1,7 @@
 """Tests for SchedulerControllerPort interface."""
 
 import inspect
+from collections.abc import Sequence
 
 import pytest
 
@@ -14,6 +15,11 @@ from hexaqueue_core.domain.lifecycle import (
 from hexaqueue_core.domain.node import ComputeNodeProfile
 from hexaqueue_core.domain.retry import DeadLetterRecord
 from hexaqueue_core.domain.telemetry import NodeTelemetryPulse
+from hexaqueue_server.domain.memento import (
+    DagRewindReport,
+    PlacementSimulationReport,
+    SchedulerMemento,
+)
 from hexaqueue_server.domain.models import RunStatusReport, RunSubmission
 from hexaqueue_server.domain.placement import PlacementDecision
 from hexaqueue_server.ports.controller import SchedulerControllerPort
@@ -143,6 +149,35 @@ async def test_scheduler_controller_port_concrete_implementation() -> None:
         ) -> PlacementDecision:
             return PlacementDecision(reason="dummy", selected_node_id="n1")
 
+        def create_memento(self) -> SchedulerMemento:
+            return SchedulerMemento()
+
+        def restore_memento(self, memento: SchedulerMemento) -> None:
+            pass
+
+        async def simulate_placement(
+            self,
+            candidate_jobs: Sequence[JobSpec],
+            collateral_hash_map: dict[str, str] | None = None,
+        ) -> PlacementSimulationReport:
+            return PlacementSimulationReport(
+                all_schedulable=True,
+                items=[],
+                required_ephemeral_bursts=0,
+            )
+
+        async def rewind_run(
+            self,
+            run_id: str,
+            target_job_ids: Sequence[str],
+        ) -> DagRewindReport:
+            return DagRewindReport(
+                run_id=run_id,
+                rewound_job_ids=list(target_job_ids),
+                re_enqueued_job_ids=list(target_job_ids),
+                unaffected_job_ids=[],
+            )
+
     controller = DummyController()
     nodes = await controller.list_nodes()
     node_count = len(nodes)
@@ -150,3 +185,11 @@ async def test_scheduler_controller_port_concrete_implementation() -> None:
     placement = await controller.schedule_placement("j1")
     sel_id = placement.selected_node_id
     assert sel_id == "n1"
+    mem = controller.create_memento()
+    controller.restore_memento(mem)
+    sim = await controller.simulate_placement([])
+    sched = sim.all_schedulable
+    assert sched is True
+    rewind = await controller.rewind_run("r1", ["j1"])
+    rewound_cnt = len(rewind.rewound_job_ids)
+    assert rewound_cnt == 1

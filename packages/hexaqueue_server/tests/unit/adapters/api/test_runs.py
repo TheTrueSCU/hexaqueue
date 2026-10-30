@@ -193,3 +193,47 @@ def test_hexastack_workflow_orchestrator_integration(
     data = resp.json()
     assert data["run_id"] is not None
     assert data["total_jobs"] == 2
+
+
+def test_runs_rewind_endpoint(hermetic_api_client: TestClient) -> None:
+    """Verify POST /v1/runs/{run_id}/rewind resets target jobs."""
+    client = hermetic_api_client
+    payload = {
+        "run_spec": {
+            "id": "run-rewind-api",
+            "name": "rewind-run",
+            "tags": ["owner:alice"],
+        },
+        "jobs": [
+            {
+                "id": "job-r1",
+                "run_id": "run-rewind-api",
+                "name": "r1",
+                "command": "echo r1",
+                "tags": ["owner:alice"],
+            },
+            {
+                "id": "job-r2",
+                "run_id": "run-rewind-api",
+                "name": "r2",
+                "command": "echo r2",
+                "tags": ["owner:alice"],
+            },
+        ],
+        "dependencies": {"job-r2": ["job-r1"]},
+    }
+    client.post("/v1/runs", json=payload, headers={"X-Hexaqueue-User": "alice"})
+
+    # Rewind job-r1
+    rewind_payload = {"target_job_ids": ["job-r1"]}
+    resp = client.post(
+        "/v1/runs/run-rewind-api/rewind",
+        json=rewind_payload,
+        headers={"X-Hexaqueue-User": "alice"},
+    )
+    code = resp.status_code
+    assert code == 200
+    data = resp.json()
+    assert data["run_id"] == "run-rewind-api"
+    assert "job-r1" in data["rewound_job_ids"]
+    assert "job-r2" in data["rewound_job_ids"]

@@ -47,8 +47,10 @@ from hexaqueue_core.domain.cqrs import (
     ReleaseJobCommand,
     RequestLogUploadUrlCommand,
     ReserveBudgetCommand,
+    RewindRunCommand,
     SettleBudgetCommand,
     SettleSegmentCommand,
+    SimulatePlacementQuery,
     SubmitRunCommand,
     SubmitSuiteCommand,
     UnpinCollateralCommand,
@@ -120,6 +122,12 @@ def create_hexaqueue_execution_pipeline(
     handler_reg.register(
         CancelRunCommand,
         lambda cmd: run_coro_sync(service.handle_cancel_run(cmd)),
+    )
+
+    command_reg.register(RewindRunCommand)
+    handler_reg.register(
+        RewindRunCommand,
+        lambda cmd: run_coro_sync(service.handle_rewind_run(cmd)),
     )
 
     command_reg.register(HoldJobCommand)
@@ -319,6 +327,12 @@ def create_hexaqueue_execution_pipeline(
     handler_reg.register(
         GetClusterHealthQuery,
         lambda qry: run_coro_sync(service.handle_get_cluster_health(qry)),
+    )
+
+    query_reg.register(SimulatePlacementQuery)
+    handler_reg.register(
+        SimulatePlacementQuery,
+        lambda qry: run_coro_sync(service.handle_simulate_placement(qry)),
     )
 
     return ExecutionPipeline(

@@ -1295,3 +1295,99 @@ async def test_local_scheduler_heartbeat_forwarding_to_monitor() -> None:
     rec_jobs = recorded_pulse.active_jobs
     assert rec_cpu == 42.5
     assert rec_jobs == 2
+
+
+@pytest.mark.asyncio
+async def test_scheduler_memento_and_speculative_placement_zero_leak() -> None:
+    """Verify speculative placement simulation produces forecasts with zero state leaks."""
+    queue = InMemoryJobQueueAdapter()
+    controller = LocalSchedulerControllerAdapter(queue=queue)
+
+    node = ComputeNodeProfile(
+        node_id="worker-node-1",
+        tier=NodeProvisioningTier.STATIC,
+        health_state=NodeHealthState.HEALTHY,
+    )
+    await controller.register_node(node)
+
+    # Initial snapshot
+    memento_before = controller.create_memento()
+
+    candidates = [
+        JobSpec(
+            id=f"candidate-{i}",
+            run_id="run-sim",
+            name=f"sim-job-{i}",
+            command="echo sim",
+            resources=ResourceRequirements(cpus=1, ram_mb=1024),
+        )
+        for i in range(2)
+    ]
+
+    report = await controller.simulate_placement(candidates)
+    sched = report.all_schedulable
+    assert sched is True
+    cnt = len(report.items)
+    assert cnt == 2
+
+    # Verify cluster state after simulation is 100% identical to before
+    memento_after = controller.create_memento()
+    assert memento_before.jobs == memento_after.jobs
+    assert memento_before.nodes == memento_after.nodes
+    assert memento_before.runs == memento_after.runs
+    assert memento_before.job_reservations == memento_after.job_reservations
+
+
+@pytest.mark.asyncio
+async def test_dag_rewind_partial_recovery() -> None:
+    """Verify DAG rewind resets targeted tasks and downstream dependents while preserving upstream results."""
+    queue = InMemoryJobQueueAdapter()
+    controller = LocalSchedulerControllerAdapter(queue=queue)
+
+    # DAG: A -> B -> C; A -> D
+    job_a = JobSpec(id="job-a", run_id="run-rewind", name="task-a", command="echo A")
+    job_b = JobSpec(id="job-b", run_id="run-rewind", name="task-b", command="echo B")
+    job_c = JobSpec(id="job-c", run_id="run-rewind", name="task-c", command="echo C")
+    job_d = JobSpec(id="job-d", run_id="run-rewind", name="task-d", command="echo D")
+
+    run = RunSpec(id="run-rewind", name="rewind-pipeline")
+    submission = RunSubmission(
+        run_spec=run,
+        jobs=[job_a, job_b, job_c, job_d],
+        dependencies={
+            "job-b": ["job-a"],
+            "job-c": ["job-b"],
+            "job-d": ["job-a"],
+        },
+    )
+    await controller.submit_run(submission)
+
+    # Complete A and D, fail B
+    await controller.update_job_outcome("job-a", TerminalOutcome.COMPLETED)
+    await controller.update_job_outcome("job-d", TerminalOutcome.COMPLETED)
+    await controller.update_job_outcome("job-b", TerminalOutcome.FAILED)
+
+    # State before rewind
+    st_b = (await controller.get_job("job-b")).outcome
+    assert st_b == TerminalOutcome.FAILED
+
+    # Rewind targeting only B
+    report = await controller.rewind_run("run-rewind", target_job_ids=["job-b"])
+    rewound = report.rewound_job_ids
+    assert rewound == ["job-b", "job-c"]
+    re_enqueued = report.re_enqueued_job_ids
+    assert re_enqueued == ["job-b"]
+    unaffected = report.unaffected_job_ids
+    assert sorted(unaffected) == ["job-a", "job-d"]
+
+    # Verify B is now PENDING and has no failed outcome
+    job_b_updated = await controller.get_job("job-b")
+    outcome_b = job_b_updated.outcome
+    state_b = job_b_updated.state
+    assert outcome_b is None
+    assert state_b == JobState.PENDING
+
+    # Verify A remains COMPLETED
+    job_a_current = await controller.get_job("job-a")
+    outcome_a = job_a_current.outcome
+    assert outcome_a == TerminalOutcome.COMPLETED

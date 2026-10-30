@@ -259,6 +259,30 @@ class JobDagEngine:
                 return True
         return False
 
+    def get_downstream_dependents(self, root_job_ids: set[str]) -> set[str]:
+        """Compute the transitive set of all downstream jobs dependent on root_job_ids.
+
+        Args:
+            root_job_ids: Set of seed job IDs.
+
+        Returns:
+            Set of all direct and indirect downstream dependent job IDs (excluding root_job_ids).
+        """
+        adjacency: dict[str, list[str]] = defaultdict(list)
+        for child_id, deps in self._dependencies.items():
+            for dep in deps:
+                adjacency[dep.parent_job_id].append(child_id)
+
+        visited: set[str] = set()
+        queue = deque(sorted(root_job_ids))
+        while queue:
+            curr = queue.popleft()
+            for child in adjacency.get(curr, []):
+                if child not in visited and child not in root_job_ids:
+                    visited.add(child)
+                    queue.append(child)
+        return visited
+
 
 __all__ = [
     "DependencyCycleError",

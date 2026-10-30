@@ -8,12 +8,14 @@ Notes/Architectural Intent:
 from hexaqueue_core.domain.cqrs import (
     CancelRunCommand,
     GetRunStatusQuery,
+    RewindRunCommand,
     SubmitRunCommand,
     SubmitSuiteCommand,
 )
 from hexaqueue_core.domain.exceptions import PermissionDeniedError
 from hexaqueue_core.domain.run import RunSpec
 from hexaqueue_core.domain.suite import SuiteCompiler
+from hexaqueue_server.domain.memento import DagRewindReport
 from hexaqueue_server.domain.models import RunStatusReport, RunSubmission
 from hexaqueue_server.infra.cqrs.common import (
     BaseCqrsService,
@@ -142,6 +144,20 @@ class RunsCqrsMixin(BaseCqrsService):
                 )
                 raise PermissionDeniedError(msg)
         return status
+
+    async def handle_rewind_run(self, cmd: RewindRunCommand) -> DagRewindReport:
+        """Handle RewindRunCommand by rewinding target jobs and downstream dependents.
+
+        Args:
+            cmd: Command payload specifying target jobs.
+
+        Returns:
+            DagRewindReport summarizing reset, re-enqueued, and unaffected tasks.
+        """
+        return await self.controller.rewind_run(
+            run_id=cmd.run_id,
+            target_job_ids=cmd.target_job_ids,
+        )
 
 
 __all__ = [
