@@ -16,6 +16,7 @@ from hexaqueue_server.adapters.api.jobs import create_jobs_router
 from hexaqueue_server.adapters.api.logs import create_logs_router
 from hexaqueue_server.adapters.api.nodes import create_nodes_router
 from hexaqueue_server.adapters.api.runs import create_runs_router
+from hexaqueue_server.adapters.api.webhooks import create_webhooks_router
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
 from hexaqueue_server.infra.cqrs import create_hexaqueue_execution_pipeline
 
@@ -33,6 +34,7 @@ def create_server_api_router() -> APIRouter:
     router.include_router(create_nodes_router())
     router.include_router(create_cluster_router())
     router.include_router(create_budget_router())
+    router.include_router(create_webhooks_router())
     return router
 
 

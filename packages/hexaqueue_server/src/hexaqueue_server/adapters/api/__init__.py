@@ -14,10 +14,18 @@ from hexaqueue_server.adapters.api.app import (
 )
 from hexaqueue_server.adapters.api.auth import get_auth_context
 from hexaqueue_server.adapters.api.budget import create_budget_router
+from hexaqueue_server.adapters.api.webhooks import (
+    GitLabWebhookVerifier,
+    WebhookReceiptResponse,
+    create_webhooks_router,
+)
 
 __all__ = [
     "create_budget_router",
     "create_server_api_router",
     "create_server_app",
+    "create_webhooks_router",
     "get_auth_context",
+    "GitLabWebhookVerifier",
+    "WebhookReceiptResponse",
 ]
