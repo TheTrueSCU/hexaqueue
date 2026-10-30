@@ -70,3 +70,10 @@ uv run hq status demo-etl-run
 # 3. Inspect task execution logs
 uv run hq logs stage1-extract
 ```
+
+---
+
+## 🏗️ Server Topologies & Deployment Patterns
+
+Hexaqueue features modular operational roles and granular interface toggles, allowing operators to deploy purpose-built nodes with zero configuration drift:
+- [**Server Topologies & Configuration Guide**](guides/server-topologies.md): Full visual architecture diagrams, interface matrices, TOML schemas, and mix-and-match CLI commands for public ingress gateways, private worker coordinators, FinOps analytics engines, and sandboxed AI coding assistant (MCP) nodes.

@@ -36,6 +36,7 @@ dev = [
     "complexipy>=7.0.0",
     "deptry>=0.23.0",
     "detect-secrets>=1.5.0",
+    "diagrams>=0.23.0",
     "faker>=33.0.0",
     "hexaqual[all]>=0.9.10",
     "hexastack-cli>=0.11.0",

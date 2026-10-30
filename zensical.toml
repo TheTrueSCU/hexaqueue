@@ -7,6 +7,7 @@ nav = [
     { "Overview" = "index.md" },
     { "Interactive Demos" = "demos.md" },
     { "Guides" = [
+        "guides/server-topologies.md",
         "guides/submission.md",
         "guides/scheduling-explainability.md"
     ]},
