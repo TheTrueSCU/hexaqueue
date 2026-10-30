@@ -11,16 +11,19 @@ from fastapi import (
     APIRouter,
     Depends,
     Query,
+    Response,
 )
 from hexastack_cqrs.infra.pipeline import ExecutionPipeline
 from hexastack_fastapi.adapters.dependencies import get_pipeline
 
 from hexaqueue_core.domain.collateral import CollateralBundle
 from hexaqueue_core.domain.cqrs import (
+    ClusterMetricsReport,
     ClusterStatsReport,
     DeadLetterQueueReport,
     EvictExpiredCollateralCommand,
     FindCollateralByChecksumQuery,
+    GetClusterMetricsQuery,
     GetCollateralBundleQuery,
     GetCollateralDownloadUrlQuery,
     GetDeadLetterQueueQuery,
@@ -234,6 +237,37 @@ def create_cluster_router() -> APIRouter:
         user_id, is_elevated = auth
         qry = GetDeadLetterQueueQuery(limit=limit, user_id=user_id, elevate=is_elevated)
         return _dispatch(pipeline, qry)
+
+    # 6. Columnar Cluster Metrics Report
+    @router.get(
+        "/cluster/metrics",
+        response_model=ClusterMetricsReport,
+        summary="Retrieve zero-copy columnar cluster hardware utilization and failure trend metrics",
+    )
+    def get_cluster_metrics(
+        pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
+        window_hours: int = 24,
+        format: str = "json",
+    ) -> ClusterMetricsReport | Response:
+        user_id, is_elevated = auth
+        qry = GetClusterMetricsQuery(
+            window_hours=window_hours,
+            format=format,
+            user_id=user_id,
+            elevate=is_elevated,
+        )
+        res = _dispatch(pipeline, qry)
+        if isinstance(res, (bytes, bytearray)):
+            media_type = "application/octet-stream"
+            if format.lower() in ("arrow_ipc", "arrow"):
+                media_type = "application/vnd.apache.arrow.stream"
+            elif format.lower() == "parquet":
+                media_type = "application/vnd.apache.parquet"
+            elif format.lower() == "csv":
+                media_type = "text/csv"
+            return Response(content=res, media_type=media_type)
+        return res
 
     return router
 

@@ -12,12 +12,15 @@ from fastapi import (
     APIRouter,
     Depends,
     Path,
+    Response,
 )
 from hexastack_cqrs.infra.pipeline import ExecutionPipeline
 from hexastack_fastapi.adapters.dependencies import get_pipeline
 
 from hexaqueue_core.domain.budget import ClusterHealthReport, TenantAccount
 from hexaqueue_core.domain.cqrs import (
+    BudgetReportResponse,
+    GetBudgetReportQuery,
     GetClusterHealthQuery,
     GetTenantBalanceQuery,
     ReleaseBudgetCommand,
@@ -131,6 +134,39 @@ def create_budget_router() -> APIRouter:
             elevate=is_elevated,
         )
         return _dispatch(pipeline, qry)
+
+    # 6. Columnar Budget Analytics Report
+    @router.get(
+        "/budget/report",
+        response_model=BudgetReportResponse,
+        summary="Retrieve zero-copy columnar budget and spend analytics report",
+    )
+    def get_budget_report(
+        pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
+        tenant_id: str | None = None,
+        window_hours: int = 24,
+        format: str = "json",
+    ) -> BudgetReportResponse | Response:
+        user_id, is_elevated = auth
+        qry = GetBudgetReportQuery(
+            tenant_id=tenant_id,
+            window_hours=window_hours,
+            format=format,
+            user_id=user_id,
+            elevate=is_elevated,
+        )
+        res = _dispatch(pipeline, qry)
+        if isinstance(res, (bytes, bytearray)):
+            media_type = "application/octet-stream"
+            if format.lower() in ("arrow_ipc", "arrow"):
+                media_type = "application/vnd.apache.arrow.stream"
+            elif format.lower() == "parquet":
+                media_type = "application/vnd.apache.parquet"
+            elif format.lower() == "csv":
+                media_type = "text/csv"
+            return Response(content=res, media_type=media_type)
+        return res
 
     return router
 

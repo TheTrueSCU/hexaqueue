@@ -14,10 +14,12 @@ from hexaqueue_core.domain.collateral import (
     CollateralBundle,
 )
 from hexaqueue_core.domain.cqrs import (
+    ClusterMetricsReport,
     ClusterStatsReport,
     DeadLetterQueueReport,
     EvictExpiredCollateralCommand,
     FindCollateralByChecksumQuery,
+    GetClusterMetricsQuery,
     GetCollateralBundleQuery,
     GetCollateralDownloadUrlQuery,
     GetDeadLetterQueueQuery,
@@ -33,6 +35,7 @@ from hexaqueue_core.domain.explainability import (
     SchedulerExplainabilityEngine,
 )
 from hexaqueue_core.domain.lifecycle import JobState, TerminalOutcome
+from hexaqueue_server.adapters.db.analytics import ColumnarAnalyticsAdapter
 from hexaqueue_server.infra.cqrs.common import BaseCqrsService
 
 
@@ -252,6 +255,29 @@ class ClusterCqrsMixin(BaseCqrsService):
         """
         records = await self.controller.list_dead_letters(limit=qry.limit)
         return DeadLetterQueueReport(records=records, total_count=len(records))
+
+    async def handle_get_cluster_metrics(
+        self, qry: GetClusterMetricsQuery
+    ) -> ClusterMetricsReport | bytes:
+        """Handle GetClusterMetricsQuery using zero-copy columnar projections.
+
+        Args:
+            qry: Query payload specifying window and format.
+
+        Returns:
+            ClusterMetricsReport or binary columnar bytes.
+        """
+        jobs = await self.controller.list_jobs()
+        nodes = self.nodes if self.nodes else []
+        dlq_records = (
+            await self.controller.list_dead_letters()
+            if hasattr(self.controller, "list_dead_letters")
+            else []
+        )
+        analytics = ColumnarAnalyticsAdapter()
+        return analytics.project_cluster_metrics(
+            qry, nodes=nodes, jobs=jobs, dlq_records=dlq_records
+        )
 
 
 __all__ = [

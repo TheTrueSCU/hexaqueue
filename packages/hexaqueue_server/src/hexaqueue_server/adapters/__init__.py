@@ -4,6 +4,7 @@ from hexaqueue_server.adapters.api import (
     create_server_api_router,
     create_server_app,
 )
+from hexaqueue_server.adapters.db import ColumnarAnalyticsAdapter
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
 from hexaqueue_server.adapters.mcp import (
     create_mcp_server,
@@ -14,6 +15,7 @@ from hexaqueue_server.adapters.mcp import (
 from hexaqueue_server.adapters.runner import run_hexaqueue_server
 
 __all__ = [
+    "ColumnarAnalyticsAdapter",
     "create_mcp_server",
     "create_server_api_router",
     "create_server_app",

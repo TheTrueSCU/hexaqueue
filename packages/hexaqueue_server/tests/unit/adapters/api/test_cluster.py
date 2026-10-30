@@ -173,3 +173,33 @@ def test_cluster_collateral_endpoints(hermetic_api_client: TestClient) -> None:
     )
     assert evict_resp.status_code == 200
     assert isinstance(evict_resp.json(), list)
+
+
+def test_cluster_metrics_columnar_api(
+    hermetic_api_client: TestClient,
+) -> None:
+    """Verify GET /v1/cluster/metrics returns zero-copy columnar summaries."""
+    client = hermetic_api_client
+
+    # 1. JSON report
+    resp_json = client.get(
+        "/v1/cluster/metrics?window_hours=48&format=json",
+        headers={"X-Hexaqueue-User": "operator"},
+    )
+    res_code = resp_json.status_code
+    assert res_code == 200
+    metrics_data = resp_json.json()
+    assert "node_utilization_p50" in metrics_data
+    assert "gpu_idle_pct" in metrics_data
+    assert "error_rate_by_classification" in metrics_data
+    assert metrics_data["window_hours"] == 48
+
+    # 2. Parquet binary export
+    resp_parquet = client.get(
+        "/v1/cluster/metrics?format=parquet",
+        headers={"X-Hexaqueue-User": "operator"},
+    )
+    p_code = resp_parquet.status_code
+    assert p_code == 200
+    p_ct = resp_parquet.headers.get("content-type")
+    assert "parquet" in (p_ct or "")

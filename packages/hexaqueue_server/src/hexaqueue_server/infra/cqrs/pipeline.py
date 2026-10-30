@@ -23,7 +23,9 @@ from hexaqueue_core.domain.cqrs import (
     EvictExpiredCollateralCommand,
     ExplainJobQuery,
     FindCollateralByChecksumQuery,
+    GetBudgetReportQuery,
     GetClusterHealthQuery,
+    GetClusterMetricsQuery,
     GetCollateralBundleQuery,
     GetCollateralDownloadUrlQuery,
     GetDeadLetterQueueQuery,
@@ -333,6 +335,18 @@ def create_hexaqueue_execution_pipeline(
     handler_reg.register(
         SimulatePlacementQuery,
         lambda qry: run_coro_sync(service.handle_simulate_placement(qry)),
+    )
+
+    query_reg.register(GetBudgetReportQuery)
+    handler_reg.register(
+        GetBudgetReportQuery,
+        lambda qry: run_coro_sync(service.handle_get_budget_report(qry)),
+    )
+
+    query_reg.register(GetClusterMetricsQuery)
+    handler_reg.register(
+        GetClusterMetricsQuery,
+        lambda qry: run_coro_sync(service.handle_get_cluster_metrics(qry)),
     )
 
     return ExecutionPipeline(

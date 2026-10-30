@@ -21,6 +21,8 @@ dependencies = [
     "hexastack-grpc>=0.11.0",
     "hexastack-mcp>=0.11.0",
     "hexastack-otel>=0.11.0",
+    "polars>=1.0.0",
+    "pyarrow>=14.0.0",
 ]
 
 [build-system]

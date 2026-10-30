@@ -126,3 +126,42 @@ def test_cluster_health_api(
     assert "healthy_nodes_count" in health_data
     assert "total_cpus" in health_data
     assert "active_jobs_count" in health_data
+
+
+def test_budget_report_columnar_api(
+    hermetic_api_client: TestClient,
+) -> None:
+    """Verify GET /v1/budget/report with JSON and binary columnar projections."""
+    client = hermetic_api_client
+
+    # 1. JSON report
+    resp_json = client.get(
+        "/v1/budget/report?window_hours=12&format=json",
+        headers={"X-Hexaqueue-User": "operator"},
+    )
+    res_code = resp_json.status_code
+    assert res_code == 200
+    report_data = resp_json.json()
+    assert "total_spend_credits" in report_data
+    assert "burn_rate_credits_per_hour" in report_data
+    assert report_data["window_hours"] == 12
+
+    # 2. Binary Parquet stream
+    resp_parquet = client.get(
+        "/v1/budget/report?format=parquet",
+        headers={"X-Hexaqueue-User": "operator"},
+    )
+    parquet_code = resp_parquet.status_code
+    assert parquet_code == 200
+    res_ct = resp_parquet.headers.get("content-type")
+    assert "parquet" in (res_ct or "")
+
+    # 3. Arrow IPC stream
+    resp_arrow = client.get(
+        "/v1/budget/report?format=arrow_ipc",
+        headers={"X-Hexaqueue-User": "operator"},
+    )
+    arrow_code = resp_arrow.status_code
+    assert arrow_code == 200
+    res_arrow_ct = resp_arrow.headers.get("content-type")
+    assert "arrow" in (res_arrow_ct or "")

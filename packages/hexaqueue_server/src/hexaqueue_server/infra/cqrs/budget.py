@@ -10,12 +10,15 @@ from typing import Any
 
 from hexaqueue_core.domain.budget import ClusterHealthReport, TenantAccount
 from hexaqueue_core.domain.cqrs import (
+    BudgetReportResponse,
+    GetBudgetReportQuery,
     GetClusterHealthQuery,
     GetTenantBalanceQuery,
     ReleaseBudgetCommand,
     ReserveBudgetCommand,
     SettleSegmentCommand,
 )
+from hexaqueue_server.adapters.db.analytics import ColumnarAnalyticsAdapter
 from hexaqueue_server.infra.cqrs.common import BaseCqrsService
 
 
@@ -104,6 +107,25 @@ class BudgetCqrsMixin(BaseCqrsService):
             ClusterHealthReport summarizing node health, capacities, and dead nodes.
         """
         return await self.cluster_monitor.get_cluster_health()
+
+    async def handle_get_budget_report(
+        self, qry: GetBudgetReportQuery
+    ) -> BudgetReportResponse | bytes:
+        """Handle GetBudgetReportQuery using zero-copy columnar projections.
+
+        Args:
+            qry: Query payload specifying filters and format.
+
+        Returns:
+            BudgetReportResponse or binary columnar bytes.
+        """
+        reservations = (
+            list(getattr(self.budget_port, "_reservations", {}).values())
+            if hasattr(self.budget_port, "_reservations")
+            else []
+        )
+        analytics = ColumnarAnalyticsAdapter()
+        return analytics.project_budget_report(qry, reservations)
 
 
 __all__ = [

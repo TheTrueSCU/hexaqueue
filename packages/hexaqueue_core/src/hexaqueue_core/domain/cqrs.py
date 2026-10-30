@@ -1053,9 +1053,133 @@ class SimulatePlacementQuery(Query):
     )
 
 
+class BudgetReportResponse(BaseModel):
+    """Aggregated budget and burn rate analytics report.
+
+    Args:
+        window_hours: Rolling historical window in hours.
+        total_spend_credits: Total settled HQ Credits across window.
+        burn_rate_credits_per_hour: Average credits consumed per hour.
+        total_reservations: Number of budget reservation records evaluated.
+        by_tenant: Breakdown of spend by tenant or project account.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    burn_rate_credits_per_hour: float = Field(
+        default=0.0, description="Average burn rate in credits per hour"
+    )
+    by_tenant: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Per-tenant aggregated spend and resource breakdown",
+    )
+    total_reservations: int = Field(
+        default=0, description="Total reservation events processed"
+    )
+    total_spend_credits: float = Field(
+        default=0.0, description="Total settled credits in time window"
+    )
+    window_hours: int = Field(description="Rolling time window in hours")
+
+
+class GetBudgetReportQuery(Query):
+    """Query to compute zero-copy columnar budget and spend projections.
+
+    Args:
+        tenant_id: Optional tenant or project filter.
+        window_hours: Rolling historical analytics time window in hours.
+        format: Desired export format ('json', 'arrow_ipc', 'parquet', 'csv').
+        user_id: Natural requesting user identity.
+        elevate: Explicit administrative privilege elevation flag.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    elevate: bool = Field(
+        default=False, description="Explicit administrative elevation flag"
+    )
+    format: str = Field(
+        default="json", description="Export format: json, arrow_ipc, parquet, csv"
+    )
+    tenant_id: str | None = Field(
+        default=None, description="Optional tenant account filter"
+    )
+    user_id: str = Field(default="default", description="Requesting user identity")
+    window_hours: int = Field(
+        default=24, ge=1, description="Rolling time window in hours"
+    )
+
+
+class ClusterMetricsReport(BaseModel):
+    """Aggregated cluster hardware utilization and failure trend metrics.
+
+    Args:
+        window_hours: Rolling historical analytics window in hours.
+        node_utilization_p50: 50th percentile compute node CPU utilization.
+        node_utilization_p95: 95th percentile compute node CPU utilization.
+        node_utilization_p99: 99th percentile compute node CPU utilization.
+        gpu_idle_pct: Percentage of allocated GPUs idling.
+        error_rate_by_classification: Error frequency distribution across categories.
+        dlq_trends: Historical trend of dead-letter queue records.
+        total_jobs_evaluated: Total number of jobs evaluated in metric window.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    dlq_trends: list[dict[str, Any]] = Field(
+        default_factory=list, description="Dead-letter queue retry failure trends"
+    )
+    error_rate_by_classification: dict[str, float] = Field(
+        default_factory=dict,
+        description="Error rate broken down by classification type",
+    )
+    gpu_idle_pct: float = Field(
+        default=0.0, description="Percentage of cluster GPU capacity unutilized"
+    )
+    node_utilization_p50: float = Field(
+        default=0.0, description="50th percentile node CPU utilization percentage"
+    )
+    node_utilization_p95: float = Field(
+        default=0.0, description="95th percentile node CPU utilization percentage"
+    )
+    node_utilization_p99: float = Field(
+        default=0.0, description="99th percentile node CPU utilization percentage"
+    )
+    total_jobs_evaluated: int = Field(
+        default=0, description="Total jobs included in metric window"
+    )
+    window_hours: int = Field(description="Rolling time window in hours")
+
+
+class GetClusterMetricsQuery(Query):
+    """Query to compute zero-copy columnar cluster utilization and error rate trends.
+
+    Args:
+        window_hours: Rolling historical analytics time window in hours.
+        format: Desired export format ('json', 'arrow_ipc', 'parquet', 'csv').
+        user_id: Natural requesting user identity.
+        elevate: Explicit administrative privilege elevation flag.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    elevate: bool = Field(
+        default=False, description="Explicit administrative elevation flag"
+    )
+    format: str = Field(
+        default="json", description="Export format: json, arrow_ipc, parquet, csv"
+    )
+    user_id: str = Field(default="default", description="Requesting user identity")
+    window_hours: int = Field(
+        default=24, ge=1, description="Rolling time window in hours"
+    )
+
+
 __all__ = [
+    "BudgetReportResponse",
     "CancelJobCommand",
     "CancelRunCommand",
+    "ClusterMetricsReport",
     "ClusterStatsReport",
     "CreateBastionSessionCommand",
     "CreatePtySessionCommand",
@@ -1063,7 +1187,9 @@ __all__ = [
     "EvictExpiredCollateralCommand",
     "ExplainJobQuery",
     "FindCollateralByChecksumQuery",
+    "GetBudgetReportQuery",
     "GetClusterHealthQuery",
+    "GetClusterMetricsQuery",
     "GetCollateralBundleQuery",
     "GetCollateralDownloadUrlQuery",
     "GetDeadLetterQueueQuery",
