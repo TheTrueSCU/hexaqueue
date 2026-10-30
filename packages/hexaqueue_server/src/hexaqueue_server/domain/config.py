@@ -133,7 +133,7 @@ class ServerInterfaceConfig(BaseModel):
                     collateral=True,
                     budget=True,
                     webhooks=True,
-                    mcp=False,
+                    mcp=True,
                 )
 
 

@@ -19,6 +19,7 @@ dependencies = [
     "hexastack-events>=0.11.0",
     "hexastack-fastapi>=0.11.0",
     "hexastack-grpc>=0.11.0",
+    "hexastack-mcp>=0.11.0",
     "hexastack-otel>=0.11.0",
 ]
 

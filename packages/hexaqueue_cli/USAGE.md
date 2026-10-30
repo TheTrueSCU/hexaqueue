@@ -69,6 +69,7 @@ Usage: hq [OPTIONS] COMMAND [ARGS]...
 │ node        Inspect worker nodes and establish administrative bastion        │
 │             sessions                                                         │
 │ server      Manage Hexaqueue central scheduler and HTTP/ASGI API server      │
+│ mcp         Manage and run Hexaqueue Model Context Protocol (MCP) server     │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -352,6 +353,41 @@ Usage: hq logs [OPTIONS] {job_id}
 │ --url                    Print presigned direct download URL instead of      │
 │                          fetching                                            │
 │ --help                   Show this message and exit.                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq mcp`
+
+```text
+Usage: hq mcp [OPTIONS] COMMAND [ARGS]...
+
+ Manage and run Hexaqueue Model Context Protocol (MCP) server
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ run  Run Hexaqueue MCP driving adapter over stdio transport.                 │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq mcp run`
+
+```text
+Usage: hq mcp run [OPTIONS]
+
+ Run Hexaqueue MCP driving adapter over stdio transport.
+
+ Notes/Architectural Intent:
+     Standard entrypoint for AI coding assistants configured with local
+     subprocesses ('hq mcp run').
+
+ Args:
+     name: Name of the MCP server instance.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --name  -n      <str>  MCP server name [default: hexaqueue-mcp]              │
+│ --help                 Show this message and exit.                           │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 

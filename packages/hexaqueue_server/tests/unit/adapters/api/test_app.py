@@ -61,3 +61,13 @@ def test_create_server_app_role_based_filtering() -> None:
     assert "/v1/jobs/{job_id}/logs" in worker_paths
     assert "/v1/webhooks/github" not in worker_paths
     assert "/v1/runs" not in worker_paths
+
+    mcp_app = create_server_app(config=ServerConfig(role=ServerRole.MCP))
+    mcp_routes = [getattr(route, "path", "") for route in mcp_app.routes]
+    res_mcp_mounted = any(path.startswith("/mcp") for path in mcp_routes)
+    assert res_mcp_mounted is True
+
+    all_app = create_server_app(config=ServerConfig(role=ServerRole.ALL))
+    all_routes = [getattr(route, "path", "") for route in all_app.routes]
+    res_all_mcp_mounted = any(path.startswith("/mcp") for path in all_routes)
+    assert res_all_mcp_mounted is True

@@ -93,6 +93,10 @@ def create_server_app(
     api_router = create_server_api_router(server_cfg.interfaces)
     app.include_router(api_router)
     app.include_router(api_router, prefix="/api")
+    if server_cfg.interfaces.mcp:
+        from hexaqueue_server.adapters.mcp import mount_mcp_server
+
+        mount_mcp_server(app, effective_pipeline)
     app.state.server_config = server_cfg
     return app
 

@@ -59,6 +59,10 @@ def test_server_interface_config_role_presets() -> None:
     assert mcp.mcp is True
     assert mcp.runs is True
 
+    all_role = ServerInterfaceConfig.for_role(ServerRole.ALL)
+    assert all_role.mcp is True
+    assert all_role.runs is True
+
 
 def test_server_config_defaults_and_role_application() -> None:
     """Verify ServerConfig default values and automatic role preset application."""
