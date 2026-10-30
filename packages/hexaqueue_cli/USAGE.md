@@ -68,6 +68,7 @@ Usage: hq [OPTIONS] COMMAND [ARGS]...
 │ collateral  Manage, stage, and inspect collateral artifacts and binaries     │
 │ node        Inspect worker nodes and establish administrative bastion        │
 │             sessions                                                         │
+│ server      Manage Hexaqueue central scheduler and HTTP/ASGI API server      │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -565,6 +566,44 @@ Usage: hq [OPTIONS] COMMAND [ARGS]...
 Try 'hq --help' for help.
 ╭─ Error ──────────────────────────────────────────────────────────────────────╮
 │ No such command 'scheduling'.                                                │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq server`
+
+```text
+Usage: hq server [OPTIONS] COMMAND [ARGS]...
+
+ Manage Hexaqueue central scheduler and HTTP/ASGI API server
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ start  Start Hexaqueue central scheduler and API server.                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq server start`
+
+```text
+Usage: hq server start [OPTIONS]
+
+ Start Hexaqueue central scheduler and API server.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --host        -h      <str>  Bind host address [default: 0.0.0.0]            │
+│ --port        -p      <int>  Bind port number [default: 8000]                │
+│ --engine      -e      <str>  ASGI engine: 'uvicorn' or 'granian'             │
+│                              [default: uvicorn]                              │
+│ --role        -r      <str>  Server role: 'all', 'gateway', 'worker-api',    │
+│                              'analytics', 'mcp', 'custom'                    │
+│                              [default: all]                                  │
+│ --interfaces          <str>  Comma-separated interface list (e.g.            │
+│                              'runs,webhooks,collateral')                     │
+│ --workers     -w      <int>  Number of worker processes                      │
+│ --reload                     Enable auto-reload on code changes              │
+│ --help                       Show this message and exit.                     │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 

@@ -3,6 +3,7 @@
 from hexaqueue_core.infra.bootstrap import HexaqueueBootstrapContext
 from hexaqueue_core.infra.registries import HexaqueueConfigRegistry
 from hexaqueue_core.ports.bootstrap import BootstrapperPort
+from hexaqueue_server.domain.config import ServerConfig
 
 
 class ServerBootstrapper(BootstrapperPort):
@@ -13,6 +14,7 @@ class ServerBootstrapper(BootstrapperPort):
 
     def register_config(self, registry: HexaqueueConfigRegistry) -> None:
         """Register server configuration models."""
+        registry.register(ServerConfig)
 
     def configure(self, context: HexaqueueBootstrapContext) -> None:
         """Configure server services in application DI container."""

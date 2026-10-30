@@ -15,6 +15,7 @@ def test_server_bootstrapper() -> None:
 
     registry = HexaqueueConfigRegistry()
     bootstrapper.register_config(registry)
+    assert "ServerConfig" in registry.all
 
     context = HexaqueueBootstrapContext(
         container=create_container(),

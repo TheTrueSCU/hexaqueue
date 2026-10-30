@@ -1,6 +1,11 @@
 """Hexaqueue Server domain models."""
 
 from hexaqueue_server.domain.autoscaler import BudgetAwareInstancePoolAutoscaler
+from hexaqueue_server.domain.config import (
+    ServerConfig,
+    ServerInterfaceConfig,
+    ServerRole,
+)
 from hexaqueue_server.domain.memento import (
     DagRewindReport,
     DagRewindRequest,
@@ -26,5 +31,8 @@ __all__ = [
     "RunStatusReport",
     "RunSubmission",
     "SchedulerMemento",
+    "ServerConfig",
+    "ServerInterfaceConfig",
+    "ServerRole",
     "WarmCachePlacementEngine",
 ]

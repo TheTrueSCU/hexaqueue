@@ -42,3 +42,22 @@ def test_create_server_app_default_and_custom_pipeline() -> None:
     pipeline = create_hexaqueue_execution_pipeline(controller)
     app_custom = create_server_app(pipeline=pipeline)
     assert isinstance(app_custom, FastAPI)
+
+
+def test_create_server_app_role_based_filtering() -> None:
+    """Verify application factory mounts only role-specified interfaces."""
+    from hexaqueue_server.domain.config import ServerConfig, ServerRole
+
+    gateway_app = create_server_app(config=ServerConfig(role=ServerRole.GATEWAY))
+    paths = set(gateway_app.openapi()["paths"].keys())
+    assert "/v1/webhooks/github" in paths
+    assert "/v1/runs" in paths
+    assert "/v1/nodes" not in paths
+    assert "/v1/budget/balance" not in paths
+
+    worker_app = create_server_app(config=ServerConfig(role=ServerRole.WORKER_API))
+    worker_paths = set(worker_app.openapi()["paths"].keys())
+    assert "/v1/nodes" in worker_paths
+    assert "/v1/jobs/{job_id}/logs" in worker_paths
+    assert "/v1/webhooks/github" not in worker_paths
+    assert "/v1/runs" not in worker_paths

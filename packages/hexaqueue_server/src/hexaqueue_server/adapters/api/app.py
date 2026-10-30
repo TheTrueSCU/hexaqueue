@@ -18,37 +18,54 @@ from hexaqueue_server.adapters.api.nodes import create_nodes_router
 from hexaqueue_server.adapters.api.runs import create_runs_router
 from hexaqueue_server.adapters.api.webhooks import create_webhooks_router
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
+from hexaqueue_server.domain.config import ServerConfig, ServerInterfaceConfig
 from hexaqueue_server.infra.cqrs import create_hexaqueue_execution_pipeline
 
 
-def create_server_api_router() -> APIRouter:
+def create_server_api_router(
+    interfaces: ServerInterfaceConfig | None = None,
+) -> APIRouter:
     """Construct the FastAPI APIRouter providing unified REST endpoints for Hexaqueue.
 
+    Args:
+        interfaces: Optional ServerInterfaceConfig selecting active interface routers.
+
     Returns:
-        APIRouter with all /v1 endpoints bound to CQRS pipeline dispatch.
+        APIRouter with active /v1 endpoints bound to CQRS pipeline dispatch.
     """
+    cfg = interfaces or ServerInterfaceConfig()
     router = APIRouter(prefix="/v1")
-    router.include_router(create_runs_router())
-    router.include_router(create_jobs_router())
-    router.include_router(create_logs_router())
-    router.include_router(create_nodes_router())
-    router.include_router(create_cluster_router())
-    router.include_router(create_budget_router())
-    router.include_router(create_webhooks_router())
+    if cfg.runs:
+        router.include_router(create_runs_router())
+    if cfg.jobs:
+        router.include_router(create_jobs_router())
+    if cfg.logs:
+        router.include_router(create_logs_router())
+    if cfg.nodes:
+        router.include_router(create_nodes_router())
+    if cfg.cluster or cfg.collateral:
+        router.include_router(create_cluster_router())
+    if cfg.budget:
+        router.include_router(create_budget_router())
+    if cfg.webhooks:
+        router.include_router(create_webhooks_router())
     return router
 
 
 def create_server_app(
     pipeline: ExecutionPipeline | None = None,
+    config: ServerConfig | None = None,
 ) -> FastAPI:
     """Create a fully assembled FastAPI application for Hexaqueue Server.
 
     Args:
         pipeline: Optional pre-configured ExecutionPipeline.
+        config: Optional ServerConfig with interface and networking settings.
 
     Returns:
         Configured FastAPI application instance.
     """
+    server_cfg = config or ServerConfig()
     effective_pipeline = pipeline
     if effective_pipeline is None:
         from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
@@ -73,9 +90,10 @@ def create_server_app(
     container.add_instance(effective_pipeline, declared_class=ExecutionPipeline)
 
     app = create_fastapi_app(container=container, pipeline=effective_pipeline)
-    api_router = create_server_api_router()
+    api_router = create_server_api_router(server_cfg.interfaces)
     app.include_router(api_router)
     app.include_router(api_router, prefix="/api")
+    app.state.server_config = server_cfg
     return app
 
 

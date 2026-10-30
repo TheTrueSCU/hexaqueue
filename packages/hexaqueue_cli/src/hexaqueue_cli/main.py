@@ -19,6 +19,7 @@ from hexaqueue_cli.adapters.presenter import CliPresenter
 from hexaqueue_cli.commands.collateral import app as collateral_app
 from hexaqueue_cli.commands.node import app as node_app
 from hexaqueue_cli.commands.run import app as run_app
+from hexaqueue_cli.commands.server import app as server_app
 from hexaqueue_cli.commands.suite import app as suite_app
 from hexaqueue_cli.commands.workflow import app as workflow_app
 from hexaqueue_cli.infra.options import format_option, resolve_format
@@ -35,6 +36,7 @@ app.add_typer(workflow_app, name="workflow")
 app.add_typer(suite_app, name="suite")
 app.add_typer(collateral_app, name="collateral")
 app.add_typer(node_app, name="node")
+app.add_typer(server_app, name="server")
 
 console = Console()
 
