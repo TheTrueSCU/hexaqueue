@@ -71,3 +71,33 @@ def test_create_server_app_role_based_filtering() -> None:
     all_routes = [getattr(route, "path", "") for route in all_app.routes]
     res_all_mcp_mounted = any(path.startswith("/mcp") for path in all_routes)
     assert res_all_mcp_mounted is True
+
+
+def test_create_server_app_feature_flag_disables_mcp() -> None:
+    """Verify feature flag disables MCP adapter even when role enables it."""
+    import os
+
+    from hexaqueue_server.domain.config import ServerConfig, ServerRole
+
+    os.environ["HQ_INTERFACE_MCP"] = "false"
+    try:
+        app = create_server_app(config=ServerConfig(role=ServerRole.ALL))
+        routes = [getattr(route, "path", "") for route in app.routes]
+        res_mcp_mounted = any(path.startswith("/mcp") for path in routes)
+        assert res_mcp_mounted is False
+    finally:
+        os.environ.pop("HQ_INTERFACE_MCP", None)
+
+
+def test_create_server_app_dedicated_mcp_node() -> None:
+    """Verify dedicated MCP node mounts MCP SSE routes with minimal REST surface."""
+    from hexaqueue_server.domain.config import ServerConfig, ServerRole
+
+    app = create_server_app(config=ServerConfig(role=ServerRole.MCP))
+    routes = [getattr(route, "path", "") for route in app.routes]
+    assert any(path.startswith("/mcp") for path in routes)
+
+    openapi_paths = set(app.openapi()["paths"].keys())
+    assert "/v1/runs" not in openapi_paths
+    assert "/v1/nodes" not in openapi_paths
+    assert "/v1/webhooks/github" not in openapi_paths

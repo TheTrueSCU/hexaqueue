@@ -380,14 +380,23 @@ Usage: hq mcp run [OPTIONS]
 
  Notes/Architectural Intent:
      Standard entrypoint for AI coding assistants configured with local
-     subprocesses ('hq mcp run').
+     subprocesses ('hq mcp run'). Supports read-only sandboxing and granular
+     tool filters via command options or TOML configuration.
 
  Args:
      name: Name of the MCP server instance.
+     config_file: Optional path to TOML configuration file.
+     read_only: Restrict MCP tools to read-only queries.
+     tools: Comma-separated list of enabled tools.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --name  -n      <str>  MCP server name [default: hexaqueue-mcp]              │
-│ --help                 Show this message and exit.                           │
+│ --name       -n      <str>  MCP server name [default: hexaqueue-mcp]         │
+│ --config     -c      <str>  Path to TOML configuration file                  │
+│ --read-only                 Restrict MCP tools to read-only queries          │
+│                             (disables mutations)                             │
+│ --tools              <str>  Comma-separated list of enabled tools (e.g.      │
+│                             'list_jobs,get_run_status')                      │
+│ --help                      Show this message and exit.                      │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -628,18 +637,23 @@ Usage: hq server start [OPTIONS]
  Start Hexaqueue central scheduler and API server.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --host        -h      <str>  Bind host address [default: 0.0.0.0]            │
-│ --port        -p      <int>  Bind port number [default: 8000]                │
-│ --engine      -e      <str>  ASGI engine: 'uvicorn' or 'granian'             │
-│                              [default: uvicorn]                              │
-│ --role        -r      <str>  Server role: 'all', 'gateway', 'worker-api',    │
-│                              'analytics', 'mcp', 'custom'                    │
-│                              [default: all]                                  │
-│ --interfaces          <str>  Comma-separated interface list (e.g.            │
-│                              'runs,webhooks,collateral')                     │
-│ --workers     -w      <int>  Number of worker processes                      │
-│ --reload                     Enable auto-reload on code changes              │
-│ --help                       Show this message and exit.                     │
+│ --config      -c              <str>  Path to TOML configuration file (e.g.   │
+│                                      hexaqueue.toml)                         │
+│ --host        -h              <str>  Bind host address [default: 0.0.0.0]    │
+│ --port        -p              <int>  Bind port number [default: 8000]        │
+│ --engine      -e              <str>  ASGI engine: 'uvicorn' or 'granian'     │
+│                                      [default: uvicorn]                      │
+│ --role        -r              <str>  Server role: 'all', 'gateway',          │
+│                                      'worker-api', 'analytics', 'mcp',       │
+│                                      'custom'                                │
+│                                      [default: all]                          │
+│ --interfaces                  <str>  Comma-separated interface list (e.g.    │
+│                                      'runs,webhooks,collateral,mcp')         │
+│ --mcp             --no-mcp           Explicitly enable or disable MCP        │
+│                                      driving adapter                         │
+│ --workers     -w              <int>  Number of worker processes              │
+│ --reload                             Enable auto-reload on code changes      │
+│ --help                               Show this message and exit.             │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 

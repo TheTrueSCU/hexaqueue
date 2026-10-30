@@ -61,6 +61,9 @@ async def test_azure_vmss_with_client() -> None:
         azure_client=mock_client,
         resource_group="rg-prod",
     )
+    pools = await adapter.list_pools()
+    assert len(pools) == 1
+    assert pools[0].pool_id == "vmss-prod"
 
     state = await adapter.get_pool_state("vmss-prod")
     p_id = state.pool_id

@@ -25,6 +25,7 @@ from hexaqueue_core.domain.cqrs import (
 )
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import JobState
+from hexaqueue_server.domain.config import McpConfig
 from hexaqueue_server.domain.models import TaskRecordResponse
 
 __all__ = [
@@ -247,6 +248,7 @@ def _stream_logs_handler(
 def create_mcp_server(
     pipeline: ExecutionPipeline,
     name: str = "hexaqueue-mcp",
+    config: McpConfig | None = None,
 ) -> FastMCP:
     """Create a FastMCP server exposing Hexaqueue CQRS bus capabilities as tools.
 
@@ -255,15 +257,19 @@ def create_mcp_server(
         as Model Context Protocol tools to AI coding assistants (Antigravity, Cursor, Claude).
         Preserves the Principle of Least Privilege: callers authenticate with natural user
         identity or explicit administrative elevation (`elevate=True`).
+        Honors McpConfig tool toggles and read-only constraints.
 
     Args:
         pipeline: Central ExecutionPipeline instance for CQRS dispatching.
         name: Name identifier for the MCP server.
+        config: Optional McpConfig configuring enabled tools and security presets.
 
     Returns:
         Configured FastMCP instance with registered tools.
     """
     server = FastMCP(name=name)
+    cfg = config or McpConfig()
+    tool_cfg = cfg.tools
 
     def hq_list_jobs(
         status: str | None = None,
@@ -415,26 +421,34 @@ def create_mcp_server(
         """
         return _stream_logs_handler(pipeline, job_id, tail, user_id, elevate)
 
-    server.add_tool(hq_list_jobs, name="hq_list_jobs", description=hq_list_jobs.__doc__)
-    server.add_tool(
-        hq_submit_run, name="hq_submit_run", description=hq_submit_run.__doc__
-    )
-    server.add_tool(
-        hq_get_run_status,
-        name="hq_get_run_status",
-        description=hq_get_run_status.__doc__,
-    )
-    server.add_tool(
-        hq_lease_task, name="hq_lease_task", description=hq_lease_task.__doc__
-    )
-    server.add_tool(
-        hq_get_cluster_nodes,
-        name="hq_get_cluster_nodes",
-        description=hq_get_cluster_nodes.__doc__,
-    )
-    server.add_tool(
-        hq_stream_logs, name="hq_stream_logs", description=hq_stream_logs.__doc__
-    )
+    if tool_cfg.list_jobs:
+        server.add_tool(
+            hq_list_jobs, name="hq_list_jobs", description=hq_list_jobs.__doc__
+        )
+    if tool_cfg.submit_run:
+        server.add_tool(
+            hq_submit_run, name="hq_submit_run", description=hq_submit_run.__doc__
+        )
+    if tool_cfg.get_run_status:
+        server.add_tool(
+            hq_get_run_status,
+            name="hq_get_run_status",
+            description=hq_get_run_status.__doc__,
+        )
+    if tool_cfg.lease_task:
+        server.add_tool(
+            hq_lease_task, name="hq_lease_task", description=hq_lease_task.__doc__
+        )
+    if tool_cfg.get_cluster_nodes:
+        server.add_tool(
+            hq_get_cluster_nodes,
+            name="hq_get_cluster_nodes",
+            description=hq_get_cluster_nodes.__doc__,
+        )
+    if tool_cfg.stream_logs:
+        server.add_tool(
+            hq_stream_logs, name="hq_stream_logs", description=hq_stream_logs.__doc__
+        )
 
     return server
 
@@ -442,6 +456,7 @@ def create_mcp_server(
 def mount_mcp_server(
     app: Any,
     pipeline: ExecutionPipeline,
+    config: McpConfig | None = None,
     path_prefix: str = "/mcp",
     sse_path: str = "/sse",
     auth_token: str | None = None,
@@ -451,10 +466,12 @@ def mount_mcp_server(
     Notes/Architectural Intent:
         Exposes Hexaqueue CQRS bus tools over Model Context Protocol SSE transport,
         allowing remote AI coding assistants to connect at /mcp/sse.
+        Honors McpConfig parameters and per-tool enablement filters.
 
     Args:
         app: Target FastAPI or Starlette application.
         pipeline: Central ExecutionPipeline instance.
+        config: Optional McpConfig configuring paths, security tokens, and tools.
         path_prefix: Route prefix where MCP is mounted (defaults to '/mcp').
         sse_path: SSE stream endpoint path (defaults to '/sse').
         auth_token: Optional Bearer authentication secret.
@@ -462,13 +479,17 @@ def mount_mcp_server(
     Returns:
         Configured FastMCP server instance.
     """
-    server = create_mcp_server(pipeline)
+    cfg = config or McpConfig()
+    server = create_mcp_server(pipeline, config=cfg)
+    prefix = cfg.path_prefix or path_prefix
+    sse = cfg.sse_path or sse_path
+    token = cfg.auth_token or auth_token
     mount_mcp_sse(
         app=app,
         server=server,
-        path_prefix=path_prefix,
-        sse_path=sse_path,
-        auth_token=auth_token,
+        path_prefix=prefix,
+        sse_path=sse,
+        auth_token=token,
     )
     return server
 
@@ -476,6 +497,7 @@ def mount_mcp_server(
 def run_mcp_stdio(
     pipeline: ExecutionPipeline,
     name: str = "hexaqueue-mcp",
+    config: McpConfig | None = None,
 ) -> None:
     """Execute the MCP stdio communication loop synchronously.
 
@@ -486,14 +508,16 @@ def run_mcp_stdio(
     Args:
         pipeline: Central ExecutionPipeline instance.
         name: Name of the MCP server.
+        config: Optional McpConfig configuring enabled tools and read-only mode.
     """
-    server = create_mcp_server(pipeline, name=name)
+    server = create_mcp_server(pipeline, name=name, config=config)
     run_stdio_server(server)
 
 
 async def run_mcp_stdio_async(
     pipeline: ExecutionPipeline,
     name: str = "hexaqueue-mcp",
+    config: McpConfig | None = None,
 ) -> None:
     """Execute the MCP stdio communication loop asynchronously.
 
@@ -503,6 +527,7 @@ async def run_mcp_stdio_async(
     Args:
         pipeline: Central ExecutionPipeline instance.
         name: Name of the MCP server.
+        config: Optional McpConfig configuring enabled tools and read-only mode.
     """
-    server = create_mcp_server(pipeline, name=name)
+    server = create_mcp_server(pipeline, name=name, config=config)
     await run_stdio_async(server)

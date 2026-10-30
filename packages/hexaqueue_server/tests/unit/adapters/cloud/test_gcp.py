@@ -60,6 +60,9 @@ async def test_gcp_mig_with_client() -> None:
         project="my-proj",
         zone="europe-west1-b",
     )
+    pools = await adapter.list_pools()
+    assert len(pools) == 1
+    assert pools[0].pool_id == "mig-prod"
 
     state = await adapter.get_pool_state("mig-prod")
     p_id = state.pool_id

@@ -20,6 +20,7 @@ from hexaqueue_server.adapters.mcp.server import (
     run_mcp_stdio,
     run_mcp_stdio_async,
 )
+from hexaqueue_server.domain.config import McpConfig, McpToolConfig
 from hexaqueue_server.infra.cqrs import create_hexaqueue_execution_pipeline
 
 
@@ -271,3 +272,36 @@ async def test_run_mcp_stdio_asynchronous(
         await run_mcp_stdio_async(test_pipeline)
         res_called = mock_stdio_async.called
         assert res_called is True
+
+
+@pytest.mark.asyncio
+async def test_create_mcp_server_read_only_tool_filtering(
+    test_pipeline: ExecutionPipeline,
+) -> None:
+    """Verify McpToolConfig.read_only disables mutation tools."""
+    server = create_mcp_server(
+        test_pipeline, config=McpConfig(tools=McpToolConfig.read_only())
+    )
+    tools = await server.list_tools()
+    tool_names = {t.name for t in tools}
+
+    assert "hq_list_jobs" in tool_names
+    assert "hq_get_run_status" in tool_names
+    assert "hq_get_cluster_nodes" in tool_names
+    assert "hq_stream_logs" in tool_names
+    assert "hq_submit_run" not in tool_names
+    assert "hq_lease_task" not in tool_names
+
+
+def test_mount_mcp_server_with_custom_config(
+    test_pipeline: ExecutionPipeline,
+) -> None:
+    """Verify mount_mcp_server respects custom McpConfig path and auth."""
+    app = FastAPI()
+    cfg = McpConfig(path_prefix="/special-ai", sse_path="/stream")
+    server = mount_mcp_server(app, test_pipeline, config=cfg)
+    assert isinstance(server, FastMCP)
+
+    route_paths = [getattr(route, "path", "") for route in app.routes]
+    res_mounted = any(path.startswith("/special-ai") for path in route_paths)
+    assert res_mounted is True

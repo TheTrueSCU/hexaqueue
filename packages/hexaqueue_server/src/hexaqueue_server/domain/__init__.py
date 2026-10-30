@@ -2,6 +2,8 @@
 
 from hexaqueue_server.domain.autoscaler import BudgetAwareInstancePoolAutoscaler
 from hexaqueue_server.domain.config import (
+    McpConfig,
+    McpToolConfig,
     ServerConfig,
     ServerInterfaceConfig,
     ServerRole,
@@ -25,6 +27,8 @@ __all__ = [
     "DagRewindReport",
     "DagRewindRequest",
     "DagRunMemento",
+    "McpConfig",
+    "McpToolConfig",
     "PlacementDecision",
     "PlacementSimulationItem",
     "PlacementSimulationReport",

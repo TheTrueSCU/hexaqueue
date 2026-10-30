@@ -70,6 +70,10 @@ async def test_aws_asg_with_boto_client() -> None:
     }
 
     adapter = AwsAutoScalingGroupAdapter(boto_client=mock_boto)
+    pools = await adapter.list_pools()
+    assert len(pools) == 1
+    assert pools[0].pool_id == "asg-prod"
+
     state = await adapter.get_pool_state("asg-prod")
     p_id = state.pool_id
     assert p_id == "asg-prod"

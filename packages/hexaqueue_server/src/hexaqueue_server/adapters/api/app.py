@@ -66,6 +66,11 @@ def create_server_app(
         Configured FastAPI application instance.
     """
     server_cfg = config or ServerConfig()
+    effective_interfaces = server_cfg.interfaces.apply_feature_flags()
+    effective_mcp = server_cfg.mcp.apply_feature_flags()
+    server_cfg = server_cfg.model_copy(
+        update={"interfaces": effective_interfaces, "mcp": effective_mcp}
+    )
     effective_pipeline = pipeline
     if effective_pipeline is None:
         from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
@@ -93,10 +98,10 @@ def create_server_app(
     api_router = create_server_api_router(server_cfg.interfaces)
     app.include_router(api_router)
     app.include_router(api_router, prefix="/api")
-    if server_cfg.interfaces.mcp:
+    if server_cfg.interfaces.mcp and server_cfg.mcp.enabled:
         from hexaqueue_server.adapters.mcp import mount_mcp_server
 
-        mount_mcp_server(app, effective_pipeline)
+        mount_mcp_server(app, effective_pipeline, config=server_cfg.mcp)
     app.state.server_config = server_cfg
     return app
 
