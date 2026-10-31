@@ -7,6 +7,7 @@ from hexaqueue_server.domain.config import (
     ServerConfig,
     ServerInterfaceConfig,
     ServerRole,
+    ServerSecurityConfig,
 )
 from hexaqueue_server.domain.memento import (
     DagRewindReport,
@@ -38,5 +39,6 @@ __all__ = [
     "ServerConfig",
     "ServerInterfaceConfig",
     "ServerRole",
+    "ServerSecurityConfig",
     "WarmCachePlacementEngine",
 ]

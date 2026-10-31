@@ -418,6 +418,38 @@ class McpConfig(BaseModel):
         return res
 
 
+class ServerSecurityConfig(BaseModel):
+    """Zero-trust security and SPIFFE/audit configuration for Hexaqueue Server.
+
+    Args:
+        spiffe_enabled: Whether to enforce SPIFFE identity authorization on API endpoints.
+        trust_domains: Set of authorized trust domains (e.g. {'hexaqueue.org'}).
+        enforce_mtls: Whether mutual TLS with SPIFFE X.509 SVID is mandatory.
+        allow_anonymous: Whether unauthenticated callers are allowed when spiffe_enabled is False.
+        audit_enabled: Whether boundary access logging is active.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    allow_anonymous: bool = Field(
+        default=True,
+        description="Allow unauthenticated callers when SPIFFE enforcement is inactive",
+    )
+    audit_enabled: bool = Field(
+        default=True, description="Enable structured boundary access logging"
+    )
+    enforce_mtls: bool = Field(
+        default=False, description="Strictly enforce mTLS with client certificates"
+    )
+    spiffe_enabled: bool = Field(
+        default=False, description="Enforce SPIFFE workload identity on incoming routes"
+    )
+    trust_domains: list[str] = Field(
+        default_factory=lambda: ["hexaqueue.org"],
+        description="Authorized SPIFFE trust domains",
+    )
+
+
 class ServerConfig(BaseModel):
     """Server lifecycle and networking configuration model.
 
@@ -428,6 +460,7 @@ class ServerConfig(BaseModel):
         role: Operational node role preset.
         interfaces: Granular interface enablement settings.
         mcp: Model Context Protocol driving adapter configuration.
+        security: Zero-trust security, SPIFFE, and boundary audit configuration.
         workers: Process concurrency worker count.
         reload: Auto-reload on source modification.
     """
@@ -451,6 +484,10 @@ class ServerConfig(BaseModel):
     reload: bool = Field(default=False, description="Enable auto-reload on code change")
     role: ServerRole = Field(
         default=ServerRole.ALL, description="Deployment node role preset"
+    )
+    security: ServerSecurityConfig = Field(
+        default_factory=ServerSecurityConfig,
+        description="Zero-trust security and boundary audit settings",
     )
     workers: int | None = Field(default=None, ge=1, description="Worker process count")
 
@@ -527,4 +564,5 @@ __all__ = [
     "ServerConfig",
     "ServerInterfaceConfig",
     "ServerRole",
+    "ServerSecurityConfig",
 ]

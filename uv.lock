@@ -1113,6 +1113,7 @@ name = "hexaqueue-core"
 version = "0.5.0"
 source = { editable = "packages/hexaqueue_core" }
 dependencies = [
+    { name = "cryptography" },
     { name = "hexastack-core" },
     { name = "hexastack-cqrs" },
     { name = "pydantic" },
@@ -1120,6 +1121,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cryptography", specifier = ">=42.0.0" },
     { name = "hexastack-core", specifier = ">=0.11.0" },
     { name = "hexastack-cqrs", specifier = ">=0.11.0" },
     { name = "pydantic", specifier = ">=2.10.0" },

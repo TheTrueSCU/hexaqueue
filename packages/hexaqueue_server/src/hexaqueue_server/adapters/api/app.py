@@ -103,6 +103,32 @@ def create_server_app(
 
         mount_mcp_server(app, effective_pipeline, config=server_cfg.mcp)
     app.state.server_config = server_cfg
+
+    # Initialize zero-trust security state
+    if not hasattr(app.state, "audit_logger"):
+        from hexaqueue_core.adapters.security.audit import (
+            InMemoryBoundaryAuditLoggerAdapter,
+        )
+
+        app.state.audit_logger = InMemoryBoundaryAuditLoggerAdapter()
+
+    if not hasattr(app.state, "spiffe_authorizer"):
+        from hexaqueue_core.adapters.security.spiffe import (
+            PolicySpiffeAuthorizerAdapter,
+        )
+        from hexaqueue_core.domain.security import SpiffeAuthorizationPolicy
+
+        policy = SpiffeAuthorizationPolicy(
+            allow_anonymous=server_cfg.security.allow_anonymous,
+            allowed_trust_domains=set(server_cfg.security.trust_domains),
+        )
+        app.state.spiffe_authorizer = PolicySpiffeAuthorizerAdapter(policy)
+
+    from hexaqueue_server.adapters.api.middleware import (
+        ZeroTrustBoundaryMiddleware,
+    )
+
+    app.add_middleware(ZeroTrustBoundaryMiddleware)
     return app
 
 

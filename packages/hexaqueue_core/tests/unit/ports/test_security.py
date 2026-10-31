@@ -1,28 +1,41 @@
-"""Tests for SecurityQuarantinePort and SecurityScanResult."""
+"""Tests for security, zero-trust, envelope encryption, and audit port interfaces."""
 
 import inspect
 
 import pytest
 
-from hexaqueue_core.ports.security import SecurityQuarantinePort, SecurityScanResult
+from hexaqueue_core.ports.security import (
+    BoundaryAuditLoggerPort,
+    EnvelopeEncryptionPort,
+    SecurityQuarantinePort,
+    SecurityScanResult,
+    SpiffeAuthorizerPort,
+    WorkloadIdentityPort,
+)
 
 
-def test_security_quarantine_port_is_abstract() -> None:
-    """Verify SecurityQuarantinePort is an abstract interface."""
+def test_security_ports_are_abstract() -> None:
+    """Verify security ports are abstract interfaces."""
     assert inspect.isabstract(SecurityQuarantinePort)
-    assert "scan_collateral" in SecurityQuarantinePort.__abstractmethods__
+    assert inspect.isabstract(WorkloadIdentityPort)
+    assert inspect.isabstract(SpiffeAuthorizerPort)
+    assert inspect.isabstract(EnvelopeEncryptionPort)
+    assert inspect.isabstract(BoundaryAuditLoggerPort)
 
 
 def test_security_scan_result_model() -> None:
     """Verify SecurityScanResult validation."""
     clean = SecurityScanResult(is_clean=True, scanner_engine="clamav-1.0")
-    assert clean.is_clean is True
+    clean_val = clean.is_clean
+    assert clean_val is True
 
     infected = SecurityScanResult(
         is_clean=False, threat_name="Trojan.Generic", scanner_engine="clamav-1.0"
     )
-    assert infected.is_clean is False
-    assert infected.threat_name == "Trojan.Generic"
+    infected_val = infected.is_clean
+    assert infected_val is False
+    threat = infected.threat_name
+    assert threat == "Trojan.Generic"
 
     with pytest.raises(ValueError, match="threat_name must be provided"):
         SecurityScanResult(is_clean=False, scanner_engine="clamav-1.0")

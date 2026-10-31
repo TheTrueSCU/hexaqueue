@@ -9,6 +9,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "cryptography>=42.0.0",
     "hexastack-core>=0.11.0",
     "hexastack-cqrs>=0.11.0",
     "pydantic>=2.10.0",

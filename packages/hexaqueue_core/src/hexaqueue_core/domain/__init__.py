@@ -186,6 +186,13 @@ from hexaqueue_core.domain.scheduling import (
     ResourceSlotPool,
     SchedulingDecision,
 )
+from hexaqueue_core.domain.security import (
+    BoundaryAuditRecord,
+    EncryptedEnvelope,
+    SpiffeAuthorizationPolicy,
+    SpiffeId,
+    SpiffeRole,
+)
 from hexaqueue_core.domain.storage import (
     FilesystemType,
     SharedVolumeMount,
@@ -216,6 +223,7 @@ __all__ = [
     "AZURE_FREE_TIER_PROFILE",
     "BaseHexaqueueConfigError",
     "BatchSchedulerEngine",
+    "BoundaryAuditRecord",
     "BudgetReportResponse",
     "BudgetReservation",
     "can_transition_collateral",
@@ -247,6 +255,7 @@ __all__ = [
     "DeadLetterRecord",
     "DependencyCycleError",
     "DependencySpec",
+    "EncryptedEnvelope",
     "ExecutionMode",
     "ExecutionSegmentRecord",
     "ExplainJobQuery",
@@ -344,6 +353,9 @@ __all__ = [
     "SettleBudgetCommand",
     "SharedVolumeMount",
     "SimulatePlacementQuery",
+    "SpiffeAuthorizationPolicy",
+    "SpiffeId",
+    "SpiffeRole",
     "StorageVolumeError",
     "StreamLogsQuery",
     "SubmitRunCommand",

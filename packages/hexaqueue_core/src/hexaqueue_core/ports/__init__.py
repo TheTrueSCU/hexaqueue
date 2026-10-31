@@ -42,8 +42,12 @@ from hexaqueue_core.ports.scheduling import (
     BatchSchedulerPort,
 )
 from hexaqueue_core.ports.security import (
+    BoundaryAuditLoggerPort,
+    EnvelopeEncryptionPort,
     SecurityQuarantinePort,
     SecurityScanResult,
+    SpiffeAuthorizerPort,
+    WorkloadIdentityPort,
 )
 from hexaqueue_core.ports.storage import (
     PresignedStoragePort,
@@ -57,10 +61,12 @@ from hexaqueue_core.ports.suite import (
 __all__ = [
     "BatchSchedulerPort",
     "BootstrapperPort",
+    "BoundaryAuditLoggerPort",
     "BudgetAccountingPort",
     "ComputeResourcePort",
     "CostRate",
     "CostRateModelPort",
+    "EnvelopeEncryptionPort",
     "ExecutionRuntimePort",
     "FreeTierGovernorPort",
     "GpuDeviceManagerPort",
@@ -75,7 +81,9 @@ __all__ = [
     "SchedulerExplainabilityPort",
     "SecurityQuarantinePort",
     "SecurityScanResult",
+    "SpiffeAuthorizerPort",
     "StorageVolumePort",
     "SuiteCompilerPort",
     "VolumeAllocation",
+    "WorkloadIdentityPort",
 ]

@@ -14,6 +14,7 @@ from hexaqueue_server.adapters.api.app import (
 )
 from hexaqueue_server.adapters.api.auth import get_auth_context
 from hexaqueue_server.adapters.api.budget import create_budget_router
+from hexaqueue_server.adapters.api.middleware import ZeroTrustBoundaryMiddleware
 from hexaqueue_server.adapters.api.webhooks import (
     GitLabWebhookVerifier,
     WebhookReceiptResponse,
@@ -28,4 +29,5 @@ __all__ = [
     "get_auth_context",
     "GitLabWebhookVerifier",
     "WebhookReceiptResponse",
+    "ZeroTrustBoundaryMiddleware",
 ]
