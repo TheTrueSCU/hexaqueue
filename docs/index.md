@@ -77,3 +77,4 @@ uv run hq logs stage1-extract
 
 Hexaqueue features modular operational roles and granular interface toggles, allowing operators to deploy purpose-built nodes with zero configuration drift:
 - [**Server Topologies & Configuration Guide**](guides/server-topologies.md): Full visual architecture diagrams, interface matrices, TOML schemas, and mix-and-match CLI commands for public ingress gateways, private worker coordinators, FinOps analytics engines, and sandboxed AI coding assistant (MCP) nodes.
+- [**GitHub Actions Dynamic Runner Autoscaler Guide**](guides/github-actions-runner.md): High-performance self-hosted runner autoscaler with single-job isolation, JIT token minting, and dynamic hardware claims.

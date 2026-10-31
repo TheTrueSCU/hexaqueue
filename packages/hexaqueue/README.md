@@ -50,3 +50,44 @@ graph TD
     META --> HQ_WORKER
     META --> HQ_WORKFLOW
 ```
+
+---
+
+## 🚀 Installation & Extras
+
+Install the unified distribution:
+
+```bash
+# Core umbrella with default runner bridges
+pip install hexaqueue
+
+# With GitHub Actions dynamic runner autoscaler
+pip install hexaqueue[github]
+
+# With Sentry observability integrations
+pip install hexaqueue[sentry]
+```
+
+---
+
+## 💻 Namespace Usage
+
+The umbrella package discovers and exposes installed subpackages dynamically under the top-level `hexaqueue` namespace:
+
+```python
+import hexaqueue
+
+# Core scheduling primitives and domain models
+from hexaqueue.core.domain.job import JobSpec
+from hexaqueue.core.domain.resources import ResourceRequirements
+
+# GitHub Actions runner autoscaler & webhook adapter
+from hexaqueue.github_runner import (
+    DynamicGitHubRunnerAutoscaler,
+    GitHubWebhookAdapter,
+    LabelTranslator,
+)
+
+# Interactive CLI entrypoint
+from hexaqueue.cli.main import app as cli_app
+```

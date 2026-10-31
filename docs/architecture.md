@@ -49,6 +49,7 @@ graph TB
     end
 
     subgraph DynamicProvisioning ["3. Dynamic Provisioning & Elastic Scale"]
+        GH_RUNNER["hexaqueue-github-runner<br/>(GitHub Actions JIT Autoscaler)"]
         KUEUE["hexaqueue-kueue<br/>(K8s Kueue / Cluster Autoscaler / Karpenter)"]
         CP["Crossplane / Terraform<br/>(Ephemeral GPU node pools, Lustre/FSx volumes)"]
         CSP_DEF["Native Cloud Deference<br/>(AWS Batch / GCP Batch Spot Fleets)"]
@@ -67,9 +68,11 @@ graph TB
     SCHED --> AUTOSCALE
 
     AUTOSCALE -->|Scale out within budget| KUEUE
+    AUTOSCALE -->|Mint JIT ephemeral runners| GH_RUNNER
     AUTOSCALE -->|Claim on-demand infra| CP
     AUTOSCALE -->|Defer spot jobs| CSP_DEF
 
+    GH_RUNNER --> SPOT
     KUEUE --> SPOT
     CSP_DEF --> SPOT
     AUTOSCALE -->|Scale to Zero / Local-only| LOCAL
