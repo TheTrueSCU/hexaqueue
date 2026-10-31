@@ -16,11 +16,15 @@ from hexaqueue_core.domain.exceptions import FreeTierLimitExceededError
 from hexaqueue_core.domain.freetier import (
     AWS_FREE_TIER_PROFILE,
     AZURE_FREE_TIER_PROFILE,
+    DEFAULT_FEDERATED_FREE_TIER_MESH,
     GCP_ALWAYS_FREE_PROFILE,
     LOCAL_FREE_TIER_PROFILE,
     OCI_ALWAYS_FREE_PROFILE,
     CspFreeTierProfile,
+    FederatedBurnReport,
+    FreeTierBurnReport,
     FreeTierGovernor,
+    MultiCspPlacementCandidate,
     get_free_tier_profile,
 )
 from hexaqueue_core.domain.job import JobSpec
@@ -226,3 +230,77 @@ def test_governor_computes_burn_meter() -> None:
     assert full_burn.ram_utilization_pct == 100.0
     assert full_burn.storage_utilization_pct == 100.0
     assert full_burn.is_throttled is True
+
+
+def test_default_federated_free_tier_mesh() -> None:
+    """Verifies that the default federated free-tier mesh aggregates capacities correctly."""
+    mesh = DEFAULT_FEDERATED_FREE_TIER_MESH
+    total_cpus = mesh.total_cpus
+    # OCI: 4, GCP: 2, AWS: 1, Azure: 1, Local: 2 -> 10 vCPUs
+    assert total_cpus == 10
+
+    total_ram = mesh.total_ram_mb
+    # OCI: 24576, GCP: 1024, AWS: 1024, Azure: 1024, Local: 2048 -> 29696 MB
+    assert total_ram == 29696
+
+    total_storage = mesh.total_storage_mb
+    assert total_storage > 200000
+
+    oci_prof = mesh.get_profile(CspProvider.OCI)
+    assert oci_prof.provider == CspProvider.OCI
+
+    missing_prof = mesh.get_profile(CspProvider.ONPREM)
+    assert missing_prof == LOCAL_FREE_TIER_PROFILE
+
+
+def test_multi_csp_placement_candidate() -> None:
+    """Test MultiCspPlacementCandidate domain model."""
+    candidate = MultiCspPlacementCandidate(
+        provider=CspProvider.OCI,
+        profile_name="OCI Always Free",
+        is_eligible=True,
+        reason="Eligible for OCI",
+        available_cpus=4,
+        available_ram_mb=24576,
+    )
+    is_elig = candidate.is_eligible
+    assert is_elig is True
+    prov = candidate.provider
+    assert prov == CspProvider.OCI
+    cpus = candidate.available_cpus
+    assert cpus == 4
+
+
+def test_federated_burn_report() -> None:
+    """Test FederatedBurnReport domain model."""
+    single_burn = FreeTierBurnReport(
+        provider=CspProvider.LOCAL,
+        profile_name="Local Sandbox",
+        active_jobs_count=1,
+        allocated_cpus=1,
+        allocated_ram_mb=1024,
+        allocated_storage_mb=512,
+        cpu_ceiling=2,
+        ram_ceiling_mb=2048,
+        storage_ceiling_mb=5120,
+        cpu_utilization_pct=50.0,
+        ram_utilization_pct=50.0,
+        storage_utilization_pct=10.0,
+        is_throttled=False,
+    )
+    fed_burn = FederatedBurnReport(
+        total_cpus=10,
+        total_ram_mb=29696,
+        total_storage_mb=272384,
+        allocated_cpus=1,
+        allocated_ram_mb=1024,
+        allocated_storage_mb=512,
+        provider_burns={CspProvider.LOCAL: single_burn},
+        is_throttled=False,
+    )
+    tot_c = fed_burn.total_cpus
+    assert tot_c == 10
+    alloc_c = fed_burn.allocated_cpus
+    assert alloc_c == 1
+    throttled = fed_burn.is_throttled
+    assert throttled is False

@@ -15,7 +15,10 @@ from hexaqueue_core.domain.freetier import (
     FreeTierBurnReport,
 )
 from hexaqueue_core.domain.job import JobSpec
-from hexaqueue_core.ports.freetier import FreeTierGovernorPort
+from hexaqueue_core.ports.freetier import (
+    FederatedFreeTierGovernorPort,
+    FreeTierGovernorPort,
+)
 
 
 class DummyFreeTierGovernor(FreeTierGovernorPort):
@@ -81,3 +84,22 @@ def test_dummy_free_tier_governor_satisfies_port() -> None:
     burn = governor.compute_burn_meter([])
     pct = burn.cpu_utilization_pct
     assert pct == 0.0
+
+
+def test_federated_free_tier_governor_port_is_abstract() -> None:
+    """Verifies that FederatedFreeTierGovernorPort is abstract and enforces methods."""
+    import pytest
+
+    is_abs = inspect.isabstract(FederatedFreeTierGovernorPort)
+    assert is_abs is True
+
+    abstract_methods = FederatedFreeTierGovernorPort.__abstractmethods__
+    assert "allocate_job" in abstract_methods
+    assert "release_job" in abstract_methods
+    assert "find_eligible_provider" in abstract_methods
+    assert "check_headroom" in abstract_methods
+    assert "compute_federated_burn_meter" in abstract_methods
+    assert "mesh" in abstract_methods
+
+    with pytest.raises(TypeError):
+        FederatedFreeTierGovernorPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]

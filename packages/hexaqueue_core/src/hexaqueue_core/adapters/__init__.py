@@ -4,6 +4,7 @@ from hexaqueue_core.adapters import (
     bastion,
     budget,
     coordination,
+    freetier,
     logging,
     queue,
     resources,
@@ -17,6 +18,10 @@ from hexaqueue_core.adapters.budget import (
 )
 from hexaqueue_core.adapters.coordination import (
     InMemoryLeaderElectionAdapter,
+)
+from hexaqueue_core.adapters.freetier import (
+    MultiCspFreeTierGovernor,
+    NaiveFreeTierMeshOracle,
 )
 from hexaqueue_core.adapters.logging import (
     InMemoryLogStreamAdapter,
@@ -42,6 +47,7 @@ __all__ = [
     "bastion",
     "budget",
     "coordination",
+    "freetier",
     "InMemoryBudgetAccountingAdapter",
     "InMemoryJobQueueAdapter",
     "InMemoryLeaderElectionAdapter",
@@ -51,6 +57,8 @@ __all__ = [
     "LocalDiskStorageVolumeAdapter",
     "LocalSubprocessExecutionRuntimeAdapter",
     "logging",
+    "MultiCspFreeTierGovernor",
+    "NaiveFreeTierMeshOracle",
     "NoOpSecurityQuarantineAdapter",
     "queue",
     "resources",

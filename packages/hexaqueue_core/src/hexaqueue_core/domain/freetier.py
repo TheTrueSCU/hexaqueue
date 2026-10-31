@@ -345,14 +345,114 @@ class FreeTierGovernor:
         )
 
 
+class MultiCspPlacementCandidate(BaseModel):
+    """Candidate Cloud Service Provider evaluation verdict for free-tier placement.
+
+    Args:
+        provider: Evaluated Cloud Service Provider.
+        profile_name: Name of evaluated CSP profile.
+        is_eligible: Whether the provider can accommodate the candidate job.
+        reason: Explanation of eligibility or rejection.
+        available_cpus: Remaining unallocated CPUs on this provider.
+        available_ram_mb: Remaining unallocated RAM in MB on this provider.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    available_cpus: int = Field(ge=0, description="Available CPU cores")
+    available_ram_mb: int = Field(ge=0, description="Available RAM in MB")
+    is_eligible: bool = Field(description="Eligibility verdict")
+    profile_name: str = Field(description="Profile name")
+    provider: CspProvider = Field(description="Target CSP")
+    reason: str = Field(
+        default="Eligible", description="Placement decision explanation"
+    )
+
+
+class FederatedFreeTierMesh(BaseModel):
+    """Aggregated multi-CSP zero-cost compute mesh.
+
+    Args:
+        profiles: Mapping of CspProvider to active CspFreeTierProfile.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    profiles: dict[CspProvider, CspFreeTierProfile] = Field(
+        description="Active CSP free-tier profile catalog"
+    )
+
+    @property
+    def total_cpus(self) -> int:
+        """Total aggregate vCPUs across all participating CSP free tiers."""
+        return sum(p.max_cpus for p in self.profiles.values())
+
+    @property
+    def total_ram_mb(self) -> int:
+        """Total aggregate RAM in MB across all participating CSP free tiers."""
+        return sum(p.max_ram_mb for p in self.profiles.values())
+
+    @property
+    def total_storage_mb(self) -> int:
+        """Total aggregate persistent storage in MB across all participating CSP free tiers."""
+        return sum(p.max_storage_mb for p in self.profiles.values())
+
+    def get_profile(self, provider: CspProvider) -> CspFreeTierProfile:
+        """Retrieve profile for target provider, defaulting to LOCAL if missing."""
+        return self.profiles.get(provider, LOCAL_FREE_TIER_PROFILE)
+
+
+class FederatedBurnReport(BaseModel):
+    """Aggregated multi-CSP cluster utilization report under Free-Tier Safety Mode.
+
+    Args:
+        total_cpus: Pooled CPU ceiling across all registered providers.
+        total_ram_mb: Pooled RAM ceiling in MB across all registered providers.
+        total_storage_mb: Pooled persistent storage ceiling in MB.
+        allocated_cpus: Total CPUs currently in use across all providers.
+        allocated_ram_mb: Total RAM in MB currently in use across all providers.
+        allocated_storage_mb: Total storage in MB currently in use.
+        provider_burns: Detailed per-CSP burn reports.
+        is_throttled: True if all providers have exhausted headroom.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    allocated_cpus: int = Field(ge=0, description="Total allocated CPUs")
+    allocated_ram_mb: int = Field(ge=0, description="Total allocated RAM in MB")
+    allocated_storage_mb: int = Field(ge=0, description="Total allocated storage in MB")
+    is_throttled: bool = Field(description="Global throttle flag")
+    provider_burns: dict[CspProvider, FreeTierBurnReport] = Field(
+        description="Per-provider burn reports"
+    )
+    total_cpus: int = Field(ge=1, description="Pooled CPU capacity")
+    total_ram_mb: int = Field(ge=128, description="Pooled RAM capacity in MB")
+    total_storage_mb: int = Field(ge=512, description="Pooled storage capacity in MB")
+
+
+DEFAULT_FEDERATED_FREE_TIER_MESH = FederatedFreeTierMesh(
+    profiles={
+        CspProvider.OCI: OCI_ALWAYS_FREE_PROFILE,
+        CspProvider.GCP: GCP_ALWAYS_FREE_PROFILE,
+        CspProvider.AWS: AWS_FREE_TIER_PROFILE,
+        CspProvider.AZURE: AZURE_FREE_TIER_PROFILE,
+        CspProvider.LOCAL: LOCAL_FREE_TIER_PROFILE,
+    }
+)
+
+
 __all__ = [
     "AWS_FREE_TIER_PROFILE",
     "AZURE_FREE_TIER_PROFILE",
     "CspFreeTierProfile",
+    "DEFAULT_FEDERATED_FREE_TIER_MESH",
+    "FederatedBurnReport",
+    "FederatedFreeTierMesh",
     "FreeTierBurnReport",
     "FreeTierGovernor",
     "GCP_ALWAYS_FREE_PROFILE",
     "get_free_tier_profile",
     "LOCAL_FREE_TIER_PROFILE",
+    "MultiCspPlacementCandidate",
     "OCI_ALWAYS_FREE_PROFILE",
 ]

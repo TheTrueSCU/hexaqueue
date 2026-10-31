@@ -18,6 +18,7 @@ from hexaqueue_core.ports.explainability import (
     SchedulerExplainabilityPort,
 )
 from hexaqueue_core.ports.freetier import (
+    FederatedFreeTierGovernorPort,
     FreeTierGovernorPort,
 )
 from hexaqueue_core.ports.gpu import (
@@ -72,6 +73,7 @@ __all__ = [
     "CostRateModelPort",
     "EnvelopeEncryptionPort",
     "ExecutionRuntimePort",
+    "FederatedFreeTierGovernorPort",
     "FreeTierGovernorPort",
     "GpuDeviceManagerPort",
     "InstancePoolGovernorPort",
