@@ -60,6 +60,7 @@ Usage: hq [OPTIONS] COMMAND [ARGS]...
 │             job.                                                             │
 │ fairshare   Inspect hierarchical fair-share tree, historical usage, and      │
 │             decay factors.                                                   │
+│ admin       Administrative operations and zero-trust session governance      │
 │ run         Pipeline run management commands.                                │
 │ workflow    Hexaflow distributed workflow orchestration and cluster          │
 │             scheduling commands.                                             │
@@ -80,6 +81,39 @@ Usage: hq [OPTIONS] COMMAND [ARGS]...
 ---
 
 ## 🛠️ Complete Subcommand Tree Reference
+
+### `hq admin`
+
+```text
+Usage: hq admin [OPTIONS] COMMAND [ARGS]...
+
+ Administrative operations and zero-trust session governance
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ session  Manage and audit zero-trust bastion operator access sessions        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq admin session`
+
+```text
+Usage: hq admin session [OPTIONS] COMMAND [ARGS]...
+
+ Manage and audit zero-trust bastion operator access sessions
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ create     Mint an ephemeral zero-trust bastion session and generate         │
+│            connection command.                                               │
+│ list       Audit and list active unexpired bastion sessions.                 │
+│ terminate  Revoke an active bastion session immediately.                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
 
 ### `hq attach`
 

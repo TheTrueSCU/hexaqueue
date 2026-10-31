@@ -21,6 +21,7 @@ from rich.tree import Tree
 
 from hexaqueue_cli.domain.models import ClusterStatsReport
 from hexaqueue_cli.domain.options import OutputFormat
+from hexaqueue_core.domain.bastion import BastionSession
 from hexaqueue_core.domain.explainability import (
     FairShareNodeReport,
     FairShareTreeReport,
@@ -713,6 +714,72 @@ class CliPresenter:
                 f"{n.memory_used_mb}MB / {n.memory_total_mb}MB ({n.memory_utilization_pct}%)",
                 f"{n.scratch_used_mb}MB / {n.scratch_total_mb}MB ({n.scratch_utilization_pct}%)",
                 gpu_str,
+            )
+        self._console.print(table)
+
+    def render_bastion_sessions_table(
+        self,
+        sessions: list[BastionSession],
+        format_type: str | OutputFormat = OutputFormat.TABLE,
+    ) -> None:
+        """Render active administrative bastion sessions in requested format.
+
+        Args:
+            sessions: List of BastionSession records.
+            format_type: Output format (table, json, markdown, plain).
+        """
+        fmt = (
+            format_type.value
+            if isinstance(format_type, OutputFormat)
+            else str(format_type).lower().strip()
+        )
+        if fmt == OutputFormat.JSON.value:
+            dumped = [s.model_dump(mode="json") for s in sessions]
+            self._console.print(json.dumps(dumped, indent=2))
+            return
+
+        if fmt == OutputFormat.MARKDOWN.value:
+            lines = [
+                "| Session ID | Node ID | Operator | Protocol | Created (UTC) | Expires (UTC) | Active |",
+                "|---|---|---|---|---|---|---|",
+            ]
+            for s in sessions:
+                created_str = s.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                expires_str = s.expires_at.strftime("%Y-%m-%d %H:%M:%S")
+                lines.append(
+                    f"| {s.session_id} | {s.node_id} | {s.operator_id} | {s.protocol.value} | {created_str} | {expires_str} | {s.is_active} |"
+                )
+            self._console.print("\n".join(lines))
+            return
+
+        if fmt == OutputFormat.PLAIN.value:
+            for s in sessions:
+                self._console.print(
+                    f"SESSION={s.session_id} NODE={s.node_id} OPERATOR={s.operator_id} PROTOCOL={s.protocol.value} ACTIVE={s.is_active}"
+                )
+            return
+
+        table = Table(title="Active Bastion Sessions", border_style="cyan")
+        table.add_column("Session ID", style="bold cyan")
+        table.add_column("Node ID", style="green")
+        table.add_column("Operator", style="yellow")
+        table.add_column("Protocol", style="magenta")
+        table.add_column("Created (UTC)", justify="center")
+        table.add_column("Expires (UTC)", justify="center")
+        table.add_column("Active", justify="center")
+
+        for s in sessions:
+            created_str = s.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            expires_str = s.expires_at.strftime("%Y-%m-%d %H:%M:%S")
+            active_str = "[bold green]YES[/]" if s.is_active else "[bold red]NO[/]"
+            table.add_row(
+                s.session_id,
+                s.node_id,
+                s.operator_id,
+                s.protocol.value,
+                created_str,
+                expires_str,
+                active_str,
             )
         self._console.print(table)
 

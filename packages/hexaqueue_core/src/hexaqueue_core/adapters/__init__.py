@@ -1,6 +1,7 @@
 """Hexagonal port adapters for Hexaqueue Core."""
 
 from hexaqueue_core.adapters import (
+    bastion,
     budget,
     coordination,
     logging,
@@ -38,6 +39,7 @@ from hexaqueue_core.adapters.storage import (
 )
 
 __all__ = [
+    "bastion",
     "budget",
     "coordination",
     "InMemoryBudgetAccountingAdapter",

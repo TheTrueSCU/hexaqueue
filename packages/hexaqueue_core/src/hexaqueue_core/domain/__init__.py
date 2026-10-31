@@ -1,5 +1,10 @@
 """Domain entities and value objects for Hexaqueue Core."""
 
+from hexaqueue_core.domain.bastion import (
+    BastionProtocolType,
+    BastionSession,
+    ConnectionCommand,
+)
 from hexaqueue_core.domain.budget import (
     BudgetReservation,
     ClusterHealthReport,
@@ -222,6 +227,8 @@ __all__ = [
     "AWS_FREE_TIER_PROFILE",
     "AZURE_FREE_TIER_PROFILE",
     "BaseHexaqueueConfigError",
+    "BastionProtocolType",
+    "BastionSession",
     "BatchSchedulerEngine",
     "BoundaryAuditRecord",
     "BudgetReportResponse",
@@ -241,6 +248,7 @@ __all__ = [
     "compute_run_outcome",
     "compute_run_state",
     "ComputeNodeProfile",
+    "ConnectionCommand",
     "ConservativeBackfillScheduler",
     "ContainerMount",
     "ContainerRuntimeType",

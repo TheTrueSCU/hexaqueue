@@ -16,6 +16,7 @@ from rich.console import Console
 
 from hexaqueue_cli.adapters.local import LocalClientAdapter
 from hexaqueue_cli.adapters.presenter import CliPresenter
+from hexaqueue_cli.commands.admin import app as admin_app
 from hexaqueue_cli.commands.collateral import app as collateral_app
 from hexaqueue_cli.commands.mcp import app as mcp_app
 from hexaqueue_cli.commands.node import app as node_app
@@ -33,6 +34,7 @@ app = typer.Typer(
     help="Hexaqueue - Cloud-Agnostic HPC Batch Scheduler and Distributed Job Orchestrator",
     no_args_is_help=True,
 )
+app.add_typer(admin_app, name="admin")
 app.add_typer(run_app, name="run")
 app.add_typer(workflow_app, name="workflow")
 app.add_typer(suite_app, name="suite")

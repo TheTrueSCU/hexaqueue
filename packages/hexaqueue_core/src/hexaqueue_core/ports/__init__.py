@@ -1,5 +1,8 @@
 """Hexagonal port interfaces for Hexaqueue Core."""
 
+from hexaqueue_core.ports.bastion import (
+    BastionAccessPort,
+)
 from hexaqueue_core.ports.bootstrap import (
     BootstrapperPort,
 )
@@ -59,6 +62,7 @@ from hexaqueue_core.ports.suite import (
 )
 
 __all__ = [
+    "BastionAccessPort",
     "BatchSchedulerPort",
     "BootstrapperPort",
     "BoundaryAuditLoggerPort",
