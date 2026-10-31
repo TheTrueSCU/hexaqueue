@@ -74,6 +74,13 @@ from hexaqueue_core.domain.cqrs import (
     SubmitRunCommand,
     SubmitSuiteCommand,
 )
+from hexaqueue_core.domain.credentials import (
+    AwsCredentialsConfig,
+    AzureCredentialsConfig,
+    FederatedCspCredentialsConfig,
+    GcpCredentialsConfig,
+    OciCredentialsConfig,
+)
 from hexaqueue_core.domain.dag import (
     DependencyCycleError,
     DependencySpec,
@@ -229,7 +236,9 @@ from hexaqueue_core.domain.vm import (
 __all__ = [
     "AutoscalerDecision",
     "AWS_FREE_TIER_PROFILE",
+    "AwsCredentialsConfig",
     "AZURE_FREE_TIER_PROFILE",
+    "AzureCredentialsConfig",
     "BaseHexaqueueConfigError",
     "BastionProtocolType",
     "BastionSession",
@@ -277,6 +286,7 @@ __all__ = [
     "FairShareTree",
     "FairShareTreeReport",
     "FederatedBurnReport",
+    "FederatedCspCredentialsConfig",
     "FederatedFreeTierMesh",
     "FilesystemType",
     "FreeTierBurnReport",
@@ -284,6 +294,7 @@ __all__ = [
     "FreeTierLimitExceededError",
     "FreeTierProfileConfig",
     "GCP_ALWAYS_FREE_PROFILE",
+    "GcpCredentialsConfig",
     "get_free_tier_profile",
     "GetBudgetReportQuery",
     "GetClusterMetricsQuery",
@@ -337,6 +348,7 @@ __all__ = [
     "NotificationTrigger",
     "NotifyLogUploadCompleteCommand",
     "OCI_ALWAYS_FREE_PROFILE",
+    "OciCredentialsConfig",
     "PendingReason",
     "PendingReasonCode",
     "PermissionDeniedError",
