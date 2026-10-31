@@ -25,6 +25,11 @@ dependencies = [
     "pyarrow>=14.0.0",
 ]
 
+[project.optional-dependencies]
+github = [
+    "hexaqueue-github-runner",
+]
+
 [build-system]
 requires = ["uv_build>=0.12.3,<0.14.0"]
 build-backend = "uv_build"
@@ -32,4 +37,5 @@ build-backend = "uv_build"
 [tool.uv.sources]
 hexaqueue-collateral = { workspace = true }
 hexaqueue-core = { workspace = true }
+hexaqueue-github-runner = { workspace = true }
 hexaqueue-monitor = { workspace = true }

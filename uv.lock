@@ -1032,6 +1032,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+github = [
+    { name = "hexaqueue-server", extra = ["github"] },
+]
 sentry = [
     { name = "hexaqueue-worker", extra = ["sentry"] },
 ]
@@ -1048,11 +1051,12 @@ requires-dist = [
     { name = "hexaqueue-monitor", editable = "packages/hexaqueue_monitor" },
     { name = "hexaqueue-scanner", editable = "packages/hexaqueue_scanner" },
     { name = "hexaqueue-server", editable = "packages/hexaqueue_server" },
+    { name = "hexaqueue-server", extras = ["github"], marker = "extra == 'github'", editable = "packages/hexaqueue_server" },
     { name = "hexaqueue-worker", editable = "packages/hexaqueue_worker" },
     { name = "hexaqueue-worker", extras = ["sentry"], marker = "extra == 'sentry'", editable = "packages/hexaqueue_worker" },
     { name = "hexaqueue-workflow", editable = "packages/hexaqueue_workflow" },
 ]
-provides-extras = ["sentry"]
+provides-extras = ["github", "sentry"]
 
 [[package]]
 name = "hexaqueue-cli"
@@ -1159,11 +1163,21 @@ name = "hexaqueue-github-runner"
 version = "0.5.0"
 source = { editable = "packages/hexaqueue_github_runner" }
 dependencies = [
+    { name = "cryptography" },
+    { name = "fastapi" },
     { name = "hexaqueue-core" },
+    { name = "httpx" },
+    { name = "pydantic" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "hexaqueue-core", editable = "packages/hexaqueue_core" }]
+requires-dist = [
+    { name = "cryptography", specifier = ">=42.0.0" },
+    { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "hexaqueue-core", editable = "packages/hexaqueue_core" },
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+]
 
 [[package]]
 name = "hexaqueue-gitlab-runner"
@@ -1248,10 +1262,16 @@ dependencies = [
     { name = "pyarrow" },
 ]
 
+[package.optional-dependencies]
+github = [
+    { name = "hexaqueue-github-runner" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "hexaqueue-collateral", editable = "packages/hexaqueue_collateral" },
     { name = "hexaqueue-core", editable = "packages/hexaqueue_core" },
+    { name = "hexaqueue-github-runner", marker = "extra == 'github'", editable = "packages/hexaqueue_github_runner" },
     { name = "hexaqueue-monitor", editable = "packages/hexaqueue_monitor" },
     { name = "hexastack-auth", specifier = ">=0.11.0" },
     { name = "hexastack-core", specifier = ">=0.11.0" },
@@ -1265,6 +1285,7 @@ requires-dist = [
     { name = "polars", specifier = ">=1.0.0" },
     { name = "pyarrow", specifier = ">=14.0.0" },
 ]
+provides-extras = ["github"]
 
 [[package]]
 name = "hexaqueue-worker"

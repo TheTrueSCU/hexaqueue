@@ -9,7 +9,11 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "cryptography>=42.0.0",
+    "fastapi>=0.115.0",
     "hexaqueue-core",
+    "httpx>=0.27.0",
+    "pydantic>=2.10.0",
 ]
 
 [build-system]
