@@ -9,7 +9,6 @@ Notes/Architectural Intent:
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from fastapi import Request, Response
@@ -17,13 +16,11 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 from hexaqueue_core.domain.security import BoundaryAuditRecord
-
-if TYPE_CHECKING:
-    from hexaqueue_core.ports.security import (
-        BoundaryAuditLoggerPort,
-        SpiffeAuthorizerPort,
-        WorkloadIdentityPort,
-    )
+from hexaqueue_core.ports.security import (
+    BoundaryAuditLoggerPort,
+    SpiffeAuthorizerPort,
+    WorkloadIdentityPort,
+)
 
 
 class ZeroTrustBoundaryMiddleware(BaseHTTPMiddleware):

@@ -10,14 +10,22 @@ from hexastack_core.infra.container import create_container
 from hexastack_cqrs.infra.pipeline import ExecutionPipeline
 from hexastack_fastapi.infra import create_fastapi_app
 
+from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
+from hexaqueue_core.adapters.security.audit import InMemoryBoundaryAuditLoggerAdapter
+from hexaqueue_core.adapters.security.spiffe import PolicySpiffeAuthorizerAdapter
+from hexaqueue_core.domain.security import SpiffeAuthorizationPolicy
+from hexaqueue_monitor.adapters.ledger import InMemoryBudgetLedgerAdapter
+from hexaqueue_monitor.adapters.local import LocalClusterMonitorAdapter
 from hexaqueue_server.adapters.api.budget import create_budget_router
 from hexaqueue_server.adapters.api.cluster import create_cluster_router
 from hexaqueue_server.adapters.api.jobs import create_jobs_router
 from hexaqueue_server.adapters.api.logs import create_logs_router
+from hexaqueue_server.adapters.api.middleware import ZeroTrustBoundaryMiddleware
 from hexaqueue_server.adapters.api.nodes import create_nodes_router
 from hexaqueue_server.adapters.api.runs import create_runs_router
 from hexaqueue_server.adapters.api.webhooks import create_webhooks_router
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
+from hexaqueue_server.adapters.mcp import mount_mcp_server
 from hexaqueue_server.domain.config import ServerConfig, ServerInterfaceConfig
 from hexaqueue_server.infra.cqrs import create_hexaqueue_execution_pipeline
 
@@ -59,8 +67,8 @@ def create_server_app(
     """Create a fully assembled FastAPI application for Hexaqueue Server.
 
     Args:
-        pipeline: Optional pre-configured ExecutionPipeline.
-        config: Optional ServerConfig with interface and networking settings.
+        pipeline: Optional preconfigured CQRS ExecutionPipeline instance.
+        config: Optional ServerConfig instance specifying feature flags and interfaces.
 
     Returns:
         Configured FastAPI application instance.
@@ -73,10 +81,6 @@ def create_server_app(
     )
     effective_pipeline = pipeline
     if effective_pipeline is None:
-        from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
-        from hexaqueue_monitor.adapters.ledger import InMemoryBudgetLedgerAdapter
-        from hexaqueue_monitor.adapters.local import LocalClusterMonitorAdapter
-
         queue = InMemoryJobQueueAdapter()
         budget_port = InMemoryBudgetLedgerAdapter()
         cluster_monitor = LocalClusterMonitorAdapter()
@@ -99,34 +103,19 @@ def create_server_app(
     app.include_router(api_router)
     app.include_router(api_router, prefix="/api")
     if server_cfg.interfaces.mcp and server_cfg.mcp.enabled:
-        from hexaqueue_server.adapters.mcp import mount_mcp_server
-
         mount_mcp_server(app, effective_pipeline, config=server_cfg.mcp)
     app.state.server_config = server_cfg
 
     # Initialize zero-trust security state
     if not hasattr(app.state, "audit_logger"):
-        from hexaqueue_core.adapters.security.audit import (
-            InMemoryBoundaryAuditLoggerAdapter,
-        )
-
         app.state.audit_logger = InMemoryBoundaryAuditLoggerAdapter()
 
     if not hasattr(app.state, "spiffe_authorizer"):
-        from hexaqueue_core.adapters.security.spiffe import (
-            PolicySpiffeAuthorizerAdapter,
-        )
-        from hexaqueue_core.domain.security import SpiffeAuthorizationPolicy
-
         policy = SpiffeAuthorizationPolicy(
             allow_anonymous=server_cfg.security.allow_anonymous,
             allowed_trust_domains=set(server_cfg.security.trust_domains),
         )
         app.state.spiffe_authorizer = PolicySpiffeAuthorizerAdapter(policy)
-
-    from hexaqueue_server.adapters.api.middleware import (
-        ZeroTrustBoundaryMiddleware,
-    )
 
     app.add_middleware(ZeroTrustBoundaryMiddleware)
     return app

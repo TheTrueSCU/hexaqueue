@@ -7,6 +7,7 @@ Notes/Architectural Intent:
 """
 
 import asyncio
+import contextlib
 import json
 import os
 import shutil
@@ -182,8 +183,6 @@ class OpenTofuProvisionerAdapter(InfrastructureProvisionerPort):
 
 def contextlib_suppress():
     """Helper context manager suppressing parsing errors."""
-    import contextlib
-
     return contextlib.suppress(Exception)
 
 

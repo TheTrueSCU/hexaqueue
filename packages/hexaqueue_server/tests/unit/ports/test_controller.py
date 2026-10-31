@@ -2,6 +2,7 @@
 
 import inspect
 from collections.abc import Sequence
+from datetime import UTC, datetime
 
 import pytest
 
@@ -37,8 +38,6 @@ async def test_scheduler_controller_port_concrete_implementation() -> None:
 
     class DummyController(SchedulerControllerPort):
         async def submit_run(self, submission: RunSubmission) -> RunStatusReport:
-            from datetime import UTC, datetime
-
             return RunStatusReport(
                 completed_jobs=0,
                 created_at=datetime.now(UTC),
@@ -51,8 +50,6 @@ async def test_scheduler_controller_port_concrete_implementation() -> None:
             )
 
         async def get_run_status(self, run_id: str) -> RunStatusReport:
-            from datetime import UTC, datetime
-
             return RunStatusReport(
                 completed_jobs=0,
                 created_at=datetime.now(UTC),
@@ -78,8 +75,6 @@ async def test_scheduler_controller_port_concrete_implementation() -> None:
             pass
 
         async def cancel_run(self, run_id: str) -> RunStatusReport:
-            from datetime import UTC, datetime
-
             return RunStatusReport(
                 completed_jobs=0,
                 created_at=datetime.now(UTC),

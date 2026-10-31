@@ -10,7 +10,6 @@ import asyncio
 import contextlib
 import gzip
 import hashlib
-import importlib
 import shutil
 import tempfile
 import urllib.request
@@ -36,6 +35,7 @@ from hexaqueue_core.ports.storage import (
     StorageVolumePort,
     VolumeAllocation,
 )
+from hexaqueue_core.utils.imports import optional_dependency
 from hexaqueue_worker.domain.models import WorkerConfig, WorkerMetrics
 from hexaqueue_worker.ports.worker import WorkerDaemonPort
 
@@ -60,9 +60,9 @@ def _capture_sentry_worker_exception(
         Integrates optional Sentry error monitoring without adding a hard dependency
         on sentry-sdk. Dynamically loads sentry_sdk at runtime and safely tags execution metadata.
     """
-    with contextlib.suppress(Exception):
-        sentry_sdk = importlib.import_module("sentry_sdk")
-        with sentry_sdk.push_scope() as scope:
+    sentry_sdk = optional_dependency("sentry_sdk")
+    if sentry_sdk is not None:
+        with contextlib.suppress(Exception), sentry_sdk.push_scope() as scope:
             scope.set_tag("worker_id", worker_id)
             scope.set_tag("job_id", job_id)
             scope.set_tag("queue", queue)
