@@ -43,6 +43,46 @@ class CompositeScanReport(BaseModel):
     )
 
 
+class ScannerMetrics(BaseModel):
+    """Real-time operational metrics for the scanner daemon.
+
+    Args:
+        total_scans: Total number of bundles processed.
+        approved_scans: Number of bundles verified clean and promoted to active storage.
+        quarantined_scans: Number of bundles quarantined due to detected threats.
+        rejected_scans: Number of bundles rejected due to errors or invalid formats.
+        error_scans: Number of scans that failed with execution errors.
+        total_duration_seconds: Cumulative duration in seconds across all scans.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    approved_scans: int = Field(
+        default=0, ge=0, description="Total clean approved scans"
+    )
+    error_scans: int = Field(default=0, ge=0, description="Total scan execution errors")
+    quarantined_scans: int = Field(
+        default=0, ge=0, description="Total quarantined threat detections"
+    )
+    rejected_scans: int = Field(
+        default=0, ge=0, description="Total rejected/corrupt artifact scans"
+    )
+    total_duration_seconds: float = Field(
+        default=0.0, ge=0.0, description="Cumulative scan wall-clock time in seconds"
+    )
+    total_scans: int = Field(
+        default=0, ge=0, description="Total collateral bundles processed"
+    )
+
+    @property
+    def average_duration_seconds(self) -> float:
+        """Calculate average scan duration across all processed bundles."""
+        if self.total_scans == 0:
+            return 0.0
+        return self.total_duration_seconds / self.total_scans
+
+
 __all__ = [
     "CompositeScanReport",
+    "ScannerMetrics",
 ]

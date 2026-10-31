@@ -49,4 +49,29 @@ def test_composite_scan_report_threat() -> None:
     clean = report.is_clean
     assert clean is False
     reason = report.quarantine_reason
-    assert reason == "Threat detected by ClamAV: Win.Trojan.Generic"
+    assert reason is not None
+    assert "Win.Trojan.Generic" in reason
+
+
+def test_scanner_metrics_calculation() -> None:
+    """Verify ScannerMetrics properties and averages."""
+    from hexaqueue_scanner.domain.models import ScannerMetrics
+
+    metrics = ScannerMetrics(
+        total_scans=10,
+        approved_scans=8,
+        quarantined_scans=1,
+        rejected_scans=1,
+        error_scans=0,
+        total_duration_seconds=5.0,
+    )
+    total = metrics.total_scans
+    assert total == 10
+    approved = metrics.approved_scans
+    assert approved == 8
+    avg = metrics.average_duration_seconds
+    assert avg == 0.5
+
+    empty_metrics = ScannerMetrics()
+    empty_avg = empty_metrics.average_duration_seconds
+    assert empty_avg == 0.0

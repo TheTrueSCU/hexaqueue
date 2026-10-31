@@ -20,6 +20,7 @@ from hexaqueue_cli.commands.collateral import app as collateral_app
 from hexaqueue_cli.commands.mcp import app as mcp_app
 from hexaqueue_cli.commands.node import app as node_app
 from hexaqueue_cli.commands.run import app as run_app
+from hexaqueue_cli.commands.scanner import app as scanner_app
 from hexaqueue_cli.commands.server import app as server_app
 from hexaqueue_cli.commands.suite import app as suite_app
 from hexaqueue_cli.commands.workflow import app as workflow_app
@@ -39,6 +40,8 @@ app.add_typer(collateral_app, name="collateral")
 app.add_typer(node_app, name="node")
 app.add_typer(server_app, name="server")
 app.add_typer(mcp_app, name="mcp")
+app.add_typer(scanner_app, name="scanner")
+app.add_typer(scanner_app, name="scan")
 
 console = Console()
 

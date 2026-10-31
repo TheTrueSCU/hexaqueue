@@ -70,6 +70,10 @@ Usage: hq [OPTIONS] COMMAND [ARGS]...
 │             sessions                                                         │
 │ server      Manage Hexaqueue central scheduler and HTTP/ASGI API server      │
 │ mcp         Manage and run Hexaqueue Model Context Protocol (MCP) server     │
+│ scanner     Malware inspection, antivirus verification, and quarantine       │
+│             daemon                                                           │
+│ scan        Malware inspection, antivirus verification, and quarantine       │
+│             daemon                                                           │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -601,6 +605,190 @@ Usage: hq run submit [OPTIONS] {spec_path}
 │                             markdown, rich, plain, auto).                    │
 │                             [default: table]                                 │
 │ --help                      Show this message and exit.                      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq scan`
+
+```text
+Usage: hq scan [OPTIONS] COMMAND [ARGS]...
+
+ Malware inspection, antivirus verification, and quarantine daemon
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ file    Inspect a local file for virus signatures and YARA heuristic         │
+│         matches.                                                             │
+│ daemon  Run the background security scanner worker daemon.                   │
+│ ping    Check connectivity and responsiveness of security inspection         │
+│         engines.                                                             │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq scan daemon`
+
+```text
+Usage: hq scan daemon [OPTIONS]
+
+ Run the background security scanner worker daemon.
+
+ Args:
+     poll_interval: Loop sleep interval in seconds.
+     quarantine_on_threat: Flag to quarantine or reject threats.
+
+ Notes/Architectural Intent:
+     Continuously polls for staged collateral bundles, verifies them against
+     configured antivirus engines, and promotes or quarantines them.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --poll-interval  -i              <float>  Polling interval in seconds for    │
+│                                           scan task queue                    │
+│                                           [default: 1.0]                     │
+│ --quarantine         --reject             Whether to isolate threats in      │
+│                                           quarantine vault or reject         │
+│                                           outright                           │
+│                                           [default: quarantine]              │
+│ --help                                    Show this message and exit.        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq scan file`
+
+```text
+Usage: hq scan file [OPTIONS] {file_path}
+
+ Inspect a local file for virus signatures and YARA heuristic matches.
+
+ Args:
+     file_path: Path to target file on disk.
+     clamav_socket: ClamAV socket path.
+     yara_rule: Optional list of YARA rule paths.
+
+ Notes/Architectural Intent:
+     Executes immediate multi-engine scan on local target file without
+ requiring
+     a running server or collateral registration.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    file_path      <path>  Path to local file or artifact to scan           │
+│                             [required]                                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --clamav-socket          <str>  Path to ClamAV UNIX domain socket            │
+│                                 [default: /var/run/clamav/clamd.ctl]         │
+│ --rule           -r      <str>  Path to YARA rule file (.yar)                │
+│ --help                          Show this message and exit.                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq scan ping`
+
+```text
+Usage: hq scan ping [OPTIONS]
+
+ Check connectivity and responsiveness of security inspection engines.
+
+ Args:
+ clamav_socket: UNIX domain socket path for clamd.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --clamav-socket        <str>  Path to ClamAV UNIX domain socket              │
+│                               [default: /var/run/clamav/clamd.ctl]           │
+│ --help                        Show this message and exit.                    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq scanner`
+
+```text
+Usage: hq scanner [OPTIONS] COMMAND [ARGS]...
+
+ Malware inspection, antivirus verification, and quarantine daemon
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ file    Inspect a local file for virus signatures and YARA heuristic         │
+│         matches.                                                             │
+│ daemon  Run the background security scanner worker daemon.                   │
+│ ping    Check connectivity and responsiveness of security inspection         │
+│         engines.                                                             │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq scanner daemon`
+
+```text
+Usage: hq scanner daemon [OPTIONS]
+
+ Run the background security scanner worker daemon.
+
+ Args:
+     poll_interval: Loop sleep interval in seconds.
+     quarantine_on_threat: Flag to quarantine or reject threats.
+
+ Notes/Architectural Intent:
+     Continuously polls for staged collateral bundles, verifies them against
+     configured antivirus engines, and promotes or quarantines them.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --poll-interval  -i              <float>  Polling interval in seconds for    │
+│                                           scan task queue                    │
+│                                           [default: 1.0]                     │
+│ --quarantine         --reject             Whether to isolate threats in      │
+│                                           quarantine vault or reject         │
+│                                           outright                           │
+│                                           [default: quarantine]              │
+│ --help                                    Show this message and exit.        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq scanner file`
+
+```text
+Usage: hq scanner file [OPTIONS] {file_path}
+
+ Inspect a local file for virus signatures and YARA heuristic matches.
+
+ Args:
+     file_path: Path to target file on disk.
+     clamav_socket: ClamAV socket path.
+     yara_rule: Optional list of YARA rule paths.
+
+ Notes/Architectural Intent:
+     Executes immediate multi-engine scan on local target file without
+ requiring
+     a running server or collateral registration.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    file_path      <path>  Path to local file or artifact to scan           │
+│                             [required]                                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --clamav-socket          <str>  Path to ClamAV UNIX domain socket            │
+│                                 [default: /var/run/clamav/clamd.ctl]         │
+│ --rule           -r      <str>  Path to YARA rule file (.yar)                │
+│ --help                          Show this message and exit.                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq scanner ping`
+
+```text
+Usage: hq scanner ping [OPTIONS]
+
+ Check connectivity and responsiveness of security inspection engines.
+
+ Args:
+ clamav_socket: UNIX domain socket path for clamd.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --clamav-socket        <str>  Path to ClamAV UNIX domain socket              │
+│                               [default: /var/run/clamav/clamd.ctl]           │
+│ --help                        Show this message and exit.                    │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
