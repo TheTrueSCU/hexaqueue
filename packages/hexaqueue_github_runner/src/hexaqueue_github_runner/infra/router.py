@@ -11,6 +11,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from hexaqueue_core.domain.exceptions import FreeTierLimitExceededError
 from hexaqueue_github_runner.adapters.webhook_adapter import (
     GitHubWebhookAdapter,
 )
@@ -61,6 +62,11 @@ def create_github_webhook_router(
         except PermissionError as exc:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=str(exc),
+            ) from exc
+        except FreeTierLimitExceededError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail=str(exc),
             ) from exc
         except ValueError as exc:

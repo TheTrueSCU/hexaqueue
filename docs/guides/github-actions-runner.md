@@ -130,10 +130,80 @@ Upon workflow completion, Hexaqueue posts an execution summary to the GitHub Che
 | **Hexaqueue Run ID** | `run-gh-my-repo-4412` |
 | **Status** | `COMPLETED` |
 | **Duration** | `42.50s` |
-| **Credits Consumed** | `0.0295 HQ` |
+| **Credits Consumed** | `0.0000 HQ` |
+| **Infrastructure Cost** | `$0.00 (Verified $0.00 Free Tier)` |
 
 **Resource Allocation Details:**
-- **Cluster Node**: `node-gpu-h100-03`
-- **GPU Model**: `h100`
+- **Cloud Provider**: `OCI`
+- **Cluster Node**: `hq-gh-oci-my-repo-99881-a1b2`
 - **Single-Job Isolation**: Verified (Scratch wiped upon exit)
 ```
+
+---
+
+## 🌐 Multi-CSP Free-Tier Mesh Autoscaling ($0.00 Spend Invariant)
+
+To burst GitHub Actions runner matrices beyond the default 2 vCPU limit without incurring any cloud expenditure, configure `DynamicGitHubRunnerAutoscaler` with the federated `MultiCspFreeTierGovernor`:
+
+```python
+from hexaqueue_core.adapters.freetier.governor import MultiCspFreeTierGovernor
+from hexaqueue_github_runner import (
+    DynamicGitHubRunnerAutoscaler,
+    GitHubApiClient,
+    GitHubAppCredentials,
+    GitHubWebhookAdapter,
+    HmacSha256WebhookVerifier,
+)
+
+credentials = GitHubAppCredentials(...)
+api_client = GitHubApiClient(credentials=credentials)
+governor = MultiCspFreeTierGovernor()
+
+# Configure autoscaler with zero-cost multi-cloud bursting
+autoscaler = DynamicGitHubRunnerAutoscaler(
+    api_client=api_client,
+    free_tier_governor=governor,
+)
+```
+
+### Free-Tier Capacity Pooling Across Clouds
+
+The federated mesh pools perpetual Always-Free tiers across OCI, GCP, AWS, Azure, and Local workstation workers into an aggregate compute cluster:
+
+| Provider | Free-Tier Allocation | Sizing & Architecture | Target CI Label |
+|---|---|---|---|
+| **Oracle Cloud (OCI)** | 4 vCPUs / 24 GB RAM / 200 GB Storage | Ampere A1 ARM64 | `runs-on: [self-hosted, arm64, 4-cores]` |
+| **Google Cloud (GCP)** | 2 vCPUs / 1 GB RAM / 30 GB Storage | e2-micro x86_64 | `runs-on: [self-hosted, gcp, 2-cores]` |
+| **Amazon Web Services (AWS)** | 1 vCPU / 1 GB RAM / 30 GB Storage | t2/t3.micro x86_64 | `runs-on: [self-hosted, aws, 1-core]` |
+| **Microsoft Azure** | 1 vCPU / 1 GB RAM / 32 GB Storage | B1s x86_64 | `runs-on: [self-hosted, azure, 1-core]` |
+| **Local Workstation** | Host Cores / 2 GB RAM / 50 GB Storage | Local Bare-Metal Sandbox | `runs-on: [self-hosted, local, 2-cores]` |
+
+### Matrix Fan-Out Example
+
+```yaml
+name: Cross-Platform Matrix Test
+on: [push]
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        include:
+          - target: arm64
+            labels: [self-hosted, arm64, 4-cores, 8gb-ram] # Dispatched to OCI
+          - target: linux-gcp
+            labels: [self-hosted, gcp, 2-cores]            # Dispatched to GCP
+          - target: linux-aws
+            labels: [self-hosted, aws, 1-core]             # Dispatched to AWS
+          - target: linux-azure
+            labels: [self-hosted, azure, 1-core]           # Dispatched to Azure
+          - target: local-worker
+            labels: [self-hosted, local, 2-cores]          # Dispatched to Local
+    runs-on: ${{ matrix.labels }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Test Suite
+        run: pytest -v
+```
+
+All 5 matrix jobs run simultaneously across the free cloud tiers (10 total vCPUs pooled) at verified $0.00 cost, with single-use JIT tokens and immediate quota recycling upon job exit.

@@ -74,7 +74,37 @@ app.include_router(create_github_webhook_router(adapter))
 Hexaqueue translates GitHub Actions `runs-on` labels dynamically:
 - `runs-on: [self-hosted, linux, 16-cores, 64gb, gpu-h100, 100gb-scratch, 2h-walltime]`
 - CPU: `16-cores`, `cpu-8`, `4-cpu`
-- RAM: `64gb`, `ram-32gb`
+- RAM: `64gb`, `ram-32gb`, `512mb-ram`
 - GPU: `gpu-h100`, `a100`, `l4`, `t4`, `v100`, `4-gpu-a100`
 - Scratch: `100gb-scratch`, `scratch-50gb`
 - Walltime: `2h-walltime`, `90m-walltime`
+- Cloud Routing & Free-Tier: `oci`, `gcp`, `aws`, `azure`, `local`, `arm64`, `paid`
+
+---
+
+### 3. Multi-CSP Free-Tier Mesh Autoscaling ($0.00 Spend Invariant)
+
+To burst GitHub Actions runner matrices beyond the standard 2 vCPU limit at zero cloud cost, configure the autoscaler with `MultiCspFreeTierGovernor`:
+
+```python
+from hexaqueue_core.adapters.freetier.governor import MultiCspFreeTierGovernor
+from hexaqueue_github_runner import DynamicGitHubRunnerAutoscaler
+
+governor = MultiCspFreeTierGovernor()
+autoscaler = DynamicGitHubRunnerAutoscaler(
+    api_client=api_client,
+    free_tier_governor=governor,
+)
+```
+
+The mesh pools Always-Free compute across all participating providers:
+- **OCI Always-Free**: 4 Ampere A1 ARM vCPUs / 24 GB RAM (`runs-on: [self-hosted, arm64, 4-cores]`)
+- **GCP Always-Free**: 2 x86 vCPUs / 1 GB RAM (`runs-on: [self-hosted, gcp, 2-cores]`)
+- **AWS Free Tier**: 1 x86 vCPU / 1 GB RAM (`runs-on: [self-hosted, aws, 1-core]`)
+- **Azure Free Tier**: 1 x86 vCPU / 1 GB RAM (`runs-on: [self-hosted, azure, 1-core]`)
+- **Local Workstation**: 2 vCPUs / 2 GB RAM (`runs-on: [self-hosted, local, 2-cores]`)
+
+**Key Invariants:**
+1. **10 Total Pooled Free vCPUs**: Matrix jobs dynamically fan out across OCI, GCP, AWS, Azure, and Local nodes concurrently at $0.00 spend.
+2. **Instant Quota Recycling**: When an ephemeral runner exits, single-job scratch storage is wiped and provider quota is freed immediately.
+3. **Step Summary Verification**: Automatically attaches Check Run summaries documenting the assigned CSP provider, resource footprint, and verified $0.00 cost claim.

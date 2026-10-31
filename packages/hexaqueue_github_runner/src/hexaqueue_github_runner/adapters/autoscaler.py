@@ -3,15 +3,18 @@
 Notes/Architectural Intent:
     Orchestrates the complete runner autoscaling lifecycle: receives webhook
     events, invokes JIT config APIs, maps labels to resource claims, and posts
-    credit consumption telemetry back to GitHub.
+    credit consumption telemetry back to GitHub. Integrates with the Federated
+    Free-Tier Mesh Governor to burst zero-cost runners across cloud providers.
 """
 
 import secrets
 from datetime import UTC, datetime
 from typing import Any
 
+from hexaqueue_core.domain.config import CspProvider
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.resources import ResourceRequirements
+from hexaqueue_core.ports.freetier import FederatedFreeTierGovernorPort
 from hexaqueue_github_runner.domain.events import (
     GitHubWorkflowJobAction,
     GitHubWorkflowJobPayload,
@@ -37,6 +40,7 @@ class DynamicGitHubRunnerAutoscaler(GitHubRunnerAutoscalerPort):
         label_translator: Optional custom LabelTranslator.
         credit_rate_per_cpu_hour: Credit consumption rate per CPU-hour.
         credit_rate_per_gpu_hour: Credit consumption rate per GPU-hour.
+        free_tier_governor: Optional FederatedFreeTierGovernorPort for zero-cost multi-cloud bursting.
     """
 
     def __init__(
@@ -45,15 +49,27 @@ class DynamicGitHubRunnerAutoscaler(GitHubRunnerAutoscalerPort):
         label_translator: LabelTranslator | None = None,
         credit_rate_per_cpu_hour: float = 0.05,
         credit_rate_per_gpu_hour: float = 2.50,
+        free_tier_governor: FederatedFreeTierGovernorPort | None = None,
     ) -> None:
         self.api_client = api_client
-        self.label_translator = label_translator or LabelTranslator()
+        if label_translator is not None:
+            self.label_translator = label_translator
+        elif free_tier_governor is not None:
+            self.label_translator = LabelTranslator(default_cpus=1, default_ram_mb=1024)
+        else:
+            self.label_translator = LabelTranslator()
         self.credit_rate_per_cpu_hour = credit_rate_per_cpu_hour
         self.credit_rate_per_gpu_hour = credit_rate_per_gpu_hour
+        self._free_tier_governor = free_tier_governor
 
         self._active_runners: dict[int, dict[str, Any]] = {}
         self._warm_pools: dict[str, WarmPoolConfig] = {}
         self._pool_runners: dict[str, list[WarmPoolRunner]] = {}
+
+    @property
+    def free_tier_governor(self) -> FederatedFreeTierGovernorPort | None:
+        """Retrieve active federated free-tier governor, if configured."""
+        return self._free_tier_governor
 
     def register_warm_pool(self, config: WarmPoolConfig) -> None:
         """Register a warm pool configuration."""
@@ -84,10 +100,10 @@ class DynamicGitHubRunnerAutoscaler(GitHubRunnerAutoscalerPort):
         idle = sum(1 for r in runners if r.state == RunnerPoolState.IDLE)
         busy = sum(1 for r in runners if r.state == RunnerPoolState.BUSY)
         return {
+            "busy_runners": busy,
+            "idle_runners": idle,
             "pool_id": pool_id,
             "total_runners": len(runners),
-            "idle_runners": idle,
-            "busy_runners": busy,
         }
 
     async def handle_workflow_job(
@@ -108,6 +124,31 @@ class DynamicGitHubRunnerAutoscaler(GitHubRunnerAutoscalerPort):
 
         return None
 
+    def _detect_preferred_csp(self, labels: list[str]) -> CspProvider | None:
+        """Extract explicit Cloud Service Provider preference from runner labels."""
+        for lbl in labels:
+            clean = lbl.strip().upper()
+            try:
+                return CspProvider(clean)
+            except ValueError:
+                continue
+        return None
+
+    def _build_tags(self, repo_full_name: str, wf_job: Any) -> list[str]:
+        """Construct deterministic indexing tags for the runner job."""
+        tags = [
+            "source:github",
+            f"repo:{repo_full_name}",
+            f"job_id:{wf_job.id}",
+            "ephemeral",
+        ]
+        for lbl in wf_job.labels:
+            clean = lbl.strip().lower()
+            tags.append(f"label:{clean}")
+            if clean in ("arm64", "aarch64", "x64", "x86_64"):
+                tags.append(clean)
+        return tags
+
     async def _handle_queued(
         self,
         wf_job: Any,
@@ -116,7 +157,36 @@ class DynamicGitHubRunnerAutoscaler(GitHubRunnerAutoscalerPort):
         """Provision JIT runner and generate JobSpec on queued action."""
         resources = self.label_translator.translate(wf_job.labels)
         token_suffix = secrets.token_hex(4)
-        runner_name = f"hq-gh-{repo.name}-{wf_job.id}-{token_suffix}"
+
+        preferred_provider = self._detect_preferred_csp(wf_job.labels)
+        run_id = f"run-gh-{repo.name}-{wf_job.run_id}"
+        job_id = f"job-gh-{wf_job.id}"
+        tags = self._build_tags(repo.full_name, wf_job)
+
+        allocated_provider: CspProvider | None = None
+        is_free_tier = False
+
+        labels_lower = [lbl.lower() for lbl in wf_job.labels]
+        if self._free_tier_governor is not None and "paid" not in labels_lower:
+            candidate_spec = JobSpec(
+                id=job_id,
+                run_id=run_id,
+                name=f"actions-runner-{wf_job.name}",
+                command="/opt/actions-runner/run.sh",
+                resources=resources,
+                tags=tags,
+            )
+            allocated_provider = self._free_tier_governor.allocate_job(
+                candidate_spec, preferred_provider=preferred_provider
+            )
+            is_free_tier = True
+            tags.append(f"provider:{allocated_provider.value.lower()}")
+            tags.append("free-tier")
+
+        provider_part = (
+            f"-{allocated_provider.value.lower()}" if allocated_provider else ""
+        )
+        runner_name = f"hq-gh{provider_part}-{repo.name}-{wf_job.id}-{token_suffix}"
 
         jit_config = await self.api_client.generate_jit_runner_config(
             owner=repo.owner,
@@ -125,8 +195,14 @@ class DynamicGitHubRunnerAutoscaler(GitHubRunnerAutoscalerPort):
             labels=wf_job.labels,
         )
 
-        run_id = f"run-gh-{repo.name}-{wf_job.run_id}"
-        job_id = f"job-gh-{wf_job.id}"
+        env = {
+            "GITHUB_ACTIONS": "true",
+            "HQ_EPHEMERAL": "1",
+            "RUNNER_NAME": runner_name,
+        }
+        if allocated_provider is not None:
+            env["HQ_CSP_PROVIDER"] = allocated_provider.value
+            env["HQ_FREE_TIER"] = "1"
 
         job_spec = JobSpec(
             id=job_id,
@@ -134,26 +210,19 @@ class DynamicGitHubRunnerAutoscaler(GitHubRunnerAutoscalerPort):
             name=f"actions-runner-{wf_job.name}",
             command="/opt/actions-runner/run.sh",
             args=["--jitconfig", jit_config.encoded_jit_config, "--once"],
-            env={
-                "GITHUB_ACTIONS": "true",
-                "HQ_EPHEMERAL": "1",
-                "RUNNER_NAME": runner_name,
-            },
+            env=env,
             resources=resources,
-            tags=[
-                "source:github",
-                f"repo:{repo.full_name}",
-                f"job_id:{wf_job.id}",
-                "ephemeral",
-            ],
+            tags=tags,
         )
 
         self._active_runners[wf_job.id] = {
-            "start_time": datetime.now(UTC),
+            "is_free_tier": is_free_tier,
             "job_id": job_id,
-            "run_id": run_id,
+            "provider": allocated_provider.value if allocated_provider else None,
             "resources": resources,
+            "run_id": run_id,
             "runner_name": runner_name,
+            "start_time": datetime.now(UTC),
             "status": "QUEUED",
         }
 
@@ -174,24 +243,40 @@ class DynamicGitHubRunnerAutoscaler(GitHubRunnerAutoscalerPort):
         if not tracked:
             return
 
+        is_free_tier = tracked.get("is_free_tier", False)
+        provider = tracked.get("provider")
+
+        if is_free_tier and self._free_tier_governor is not None:
+            self._free_tier_governor.release_job(tracked["job_id"])
+
         start_time = tracked.get("start_time", datetime.now(UTC))
         now = datetime.now(UTC)
         duration_seconds = max(0.1, (now - start_time).total_seconds())
 
         resources: ResourceRequirements = tracked["resources"]
-        hourly_rate = (resources.cpus * self.credit_rate_per_cpu_hour) + (
-            resources.gpus * self.credit_rate_per_gpu_hour
-        )
-        credit_burn = max(0.0001, (duration_seconds / 3600.0) * hourly_rate)
+
+        if is_free_tier:
+            credit_burn = 0.0
+            cost_usd = 0.0
+        else:
+            hourly_rate = (resources.cpus * self.credit_rate_per_cpu_hour) + (
+                resources.gpus * self.credit_rate_per_gpu_hour
+            )
+            credit_burn = max(0.0001, (duration_seconds / 3600.0) * hourly_rate)
+            cost_usd = credit_burn
 
         annotation = JobSummaryAnnotation(
-            job_id=tracked["job_id"],
-            run_id=tracked["run_id"],
-            workflow_job_id=wf_job.id,
-            execution_seconds=duration_seconds,
+            cost_usd=cost_usd,
             credit_burn=credit_burn,
-            status=wf_job.conclusion or "COMPLETED",
+            execution_seconds=duration_seconds,
             gpu_model=resources.gpu_model,
+            is_free_tier=is_free_tier,
+            job_id=tracked["job_id"],
+            node_id=tracked.get("runner_name"),
+            provider=provider,
+            run_id=tracked["run_id"],
+            status=wf_job.conclusion or "COMPLETED",
+            workflow_job_id=wf_job.id,
         )
 
         await self.api_client.post_workflow_job_annotation(
@@ -213,13 +298,16 @@ class NaiveAutoscalerOracle:
     def __init__(self) -> None:
         self.jobs: dict[int, str] = {}
         self.active_count: int = 0
+        self.active_providers: dict[int, str] = {}
 
-    def step_queued(self, job_id: int) -> bool:
+    def step_queued(self, job_id: int, provider: str | None = None) -> bool:
         """Record a queued job."""
         if job_id in self.jobs:
             return False
         self.jobs[job_id] = "QUEUED"
         self.active_count += 1
+        if provider:
+            self.active_providers[job_id] = provider
         return True
 
     def step_in_progress(self, job_id: int) -> bool:
@@ -234,6 +322,7 @@ class NaiveAutoscalerOracle:
         if job_id not in self.jobs:
             return False
         del self.jobs[job_id]
+        self.active_providers.pop(job_id, None)
         self.active_count -= 1
         return True
 

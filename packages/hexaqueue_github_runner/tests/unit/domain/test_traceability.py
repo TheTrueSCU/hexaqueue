@@ -21,3 +21,25 @@ def test_job_summary_annotation_markdown() -> None:
     assert "0.1250 HQ" in md
     assert "node-gpu-01" in md
     assert "h100" in md
+
+
+def test_job_summary_annotation_free_tier() -> None:
+    """Test generating markdown summary for zero-cost free tier runner."""
+    annotation = JobSummaryAnnotation(
+        job_id="job-free-1",
+        run_id="run-free-1",
+        workflow_job_id=8888,
+        execution_seconds=120.0,
+        credit_burn=0.0,
+        cost_usd=0.0,
+        is_free_tier=True,
+        provider="OCI",
+        status="COMPLETED",
+        node_id="hq-gh-oci-test-repo-8888-abcd",
+    )
+    md = annotation.to_markdown_summary()
+    assert "job-free-1" in md
+    assert "$0.00 (Verified $0.00 Free Tier)" in md
+    assert "- **Cloud Provider**: `OCI`" in md
+    assert "Single-Job Isolation" in md
+    assert "hq-gh-oci-test-repo-8888-abcd" in md

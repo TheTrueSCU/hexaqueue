@@ -11,7 +11,9 @@ import re
 from hexaqueue_core.domain.resources import ResourceRequirements
 
 _CPU_REGEX = re.compile(r"^(?:cpu-)?(\d+)(?:-cores?|-cpus?)?$", re.IGNORECASE)
-_RAM_REGEX = re.compile(r"^(?:ram-)?(\d+)(?:-)?(?:gb|gib)(?:-ram)?$", re.IGNORECASE)
+_RAM_REGEX = re.compile(
+    r"^(?:ram-)?(\d+)(?:-)?(gb|gib|mb|mib)(?:-ram)?$", re.IGNORECASE
+)
 _SCRATCH_REGEX = re.compile(
     r"^(?:scratch-)?(\d+)(?:-)?(?:gb|gib)(?:-scratch)?$", re.IGNORECASE
 )
@@ -144,7 +146,13 @@ class LabelTranslator:
         if "scratch" in label or "core" in label:
             return None
         match = _RAM_REGEX.match(label)
-        return max(128, int(match.group(1)) * 1024) if match else None
+        if not match:
+            return None
+        qty = int(match.group(1))
+        unit = match.group(2).lower()
+        if unit in ("gb", "gib"):
+            return max(128, qty * 1024)
+        return max(128, qty)
 
     def _parse_scratch(self, label: str) -> int | None:
         """Parse scratch disk MB from label."""

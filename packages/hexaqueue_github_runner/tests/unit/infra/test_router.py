@@ -9,6 +9,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
+from hexaqueue_core.adapters.freetier.governor import MultiCspFreeTierGovernor
 from hexaqueue_github_runner.adapters.autoscaler import (
     DynamicGitHubRunnerAutoscaler,
 )
@@ -107,3 +108,58 @@ async def test_fastapi_webhook_endpoint_unauthorized() -> None:
             },
         )
         assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_fastapi_webhook_endpoint_free_tier_limit_exceeded() -> None:
+    """Test calling the FastAPI webhook endpoint returning 429 when Free-Tier limits are exceeded."""
+    client = InMemoryGitHubApiClient()
+    governor = MultiCspFreeTierGovernor()
+    autoscaler = DynamicGitHubRunnerAutoscaler(
+        api_client=client, free_tier_governor=governor
+    )
+    verifier = HmacSha256WebhookVerifier()
+    secret = "secret-123"
+    adapter = GitHubWebhookAdapter(
+        verifier=verifier, autoscaler=autoscaler, secret=secret
+    )
+
+    app = FastAPI()
+    router = create_github_webhook_router(adapter)
+    app.include_router(router)
+
+    # Free tier strictly disallows GPUs
+    payload_dict: dict[str, Any] = {
+        "action": "queued",
+        "workflow_job": {
+            "id": 99999,
+            "run_id": 88888,
+            "head_sha": "commit-sha",
+            "name": "gpu-job",
+            "labels": ["self-hosted", "gpu-h100"],
+        },
+        "repository": {
+            "id": 10,
+            "name": "my-repo",
+            "full_name": "org/my-repo",
+            "owner": {"login": "org"},
+        },
+    }
+    body_bytes = json.dumps(payload_dict).encode("utf-8")
+    sig = _sign(body_bytes, secret)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as http_client:
+        resp = await http_client.post(
+            "/webhooks/github",
+            content=body_bytes,
+            headers={
+                "X-GitHub-Event": "workflow_job",
+                "X-Hub-Signature-256": sig,
+            },
+        )
+        assert resp.status_code == 429
+        data = resp.json()
+        assert "Free-Tier" in data["detail"] or "GPUs" in data["detail"]

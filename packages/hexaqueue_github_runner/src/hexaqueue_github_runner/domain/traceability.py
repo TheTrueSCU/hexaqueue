@@ -19,20 +19,32 @@ class JobSummaryAnnotation(BaseModel):
         execution_seconds: Total duration of runner execution in seconds.
         credit_burn: Total HQ Credits consumed during execution.
         status: Execution terminal outcome ('COMPLETED', 'FAILED', etc.).
-        node_id: Cluster node that hosted the runner.
+        cost_usd: Total calculated cloud infrastructure cost in USD.
         gpu_model: Model of GPU utilized, if any.
+        is_free_tier: Whether execution was governed under zero-cost Free-Tier Safety Mode.
+        node_id: Cluster node that hosted the runner.
+        provider: Host cloud service provider or pool.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    cost_usd: float = Field(
+        default=0.0, ge=0.0, description="Cloud infrastructure cost in USD"
+    )
     credit_burn: float = Field(default=0.0, ge=0.0, description="Credits consumed")
     execution_seconds: float = Field(
         default=0.0, ge=0.0, description="Duration in seconds"
     )
     gpu_model: str | None = Field(default=None, description="GPU model used")
+    is_free_tier: bool = Field(
+        default=False, description="Executed under zero-cost Free-Tier"
+    )
     job_id: str = Field(description="Hexaqueue Job ID")
     node_id: str | None = Field(
         default=None, description="Host cluster node identifier"
+    )
+    provider: str | None = Field(
+        default=None, description="Host cloud service provider or pool"
     )
     run_id: str = Field(description="Hexaqueue Run ID")
     status: str = Field(default="COMPLETED", description="Terminal state")
@@ -46,6 +58,12 @@ class JobSummaryAnnotation(BaseModel):
         """
         gpu_line = f"- **GPU Model**: `{self.gpu_model}`\n" if self.gpu_model else ""
         node_line = f"- **Cluster Node**: `{self.node_id}`\n" if self.node_id else ""
+        provider_line = (
+            f"- **Cloud Provider**: `{self.provider}`\n" if self.provider else ""
+        )
+        cost_badge = " (Verified $0.00 Free Tier)" if self.is_free_tier else ""
+        cost_display = f"${self.cost_usd:.2f}{cost_badge}"
+
         return (
             f"### ⚡ Hexaqueue Runner Execution Report\n\n"
             f"| Metric | Value |\n"
@@ -54,8 +72,10 @@ class JobSummaryAnnotation(BaseModel):
             f"| **Hexaqueue Run ID** | `{self.run_id}` |\n"
             f"| **Status** | `{self.status}` |\n"
             f"| **Duration** | `{self.execution_seconds:.2f}s` |\n"
-            f"| **Credits Consumed** | `{self.credit_burn:.4f} HQ` |\n\n"
+            f"| **Credits Consumed** | `{self.credit_burn:.4f} HQ` |\n"
+            f"| **Infrastructure Cost** | `{cost_display}` |\n\n"
             f"**Resource Allocation Details:**\n"
+            f"{provider_line}"
             f"{node_line}"
             f"{gpu_line}"
             f"- **Single-Job Isolation**: Verified (Scratch wiped upon exit)\n"
