@@ -1,5 +1,6 @@
 """Tests for ClientPort interface."""
 
+import inspect
 from datetime import UTC, datetime
 
 import pytest
@@ -254,3 +255,39 @@ async def test_client_port_get_log_download_url() -> None:
     client = DummyClient()
     url = await client.get_log_download_url(job_id="job-999")
     assert "logs/job-999/stdout.log" in url
+
+
+def test_client_port_is_abstract() -> None:
+    """Verify that ClientPort cannot be instantiated directly and is abstract."""
+    is_abs = inspect.isabstract(ClientPort)
+    assert is_abs is True
+    with pytest.raises(TypeError, match="Can't instantiate abstract class"):
+        ClientPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+
+
+def test_client_port_abstract_methods() -> None:
+    """Verify abstract methods on ClientPort."""
+    expected = {
+        "cancel_job",
+        "cancel_run",
+        "create_bastion_session",
+        "create_pty_session",
+        "explain_job",
+        "get_cluster_stats",
+        "get_fairshare_tree",
+        "get_job",
+        "get_log_download_url",
+        "get_logs",
+        "get_nodes",
+        "get_run_status",
+        "hold_job",
+        "list_jobs",
+        "register_collateral",
+        "release_job",
+        "stream_logs",
+        "submit_run",
+        "submit_suite",
+    }
+    abstracts = ClientPort.__abstractmethods__
+    diff = expected.difference(abstracts)
+    assert len(diff) == 0

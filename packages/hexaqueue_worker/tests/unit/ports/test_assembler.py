@@ -1,5 +1,7 @@
 """Tests for container image assembler port interface."""
 
+import inspect
+
 import pytest
 
 from hexaqueue_worker.domain.assembler import (
@@ -42,3 +44,19 @@ async def test_container_image_assembler_port_instantiation() -> None:
 
     has_img = await assembler.has_image("alpine:latest")
     assert has_img is True
+
+
+def test_container_image_assembler_port_is_abstract() -> None:
+    """Verify that ContainerImageAssemblerPort cannot be instantiated directly and is abstract."""
+    is_abs = inspect.isabstract(ContainerImageAssemblerPort)
+    assert is_abs is True
+    with pytest.raises(TypeError, match="Can't instantiate abstract class"):
+        ContainerImageAssemblerPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+
+
+def test_container_image_assembler_port_abstract_methods() -> None:
+    """Verify abstract methods on ContainerImageAssemblerPort."""
+    expected = {"assemble_image", "has_image", "remove_cached_image"}
+    abstracts = ContainerImageAssemblerPort.__abstractmethods__
+    diff = expected.difference(abstracts)
+    assert len(diff) == 0

@@ -1,5 +1,6 @@
 """Unit tests for InteractivePtyPort interface contracts."""
 
+import inspect
 from collections.abc import AsyncIterator
 
 import pytest
@@ -61,3 +62,25 @@ async def test_interactive_pty_port_contract() -> None:
     assert chunks[0] == b"mock output\n"
     await adapter.terminate_session("s1")
     assert "s1" not in adapter.sessions
+
+
+def test_interactive_pty_port_is_abstract() -> None:
+    """Verify that InteractivePtyPort cannot be instantiated directly and is abstract."""
+    is_abs = inspect.isabstract(InteractivePtyPort)
+    assert is_abs is True
+    with pytest.raises(TypeError, match="Can't instantiate abstract class"):
+        InteractivePtyPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+
+
+def test_interactive_pty_port_abstract_methods() -> None:
+    """Verify abstract methods on InteractivePtyPort."""
+    expected = {
+        "create_session",
+        "read_stdout",
+        "resize",
+        "terminate_session",
+        "write_stdin",
+    }
+    abstracts = InteractivePtyPort.__abstractmethods__
+    diff = expected.difference(abstracts)
+    assert len(diff) == 0

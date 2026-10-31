@@ -1,5 +1,6 @@
 """Unit tests for MalwareScannerEnginePort interface contract."""
 
+import inspect
 from pathlib import Path
 
 import pytest
@@ -53,3 +54,19 @@ async def test_dummy_engine_contract(tmp_path: Path) -> None:
     assert bad_threat == "DummyThreat"
     bad_ping = await dirty_engine.ping()
     assert bad_ping is False
+
+
+def test_malware_scanner_engine_port_is_abstract() -> None:
+    """Verify that MalwareScannerEnginePort cannot be instantiated directly and is abstract."""
+    is_abs = inspect.isabstract(MalwareScannerEnginePort)
+    assert is_abs is True
+    with pytest.raises(TypeError, match="Can't instantiate abstract class"):
+        MalwareScannerEnginePort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+
+
+def test_malware_scanner_engine_port_abstract_methods() -> None:
+    """Verify abstract methods on MalwareScannerEnginePort."""
+    expected = {"ping", "scan_file"}
+    abstracts = MalwareScannerEnginePort.__abstractmethods__
+    diff = expected.difference(abstracts)
+    assert len(diff) == 0

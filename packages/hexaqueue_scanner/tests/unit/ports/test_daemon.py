@@ -1,5 +1,7 @@
 """Unit tests for scanner daemon port interfaces."""
 
+import inspect
+
 import pytest
 
 from hexaqueue_scanner.domain.models import CompositeScanReport, ScannerMetrics
@@ -100,3 +102,35 @@ async def test_dummy_scanner_daemon_contract() -> None:
     await daemon.stop()
     stopped = daemon.is_running()
     assert stopped is False
+
+
+def test_scan_task_queue_port_is_abstract() -> None:
+    """Verify that ScanTaskQueuePort cannot be instantiated directly and is abstract."""
+    is_abs = inspect.isabstract(ScanTaskQueuePort)
+    assert is_abs is True
+    with pytest.raises(TypeError, match="Can't instantiate abstract class"):
+        ScanTaskQueuePort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+
+
+def test_scan_task_queue_port_abstract_methods() -> None:
+    """Verify abstract methods on ScanTaskQueuePort."""
+    expected = {"enqueue_task", "get_next_task", "queue_size"}
+    abstracts = ScanTaskQueuePort.__abstractmethods__
+    diff = expected.difference(abstracts)
+    assert len(diff) == 0
+
+
+def test_scanner_daemon_port_is_abstract() -> None:
+    """Verify that ScannerDaemonPort cannot be instantiated directly and is abstract."""
+    is_abs = inspect.isabstract(ScannerDaemonPort)
+    assert is_abs is True
+    with pytest.raises(TypeError, match="Can't instantiate abstract class"):
+        ScannerDaemonPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+
+
+def test_scanner_daemon_port_abstract_methods() -> None:
+    """Verify abstract methods on ScannerDaemonPort."""
+    expected = {"get_metrics", "is_running", "process_bundle", "start", "stop"}
+    abstracts = ScannerDaemonPort.__abstractmethods__
+    diff = expected.difference(abstracts)
+    assert len(diff) == 0

@@ -42,3 +42,43 @@ def test_security_scan_result_model() -> None:
 
     with pytest.raises(ValueError, match="scanner_engine cannot be empty"):
         SecurityScanResult(is_clean=True, scanner_engine="   ")
+
+
+def test_security_quarantine_port_abstract_methods() -> None:
+    """Verify abstract methods on SecurityQuarantinePort."""
+    expected = {"scan_collateral"}
+    abstracts = SecurityQuarantinePort.__abstractmethods__
+    diff = expected.difference(abstracts)
+    assert len(diff) == 0
+
+
+def test_workload_identity_port_abstract_methods() -> None:
+    """Verify abstract methods on WorkloadIdentityPort."""
+    expected = {"fetch_jwt_svid", "get_spiffe_id", "validate_jwt_svid"}
+    abstracts = WorkloadIdentityPort.__abstractmethods__
+    diff = expected.difference(abstracts)
+    assert len(diff) == 0
+
+
+def test_spiffe_authorizer_port_abstract_methods() -> None:
+    """Verify abstract methods on SpiffeAuthorizerPort."""
+    expected = {"authorize"}
+    abstracts = SpiffeAuthorizerPort.__abstractmethods__
+    diff = expected.difference(abstracts)
+    assert len(diff) == 0
+
+
+def test_envelope_encryption_port_abstract_methods() -> None:
+    """Verify abstract methods on EnvelopeEncryptionPort."""
+    expected = {"decrypt", "encrypt"}
+    abstracts = EnvelopeEncryptionPort.__abstractmethods__
+    diff = expected.difference(abstracts)
+    assert len(diff) == 0
+
+
+def test_boundary_audit_logger_port_abstract_methods() -> None:
+    """Verify abstract methods on BoundaryAuditLoggerPort."""
+    expected = {"get_recent_records", "log_access"}
+    abstracts = BoundaryAuditLoggerPort.__abstractmethods__
+    diff = expected.difference(abstracts)
+    assert len(diff) == 0

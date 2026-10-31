@@ -1,5 +1,7 @@
 """Unit tests for ClusterMonitorPort abstract contract."""
 
+import inspect
+
 import pytest
 
 from hexaqueue_monitor.domain.models import (
@@ -54,3 +56,25 @@ __all__ = [
     "DummyClusterMonitor",
     "test_cluster_monitor_contract",
 ]
+
+
+def test_cluster_monitor_port_is_abstract() -> None:
+    """Verify that ClusterMonitorPort cannot be instantiated directly and is abstract."""
+    is_abs = inspect.isabstract(ClusterMonitorPort)
+    assert is_abs is True
+    with pytest.raises(TypeError, match="Can't instantiate abstract class"):
+        ClusterMonitorPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+
+
+def test_cluster_monitor_port_abstract_methods() -> None:
+    """Verify abstract methods on ClusterMonitorPort."""
+    expected = {
+        "get_cluster_health",
+        "get_node_pulse",
+        "list_node_pulses",
+        "reap_dead_nodes",
+        "record_pulse",
+    }
+    abstracts = ClusterMonitorPort.__abstractmethods__
+    diff = expected.difference(abstracts)
+    assert len(diff) == 0

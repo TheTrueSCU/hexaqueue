@@ -1,5 +1,6 @@
 """Unit tests for InfrastructureProvisionerPort interface."""
 
+import inspect
 from pathlib import Path
 
 import pytest
@@ -53,3 +54,19 @@ async def test_infrastructure_provisioner_port_contract(tmp_path: Path) -> None:
     res_dest = await provisioner.destroy(spec, tmp_path)
     succ_dest = res_dest.success
     assert succ_dest is True
+
+
+def test_infrastructure_provisioner_port_is_abstract() -> None:
+    """Verify that InfrastructureProvisionerPort cannot be instantiated directly and is abstract."""
+    is_abs = inspect.isabstract(InfrastructureProvisionerPort)
+    assert is_abs is True
+    with pytest.raises(TypeError, match="Can't instantiate abstract class"):
+        InfrastructureProvisionerPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+
+
+def test_infrastructure_provisioner_port_abstract_methods() -> None:
+    """Verify abstract methods on InfrastructureProvisionerPort."""
+    expected = {"destroy", "plan", "provision"}
+    abstracts = InfrastructureProvisionerPort.__abstractmethods__
+    diff = expected.difference(abstracts)
+    assert len(diff) == 0

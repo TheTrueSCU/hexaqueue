@@ -1,5 +1,6 @@
 """Unit tests for instance pool governor port contract."""
 
+import inspect
 from collections.abc import Sequence
 
 import pytest
@@ -79,3 +80,19 @@ async def test_dummy_pool_governor_contract() -> None:
     new_state = await gov.get_pool_state("test-pool")
     curr = new_state.current_nodes
     assert curr == 3
+
+
+def test_instance_pool_governor_port_is_abstract() -> None:
+    """Verify that InstancePoolGovernorPort cannot be instantiated directly and is abstract."""
+    is_abs = inspect.isabstract(InstancePoolGovernorPort)
+    assert is_abs is True
+    with pytest.raises(TypeError, match="Can't instantiate abstract class"):
+        InstancePoolGovernorPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+
+
+def test_instance_pool_governor_port_abstract_methods() -> None:
+    """Verify abstract methods on InstancePoolGovernorPort."""
+    expected = {"get_pool_state", "list_pools", "scale_pool"}
+    abstracts = InstancePoolGovernorPort.__abstractmethods__
+    diff = expected.difference(abstracts)
+    assert len(diff) == 0

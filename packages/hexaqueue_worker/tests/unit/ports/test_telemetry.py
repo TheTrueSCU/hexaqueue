@@ -1,5 +1,6 @@
 """Unit tests for TelemetryEmitterPort interface contracts."""
 
+import inspect
 from collections.abc import AsyncIterator
 
 import pytest
@@ -44,3 +45,19 @@ async def test_dummy_telemetry_emitter_contract() -> None:
     assert pulses_len == 1
     w_id = pulses[0].worker_id
     assert w_id == "worker-test"
+
+
+def test_telemetry_emitter_port_is_abstract() -> None:
+    """Verify that TelemetryEmitterPort cannot be instantiated directly and is abstract."""
+    is_abs = inspect.isabstract(TelemetryEmitterPort)
+    assert is_abs is True
+    with pytest.raises(TypeError, match="Can't instantiate abstract class"):
+        TelemetryEmitterPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+
+
+def test_telemetry_emitter_port_abstract_methods() -> None:
+    """Verify abstract methods on TelemetryEmitterPort."""
+    expected = {"emit_pulse", "subscribe_pulses"}
+    abstracts = TelemetryEmitterPort.__abstractmethods__
+    diff = expected.difference(abstracts)
+    assert len(diff) == 0

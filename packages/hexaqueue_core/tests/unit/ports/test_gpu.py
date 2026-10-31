@@ -1,5 +1,7 @@
 """Unit tests for GpuDeviceManagerPort interface contract."""
 
+import inspect
+
 import pytest
 
 from hexaqueue_core.domain.gpu import GpuAllocation, GpuDevice
@@ -69,3 +71,25 @@ async def test_gpu_device_manager_port_contract() -> None:
     active_after = await mgr.get_active_allocations()
     after_count = len(active_after)
     assert after_count == 0
+
+
+def test_gpu_device_manager_port_is_abstract() -> None:
+    """Verify that GpuDeviceManagerPort cannot be instantiated directly and is abstract."""
+    is_abs = inspect.isabstract(GpuDeviceManagerPort)
+    assert is_abs is True
+    with pytest.raises(TypeError, match="Can't instantiate abstract class"):
+        GpuDeviceManagerPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+
+
+def test_gpu_device_manager_port_abstract_methods() -> None:
+    """Verify abstract methods on GpuDeviceManagerPort."""
+    expected = {
+        "allocate_gpus",
+        "enumerate_devices",
+        "get_active_allocations",
+        "get_device_health",
+        "release_gpus",
+    }
+    abstracts = GpuDeviceManagerPort.__abstractmethods__
+    diff = expected.difference(abstracts)
+    assert len(diff) == 0
