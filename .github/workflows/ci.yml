@@ -94,6 +94,53 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           file: junit.xml
 
+  # =========================================================================
+  # Stage 2b: Distributed Test Slicing via Hexaqueue (Dogfooding Quality Gate)
+  # Orchestrates live Hexaqueue controller daemon and executes distributed test
+  # slicing across workers with $0.00 Free-Tier verification and coverage combining.
+  # =========================================================================
+  distributed-test-slicing:
+    name: Distributed Test Slicing (Dogfooding Hexaqueue)
+    needs: [quality-gate]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --all-packages --all-extras --all-groups
+
+      - name: Start Hexaqueue Controller Daemon
+        run: |
+          uv run hq server start -p 8000 &
+          for i in {1..30}; do
+            if curl -s http://127.0.0.1:8000/health >/dev/null 2>&1; then
+              echo "Hexaqueue controller daemon healthy on port 8000"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Dogfood Hexaqueue on pytest-hexaqueue
+        run: uv run hexaqual test run -p pytest-hexaqueue --profile ci
+
+      - name: Dogfood Hexaqueue on hexaqueue-core
+        run: uv run hexaqual test run -p hexaqueue-core --profile ci
+
+      - name: Dogfood Hexaqueue on hexaqueue-server
+        run: uv run hexaqual test run -p hexaqueue-server --profile ci
+
   architecture-diagrams:
     name: Architecture Diagram Verification
     needs: [quality-gate]
@@ -193,6 +240,7 @@ jobs:
     needs:
       - quality-gate
       - test-suite
+      - distributed-test-slicing
       - architecture-diagrams
       - hypothesis-fuzzing
       - mutation-verification
@@ -236,6 +284,7 @@ jobs:
           echo "Evaluating CI pipeline status:"
           echo "  Pre-Commit Quality Gate:      ${{ needs.quality-gate.result }}"
           echo "  Unit & Integration Tests:     ${{ needs.test-suite.result }}"
+          echo "  Distributed Test Slicing:     ${{ needs.distributed-test-slicing.result }}"
           echo "  Architecture Diagrams:        ${{ needs.architecture-diagrams.result }}"
           echo "  Property-Based Fuzzing:       ${{ needs.hypothesis-fuzzing.result }}"
           echo "  Mutation Verification:        ${{ needs.mutation-verification.result }}"
@@ -243,6 +292,7 @@ jobs:
           results=(
             "${{ needs.quality-gate.result }}"
             "${{ needs.test-suite.result }}"
+            "${{ needs.distributed-test-slicing.result }}"
             "${{ needs.architecture-diagrams.result }}"
             "${{ needs.hypothesis-fuzzing.result }}"
             "${{ needs.mutation-verification.result }}"

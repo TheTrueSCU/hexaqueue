@@ -113,6 +113,20 @@ def test_build_slice_cmd_container() -> None:
     assert "custom-worker:v1" in cmd
     assert "pytest" in cmd
     assert "tests/unit/test_demo.py::test_it" in cmd
+    assert "--import-mode=importlib" in cmd
+
+    # Also test local command construction
+    local_cmd, local_provider, local_worker_id = _build_slice_cmd(
+        slice_spec,
+        worker_index=1,
+        is_container=False,
+        container_image=None,
+    )
+    assert local_provider == "LOCAL"
+    assert local_worker_id == "worker-local-1"
+    assert "-m" in local_cmd
+    assert "pytest" in local_cmd
+    assert "--import-mode=importlib" in local_cmd
 
 
 @pytest.mark.asyncio
