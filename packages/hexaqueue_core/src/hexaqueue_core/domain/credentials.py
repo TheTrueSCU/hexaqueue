@@ -195,6 +195,7 @@ class AzureCredentialsConfig(BaseModel):
         client_secret: Azure Service Principal Secret.
         subscription_id: Azure Subscription ID.
         location: Azure default location.
+        resource_group: Azure default resource group.
         use_managed_identity: Whether to authenticate via ambient Managed Identity.
     """
 
@@ -207,6 +208,9 @@ class AzureCredentialsConfig(BaseModel):
         default=None, description="Service Principal Secret"
     )
     location: str = Field(default="eastus", description="Azure Location")
+    resource_group: str = Field(
+        default="default-rg", description="Azure Resource Group"
+    )
     subscription_id: str | None = Field(
         default=None, description="Azure Subscription ID"
     )
@@ -350,6 +354,7 @@ class FederatedCspCredentialsConfig(BaseModel):
             client_id=e.get("HEXAQUEUE_AZURE_CLIENT_ID") or e.get("AZURE_CLIENT_ID"),
             client_secret=SecretStr(azure_secret) if azure_secret else None,
             location=e.get("HEXAQUEUE_AZURE_LOCATION", "eastus"),
+            resource_group=e.get("HEXAQUEUE_AZURE_RESOURCE_GROUP", "default-rg"),
             subscription_id=e.get("HEXAQUEUE_AZURE_SUBSCRIPTION_ID")
             or e.get("AZURE_SUBSCRIPTION_ID"),
             tenant_id=e.get("HEXAQUEUE_AZURE_TENANT_ID") or e.get("AZURE_TENANT_ID"),

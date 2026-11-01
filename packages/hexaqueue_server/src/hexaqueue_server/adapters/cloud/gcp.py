@@ -6,11 +6,13 @@ Notes/Architectural Intent:
     resizing.
 """
 
+import contextlib
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
 from hexaqueue_core.domain.config import CspProvider
+from hexaqueue_core.domain.credentials import GcpCredentialsConfig
 from hexaqueue_core.domain.exceptions import HexaqueueError
 from hexaqueue_core.domain.pool import (
     InstancePoolState,
@@ -18,6 +20,7 @@ from hexaqueue_core.domain.pool import (
     PoolScaleResult,
 )
 from hexaqueue_core.ports.pool import InstancePoolGovernorPort
+from hexaqueue_core.utils.imports import optional_dependency
 
 
 class GcpManagedInstanceGroupAdapter(InstancePoolGovernorPort):
@@ -51,6 +54,49 @@ class GcpManagedInstanceGroupAdapter(InstancePoolGovernorPort):
             pool: Initial InstancePoolState snapshot.
         """
         self._local_pools[pool.pool_id] = pool
+
+    @classmethod
+    def from_credentials(
+        cls,
+        credentials: GcpCredentialsConfig | None = None,
+        project: str | None = None,
+        zone: str | None = None,
+    ) -> "GcpManagedInstanceGroupAdapter":
+        """Factory creating a GCP MIG adapter from GcpCredentialsConfig.
+
+        Args:
+            credentials: Optional GCP credentials configuration.
+            project: Optional GCP project override.
+            zone: Optional GCP zone override.
+
+        Returns:
+            Configured GcpManagedInstanceGroupAdapter instance.
+
+        Notes/Architectural Intent:
+            Attempts to configure Google Cloud Compute client if google-cloud-compute
+            is installed and credentials/WIF are configured; otherwise falls back
+            gracefully to hermetic simulation mode.
+        """
+        client = None
+        target_project = project or (
+            credentials.project_id
+            if credentials and credentials.project_id
+            else "default-project"
+        )
+        target_zone = zone or (
+            credentials.zone if credentials and credentials.zone else "us-central1-a"
+        )
+
+        compute_mod = optional_dependency("google.cloud.compute_v1")
+        if (
+            compute_mod is not None
+            and credentials is not None
+            and credentials.is_configured
+        ):
+            with contextlib.suppress(Exception):
+                client = compute_mod.InstanceGroupManagersClient()
+
+        return cls(compute_client=client, project=target_project, zone=target_zone)
 
     async def get_pool_state(self, pool_id: str) -> InstancePoolState:
         """Query real-time MIG capacity and instance count.

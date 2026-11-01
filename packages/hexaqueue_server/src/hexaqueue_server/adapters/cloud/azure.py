@@ -6,11 +6,13 @@ Notes/Architectural Intent:
     and elastic capacity scaling.
 """
 
+import contextlib
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
 from hexaqueue_core.domain.config import CspProvider
+from hexaqueue_core.domain.credentials import AzureCredentialsConfig
 from hexaqueue_core.domain.exceptions import HexaqueueError
 from hexaqueue_core.domain.pool import (
     InstancePoolState,
@@ -18,6 +20,7 @@ from hexaqueue_core.domain.pool import (
     PoolScaleResult,
 )
 from hexaqueue_core.ports.pool import InstancePoolGovernorPort
+from hexaqueue_core.utils.imports import optional_dependency
 
 
 class AzureScaleSetAdapter(InstancePoolGovernorPort):
@@ -48,6 +51,61 @@ class AzureScaleSetAdapter(InstancePoolGovernorPort):
             pool: Initial InstancePoolState snapshot.
         """
         self._local_pools[pool.pool_id] = pool
+
+    @classmethod
+    def from_credentials(
+        cls,
+        credentials: AzureCredentialsConfig | None = None,
+        resource_group: str | None = None,
+    ) -> "AzureScaleSetAdapter":
+        """Factory creating an Azure Scale Set adapter from AzureCredentialsConfig.
+
+        Args:
+            credentials: Optional Azure credentials configuration.
+            resource_group: Optional Azure resource group override.
+
+        Returns:
+            Configured AzureScaleSetAdapter instance.
+
+        Notes/Architectural Intent:
+            Attempts to configure Azure ComputeManagementClient if azure-mgmt-compute
+            and azure-identity are installed and credentials/Managed Identity are configured;
+            otherwise falls back gracefully to hermetic simulation mode.
+        """
+        client = None
+        target_rg = resource_group or (
+            credentials.resource_group if credentials else "default-rg"
+        )
+
+        compute_mod = optional_dependency("azure.mgmt.compute")
+        identity_mod = optional_dependency("azure.identity")
+
+        if (
+            compute_mod is not None
+            and identity_mod is not None
+            and credentials is not None
+            and credentials.is_configured
+        ):
+            with contextlib.suppress(Exception):
+                if credentials.use_managed_identity:
+                    cred = identity_mod.ManagedIdentityCredential()
+                elif (
+                    credentials.tenant_id
+                    and credentials.client_id
+                    and credentials.client_secret
+                ):
+                    cred = identity_mod.ClientSecretCredential(
+                        tenant_id=credentials.tenant_id,
+                        client_id=credentials.client_id,
+                        client_secret=credentials.client_secret.get_secret_value(),
+                    )
+                else:
+                    cred = identity_mod.DefaultAzureCredential()
+
+                sub_id = credentials.subscription_id or "default-subscription-id"
+                client = compute_mod.ComputeManagementClient(cred, sub_id)
+
+        return cls(azure_client=client, resource_group=target_rg)
 
     async def get_pool_state(self, pool_id: str) -> InstancePoolState:
         """Query real-time VMSS capacity and configuration.

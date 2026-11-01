@@ -6,11 +6,13 @@ Notes/Architectural Intent:
     (price-capacity-optimized) and dynamic desired capacity scaling.
 """
 
+import contextlib
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
 from hexaqueue_core.domain.config import CspProvider
+from hexaqueue_core.domain.credentials import AwsCredentialsConfig
 from hexaqueue_core.domain.exceptions import HexaqueueError
 from hexaqueue_core.domain.pool import (
     InstancePoolState,
@@ -18,6 +20,7 @@ from hexaqueue_core.domain.pool import (
     PoolScaleResult,
 )
 from hexaqueue_core.ports.pool import InstancePoolGovernorPort
+from hexaqueue_core.utils.imports import optional_dependency
 
 
 class AwsAutoScalingGroupAdapter(InstancePoolGovernorPort):
@@ -49,6 +52,62 @@ class AwsAutoScalingGroupAdapter(InstancePoolGovernorPort):
             pool: Initial InstancePoolState snapshot.
         """
         self._local_pools[pool.pool_id] = pool
+
+    @classmethod
+    def from_credentials(
+        cls,
+        credentials: AwsCredentialsConfig | None = None,
+        region: str | None = None,
+    ) -> "AwsAutoScalingGroupAdapter":
+        """Factory creating an AWS ASG adapter from AwsCredentialsConfig.
+
+        Args:
+            credentials: Optional AWS credentials configuration.
+            region: Optional AWS region override.
+
+        Returns:
+            Configured AwsAutoScalingGroupAdapter instance.
+
+        Notes/Architectural Intent:
+            Attempts to configure boto3 autoscaling client if boto3 is installed
+            and credentials or IAM roles are configured; otherwise falls back
+            gracefully to hermetic simulation mode.
+        """
+        client = None
+        boto3_mod = optional_dependency("boto3")
+
+        if (
+            boto3_mod is not None
+            and credentials is not None
+            and credentials.is_configured
+        ):
+            with contextlib.suppress(Exception):
+                client_kwargs: dict[str, Any] = {}
+                target_region = region or credentials.region
+                if target_region:
+                    client_kwargs["region_name"] = target_region
+                if credentials.profile:
+                    session = boto3_mod.Session(profile_name=credentials.profile)
+                    client = session.client("autoscaling", **client_kwargs)
+                elif (
+                    credentials.access_key_id is not None
+                    and credentials.secret_access_key is not None
+                ):
+                    client_kwargs["aws_access_key_id"] = (
+                        credentials.access_key_id.get_secret_value()
+                    )
+                    client_kwargs["aws_secret_access_key"] = (
+                        credentials.secret_access_key.get_secret_value()
+                    )
+                    if credentials.session_token is not None:
+                        client_kwargs["aws_session_token"] = (
+                            credentials.session_token.get_secret_value()
+                        )
+                    client = boto3_mod.client("autoscaling", **client_kwargs)
+                elif credentials.use_iam_role:
+                    client = boto3_mod.client("autoscaling", **client_kwargs)
+
+        return cls(boto_client=client)
 
     async def get_pool_state(self, pool_id: str) -> InstancePoolState:
         """Query real-time ASG capacity and spot metrics.
