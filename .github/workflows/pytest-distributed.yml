@@ -52,12 +52,21 @@ jobs:
       #     role-to-assume: ${{ secrets.HEXAQUEUE_AWS_ROLE_ARN }}
       #     aws-region: us-east-1
 
-      - name: Execute Distributed Tests via pytest-hexaqueue
+      - name: Start Hexaqueue Controller Daemon (Local CI Runner)
+        if: ${{ vars.HEXAQUEUE_SERVER_URL == '' || vars.HEXAQUEUE_SERVER_URL == 'http://127.0.0.1:8000' }}
+        run: |
+          uv run hq server start -p 8000 &
+          for i in {1..30}; do
+            if curl -s http://127.0.0.1:8000/health >/dev/null 2>&1; then
+              echo "Hexaqueue controller daemon healthy on port 8000"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Execute Distributed Tests via Hexaqual
         env:
           HEXAQUEUE_SERVER_URL: ${{ vars.HEXAQUEUE_SERVER_URL || 'http://127.0.0.1:8000' }}
           HEXAQUEUE_API_TOKEN: ${{ secrets.HEXAQUEUE_API_TOKEN }}
         run: |
-          uv run pytest packages/pytest_hexaqueue/tests/unit/ \
-            --hexaqueue \
-            --hq-profile ci \
-            -v
+          uv run hexaqual test run -p pytest-hexaqueue --profile ci
