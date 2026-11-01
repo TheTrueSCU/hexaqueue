@@ -42,6 +42,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Path to Hexaqueue configuration file (pyproject.toml or hexaqueue.yaml)",
     )
     group.addoption(
+        "--profile",
         "--hq-profile",
         action="store",
         default=os.environ.get("HEXAQUEUE_PROFILE"),

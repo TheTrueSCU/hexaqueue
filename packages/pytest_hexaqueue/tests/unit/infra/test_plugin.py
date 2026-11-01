@@ -60,6 +60,16 @@ def test_pytest_addoption() -> None:
     assert "hexaqueue_config_file" in dest_names
     assert "hexaqueue_profile" in dest_names
 
+    # Check option strings for profile
+    profile_calls = [
+        call
+        for call in group.addoption.call_args_list
+        if call.kwargs.get("dest") == "hexaqueue_profile"
+    ]
+    assert len(profile_calls) == 1
+    assert "--profile" in profile_calls[0].args
+    assert "--hq-profile" in profile_calls[0].args
+
 
 def test_pytest_configure() -> None:
     """Test marker configuration and profile resolution."""
