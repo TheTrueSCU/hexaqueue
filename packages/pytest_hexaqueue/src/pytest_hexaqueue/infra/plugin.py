@@ -133,11 +133,12 @@ def pytest_runtestloop(session: pytest.Session) -> bool | None:
     )
     from pytest_hexaqueue.ports.client import HexaqueueTestDispatchPort
 
-    slices: list[TestSliceSpec] = session.config.stash.get(
-        _SLICES_KEY, getattr(session.config, "_hexaqueue_slices", [])
+    slices_val = session.config.stash.get(
+        _SLICES_KEY, getattr(session.config, "_hexaqueue_slices", None)
     )
-    if not slices:
+    if not slices_val or not isinstance(slices_val, list):
         return None
+    slices: list[TestSliceSpec] = slices_val
 
     server_url = session.config.getoption("hexaqueue_server_url")
     pool = session.config.getoption("hexaqueue_pool")
@@ -198,11 +199,12 @@ def pytest_terminal_summary(
 
     from pytest_hexaqueue.domain.outcome import SliceOutcomeReport
 
-    reports: list[SliceOutcomeReport] = config.stash.get(
-        _REPORTS_KEY, getattr(config, "_hexaqueue_reports", [])
+    reports_val = config.stash.get(
+        _REPORTS_KEY, getattr(config, "_hexaqueue_reports", None)
     )
-    if not reports:
+    if not reports_val or not isinstance(reports_val, list):
         return
+    reports: list[SliceOutcomeReport] = reports_val
 
     terminalreporter.section("Hexaqueue Distributed Execution Summary")
     free_tier = config.getoption("hexaqueue_free_tier", default=False)

@@ -201,17 +201,12 @@ def test_pytest_terminal_summary() -> None:
     )
 
 
-def test_plugin_module_reload_and_slicer_file() -> None:
-    """Test reloading plugin module under coverage and slicer selection."""
-    import importlib
-
-    import pytest_hexaqueue.infra.plugin as plugin_mod
+def test_plugin_slicer_file() -> None:
+    """Test slicer selection for file strategy."""
     from pytest_hexaqueue.adapters.slicer import FileContiguousTestSlicer
+    from pytest_hexaqueue.infra.plugin import _get_slicer
 
-    reloaded = importlib.reload(plugin_mod)
-    assert reloaded._SLICES_KEY is not None
-
-    file_slicer = reloaded._get_slicer("file")
+    file_slicer = _get_slicer("file")
     assert isinstance(file_slicer, FileContiguousTestSlicer)
 
 
