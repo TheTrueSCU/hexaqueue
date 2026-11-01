@@ -13,28 +13,99 @@
 
 ## 🎯 Overview
 
-`pytest-hexaqueue` is a drop-in distributed execution plugin for pytest that slices test suites and fans out execution across Hexaqueue worker clusters and the federated **Multi-CSP Free-Tier Mesh** (OCI, GCP, AWS, Azure, Local).
+`pytest-hexaqueue` is a first-class distributed test execution plugin for `pytest`. It partitions large test suites into balanced execution slices and fans out execution across **Hexaqueue cluster workers** and federated **Multi-CSP Free-Tier Meshes** (OCI, GCP, AWS, Azure, and local nodes), achieving horizontal test scalability with zero cloud spend ($0.00 spend ceiling).
 
-### Distributed Slicing Architecture
+---
+
+## ⚖️ Coexistence & Comparison: `pytest-hexaqueue` vs. `pytest-xdist`
+
+A common question is how `pytest-hexaqueue` relates to the widely used [`pytest-xdist`](https://github.com/pytest-dev/pytest-xdist) plugin. `pytest-hexaqueue` is engineered to work **in place of** `pytest-xdist` for distributed multi-machine execution, or **alongside** `pytest-xdist` in a hybrid two-tier concurrency topology.
+
+### 1. In Place of `pytest-xdist` (Multi-Node & Cloud-Native Execution)
+
+`pytest-xdist` excels at local multi-core parallelism (`pytest -n auto`), spawning worker processes on a single physical host. While `xdist` supports remote execution over SSH (`--tx ssh=...`), setting it up across machines requires identical remote virtualenvs, manual SSH daemon maintenance, fragile socket streams, and offers no queueing, budget governance, or automated repo synchronization.
+
+**`pytest-hexaqueue` replaces `pytest-xdist` when scaling tests beyond a single local machine:**
+
+- **Content-Addressed Workspace Sync (CAS)**: Automatically snapshots uncommitted workspace diffs and git revisions into `hexaqueue-collateral` content-addressed storage (SHA-256), synchronizing code to worker nodes instantly without rsync or shared network mounts.
+- **Multi-CSP Free-Tier Mesh**: Schedules test slices across free compute quotas (OCI 4-vCPU ARM, GCP e2-micro, AWS t4g.small, Azure B1s, and local worker pools) while mathematically enforcing a $0.00 spend ceiling.
+- **Fair-Share Queueing & Preemption**: Leverages Hexaqueue's central scheduling engine with priority aging and placement constraints rather than naive socket round-robining.
+- **Fail-Safe Fallback**: If remote cluster nodes are offline or unreachable, `--hq-fallback` (enabled by default) seamlessly falls back to standard in-process test execution.
+
+```bash
+# Replace local xdist with 8 remote multi-CSP cloud slices
+pytest --hexaqueue --hq-slices 8 --hq-free-tier
+```
+
+---
+
+### 2. Alongside `pytest-xdist` (Two-Tier Hybrid Concurrency)
+
+`pytest-hexaqueue` and `pytest-xdist` operate at different structural layers of the concurrency model and can be combined to achieve maximal compute throughput:
+
+- **Tier 1 (Macro-Level / Horizontal Partitioning)**: `pytest-hexaqueue` partitions the overall test suite into coarse-grained slices and dispatches them across distinct cloud instances and worker nodes.
+- **Tier 2 (Micro-Level / Vertical Parallelism)**: Inside each remote worker node (or container), the test runner invokes `pytest -n auto`, distributing that node's assigned slice across all local vCPUs.
 
 ```mermaid
-sequenceDiagram
-    autonumber
-    participant CLI as Developer Terminal (pytest)
-    participant Plugin as pytest-hexaqueue
-    participant CAS as hexaqueue-collateral (CAS Storage)
-    participant Server as hexaqueue-server (Controller)
-    participant Mesh as Multi-CSP Workers (OCI, GCP, Local)
+graph TD
+    subgraph S1["Developer Workstation / CI Host (Tier 1: Macro-Distribution)"]
+        DEV["Developer runs: pytest --hexaqueue --hq-slices 3"]
+        PLUGIN["pytest-hexaqueue (Slicing Engine)"]
+        DEV --> PLUGIN
+    end
 
-    CLI->>Plugin: Collect test suite (session.items)
-    Plugin->>Plugin: Partition into N balanced execution slices
-    Plugin->>CAS: Snapshot workspace delta into CAS bundle (SHA-256)
-    Plugin->>Server: SubmitRunCommand(jobs=[slice_1, ..., slice_N])
-    Server->>Mesh: Dispatch test slices in parallel
-    Mesh-->>Plugin: Stream test outcome events over gRPC/HTTP
-    Plugin->>CLI: Live terminal progress & assertion reporting
-    Plugin->>Plugin: Aggregate remote .coverage and JUnit XML locally
+    subgraph S2["Hexaqueue Controller & Mesh"]
+        HQ["Hexaqueue Server (Free-Tier Mesh Router)"]
+        PLUGIN -->|Dispatch Slices| HQ
+    end
+
+    subgraph S3["Remote Worker 1 (OCI 4-vCPU ARM)"]
+        W1["Worker 1 (Slice 0: 100 tests)"]
+        X1["pytest-xdist (-n 4)"]
+        W1 --> X1
+        X1 --> C1["Worker Core 1"]
+        X1 --> C2["Worker Core 2"]
+        X1 --> C3["Worker Core 3"]
+        X1 --> C4["Worker Core 4"]
+    end
+
+    subgraph S4["Remote Worker 2 (GCP e2-micro)"]
+        W2["Worker 2 (Slice 1: 50 tests)"]
+        X2["pytest-xdist (-n 2)"]
+        W2 --> X2
+        X2 --> C5["Worker Core 1"]
+        X2 --> C6["Worker Core 2"]
+    end
+
+    subgraph S5["Remote Worker 3 (Local On-Prem Node)"]
+        W3["Worker 3 (Slice 2: 100 tests)"]
+        X3["pytest-xdist (-n 8)"]
+        W3 --> X3
+        X3 --> C7["Worker Cores (1..8)"]
+    end
+
+    HQ -->|Slice 0| W1
+    HQ -->|Slice 1| W2
+    HQ -->|Slice 2| W3
+
+    W1 -.->|Outcomes & Traces| PLUGIN
+    W2 -.->|Outcomes & Traces| PLUGIN
+    W3 -.->|Outcomes & Traces| PLUGIN
 ```
+
+---
+
+### 3. Feature Comparison Matrix
+
+| Capability | `pytest-xdist` | `pytest-hexaqueue` | Combined (Hybrid) |
+|---|---|---|---|
+| **Primary Parallelism Domain** | Single-host multi-process (`-n N`) | Multi-node, multi-cloud cluster (`--hq-slices N`) | Multi-node slices + multi-core execution per node |
+| **Compute Topology** | Local machine cores (SSH mode manual/fragile) | Federated multi-CSP mesh (OCI, GCP, AWS, Azure, Local) | Cloud cluster nodes saturated with local worker processes |
+| **Workspace & Code Sync** | Requires identical filesystem / mount | Content-addressed SHA-256 CAS delta sync | CAS sync to host, executed across cores |
+| **Budget & Cost Safety** | Unaware of cloud costs or quotas | Enforced $0.00 Free-Tier ceiling via Governor | Free compute pooled with local multi-core utilization |
+| **Scheduling Intelligence** | Local round-robin / load-balancing | Fair-share, priority aging, compute placement affinity | Cluster scheduling + local worker core distribution |
+| **Node Failure Resilience** | Crashed worker fails entire test run | Automatic rescheduling or local fallback | Node failure quarantined away from developer machine |
+| **Terminal Reporting** | Aggregates local worker subprocesses | Live streaming telemetry + multi-CSP node annotations | Unified terminal summary with remote node origins |
 
 ---
 
@@ -48,28 +119,53 @@ uv add --dev pytest-hexaqueue
 pip install pytest-hexaqueue
 ```
 
-### 2. Running Distributed Tests
+### 2. Standalone Distributed Run (In Place of xdist)
 
 ```bash
 # Fan out tests across 4 cluster slices
 pytest --hexaqueue --hq-slices 4
 
-# Run strictly against the zero-cost Free-Tier mesh
-pytest --hexaqueue --hq-slices 5 --hq-free-tier
+# Enforce strictly zero-cost Multi-CSP Free-Tier execution
+pytest --hexaqueue --hq-slices 6 --hq-free-tier
 
-# Specify explicit controller endpoint
-pytest --hexaqueue --hq-server http://hexaqueue.internal:8000 --hq-pool ci-fast
+# Use file-contiguous slicing instead of round-robin
+pytest --hexaqueue --hq-slices 4 --hq-slicer file
+
+# Specify custom controller endpoint and pool
+pytest --hexaqueue --hq-server http://hexaqueue.corp:8000 --hq-pool ci-fast
+```
+
+### 3. Hybrid Two-Tier Execution (Alongside xdist)
+
+In your remote worker execution template or container runner script, configure the runner to consume its assigned slice with `pytest-xdist`:
+
+```bash
+# Inside the Hexaqueue worker container executing an assigned slice:
+pytest $(cat /tmp/hexaqueue/slice_items.txt) -n auto
 ```
 
 ---
 
-## ⚙️ CLI Options
+## ⚙️ CLI Options & Configuration Reference
 
 | Option | Environment Variable | Default | Description |
 |---|---|---|---|
 | `--hexaqueue` | `HEXAQUEUE_PYTEST` | `False` | Enable Hexaqueue distributed test execution |
-| `--hq-server` | `HEXAQUEUE_SERVER_URL` | `http://127.0.0.1:8000` | Hexaqueue server API endpoint |
-| `--hq-slices` | `HEXAQUEUE_SLICES` | `4` | Number of parallel execution slices |
-| `--hq-pool` | `HEXAQUEUE_POOL` | `default` | Target compute instance pool |
-| `--hq-free-tier` | `HEXAQUEUE_FREE_TIER` | `False` | Enforce zero-cost multi-CSP free-tier bursting |
-| `--hq-fallback` | `HEXAQUEUE_LOCAL_FALLBACK` | `True` | Fall back to local execution if cluster is unreachable |
+| `--hq-server` | `HEXAQUEUE_SERVER_URL` | `http://127.0.0.1:8000` | Hexaqueue cluster controller base URL |
+| `--hq-slices` | `HEXAQUEUE_SLICES` | `4` | Number of parallel execution slices to partition the suite into |
+| `--hq-pool` | `HEXAQUEUE_POOL` | `default` | Target compute instance pool for runner placement |
+| `--hq-free-tier` | `HEXAQUEUE_FREE_TIER` | `False` | Enforce zero-cost Multi-CSP Free-Tier mesh execution ($0.00 spend) |
+| `--hq-fallback` | `HEXAQUEUE_LOCAL_FALLBACK` | `True` | Fall back to local in-process execution if cluster is unreachable |
+| `--hq-slicer` | `HEXAQUEUE_SLICER` | `round-robin` | Test partitioning algorithm: `round-robin` or `file` |
+
+### Configuration via `pyproject.toml`
+
+You can persist defaults in `pyproject.toml` so team members do not need to pass flags manually:
+
+```toml
+[tool.pytest.ini_options]
+addopts = "--hexaqueue --hq-slices 4 --hq-fallback"
+markers = [
+    "hexaqueue: mark test for execution on Hexaqueue distributed cluster",
+]
+```

@@ -18,4 +18,5 @@
 | [`hexaqueue-gitlab-runner`](packages/hexaqueue_gitlab_runner/) | GitLab CI/CD custom runner executor daemon. |
 | [`hexaqueue-kueue`](packages/hexaqueue_kueue/) | Kubernetes Batch v1 and Kueue cloud-native scheduler bridge. |
 | [`hexaqueue-workflow`](packages/hexaqueue_workflow/) | Temporal activity worker and Argo workflow DAG driver. |
+| [`pytest-hexaqueue`](packages/pytest_hexaqueue/) | Distributed Pytest execution, test suite slicing engine, and multi-CSP free-tier runner plugin ([Guide](guides/pytest-distributed-execution.md)). |
 | [`hexaqueue`](packages/hexaqueue/) | Umbrella convenience metapackage (`hexaqueue[all]`). |

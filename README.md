@@ -169,3 +169,4 @@ graph TD
 | [`hexaqueue-gitlab-runner`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_gitlab_runner/README.md) | `0.5.0` | GitLab CI/CD Custom Executor driver |
 | [`hexaqueue-kueue`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_kueue/README.md) | `0.5.0` | Kubernetes Batch v1 & Kueue controller bridge |
 | [`hexaqueue-workflow`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_workflow/README.md) | `0.5.0` | Native Hexaflow cluster scheduler adapter & distributed engine |
+| [`pytest-hexaqueue`](file:///home/rjdw/Projects/hexaqueue/packages/pytest_hexaqueue/README.md) | `0.5.0` | Distributed Pytest execution, test suite slicing engine, and multi-CSP free-tier runner plugin |
