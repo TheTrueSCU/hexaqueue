@@ -314,26 +314,17 @@ def load_project_config(
 def _apply_profile(
     values: dict[str, Any], cfg: HexaqueueProjectConfig, target_profile: str | None
 ) -> None:
-    """Overlay active profile configuration onto values dict."""
+    """Overlay active profile configuration onto values dict, falling back to base defaults."""
     if not (target_profile and target_profile in cfg.profiles):
         return
     prof_data = cfg.profiles[target_profile]
-    fields = (
-        "server_url",
-        "slices",
-        "slicer",
-        "pool",
-        "mode",
-        "free_tier",
-        "fallback",
-        "api_token",
-    )
-    for f in fields:
-        val = getattr(prof_data, f)
-        if val is not None:
-            values[f] = val
-    if prof_data.container:
-        values["container"] = prof_data.container.model_copy()
+    dumped = prof_data.model_dump(exclude_unset=True)
+    for k, v in dumped.items():
+        if v is not None:
+            if k == "container" and isinstance(v, dict):
+                values["container"] = HexaqueueContainerConfig.model_validate(v)
+            else:
+                values[k] = v
 
 
 def _apply_env_overrides(values: dict[str, Any], env: dict[str, str]) -> None:

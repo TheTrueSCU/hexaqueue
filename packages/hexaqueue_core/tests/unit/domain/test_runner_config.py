@@ -172,6 +172,27 @@ def test_resolve_runner_config_layers() -> None:
     assert res_cli.container.image == "cli-image:v4"
 
 
+def test_named_profile_falls_back_to_project_defaults() -> None:
+    """Verify named profile inherits unspecified fields from [tool.hexaqueue] base defaults."""
+    base_cfg = HexaqueueProjectConfig(
+        server_url="http://custom-cluster:9999",
+        slices=14,
+        fallback=False,
+        profiles={
+            "minimal": HexaqueueProfileConfig.model_validate({"mode": "container"}),
+        },
+    )
+    resolved = resolve_runner_config(project_config=base_cfg, profile="minimal", env={})
+    is_server = resolved.server_url == "http://custom-cluster:9999"
+    is_slices = resolved.slices == 14
+    is_fallback = resolved.fallback is False
+    is_mode = resolved.mode == "container"
+    assert is_server is True
+    assert is_slices is True
+    assert is_fallback is True
+    assert is_mode is True
+
+
 def test_parse_bool() -> None:
     """Verify boolean parsing handles truthy, falsy, None, and fallbacks."""
     for truthy in ("1", "true", "True", "YES", "yes", "on", "ON", True):

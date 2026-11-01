@@ -128,6 +128,28 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
 
 
+def _is_hexaqueue_enabled(config: pytest.Config) -> bool:
+    """Check if Hexaqueue execution is enabled via flag, profile, or env var.
+
+    Args:
+        config: Pytest configuration instance.
+
+    Returns:
+        True if Hexaqueue execution is enabled; False otherwise.
+
+    Raises:
+        None.
+
+    Notes/Architectural Intent:
+        Enables Hexaqueue either explicitly via --hexaqueue or implicitly when a named
+        configuration profile is supplied (--hq-profile or HEXAQUEUE_PROFILE).
+    """
+    return bool(
+        config.getoption("hexaqueue_enabled", default=False)
+        or config.getoption("hexaqueue_profile", default=None)
+    )
+
+
 def _resolve_plugin_config(config: pytest.Config) -> Any:
     """Load configuration file, apply active profile and CLI overrides."""
     from hexaqueue_core.domain.runner_config import (
@@ -174,7 +196,7 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "hexaqueue: mark test for execution on Hexaqueue distributed cluster",
     )
-    if not config.getoption("hexaqueue_enabled", default=False):
+    if not _is_hexaqueue_enabled(config):
         return
 
     # When Hexaqueue handles distributed slice orchestration, disable
@@ -202,7 +224,7 @@ def _get_slicer(strategy: str) -> Any:
 @pytest.hookimpl(tryfirst=True)
 def pytest_collection_finish(session: pytest.Session) -> None:
     """Intercept test collection, extract item metadata, and partition into slices."""
-    if not session.config.getoption("hexaqueue_enabled", default=False):
+    if not _is_hexaqueue_enabled(session.config):
         return
 
     from pytest_hexaqueue.domain.slice import TestItemInfo
@@ -354,7 +376,7 @@ def _unpack_slice_coverage(reports: list["SliceOutcomeReport"]) -> None:
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtestloop(session: pytest.Session) -> bool | None:
     """Execute distributed test loop dispatching slices across cluster workers."""
-    if not session.config.getoption("hexaqueue_enabled", default=False):
+    if not _is_hexaqueue_enabled(session.config):
         return None
 
     from pytest_hexaqueue.adapters.client import HexaqueueTestDispatchClient
@@ -443,7 +465,7 @@ def pytest_terminal_summary(
     config: pytest.Config,
 ) -> None:
     """Format and print distributed execution telemetry summary."""
-    if not config.getoption("hexaqueue_enabled", default=False):
+    if not _is_hexaqueue_enabled(config):
         return
 
     from pytest_hexaqueue.domain.outcome import SliceOutcomeReport
