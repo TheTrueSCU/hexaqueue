@@ -76,11 +76,18 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Target compute instance pool for runner placement (overrides config file)",
     )
     group.addoption(
+        "--hq-paid",
+        action="store_true",
+        default=None,
+        dest="hexaqueue_paid",
+        help="Authorize paid cloud compute (disables zero-cost free-tier guardrails)",
+    )
+    group.addoption(
         "--hq-free-tier",
         action="store_true",
         default=None,
         dest="hexaqueue_free_tier",
-        help="Enforce zero-cost Multi-CSP Free-Tier mesh execution ($0.00 spend)",
+        help="Enforce zero-cost Multi-CSP Free-Tier mesh execution ($0.00 spend ceiling, default: True)",
     )
     group.addoption(
         "--hq-fallback",
@@ -142,8 +149,10 @@ def _resolve_plugin_config(config: pytest.Config) -> Any:
         cli_overrides["container"] = True
     if config.getoption("hexaqueue_worker_image", default=None) is not None:
         cli_overrides["worker_image"] = config.getoption("hexaqueue_worker_image")
-    if config.getoption("hexaqueue_free_tier", default=None) is True:
-        cli_overrides["free_tier"] = True
+    if config.getoption("hexaqueue_paid", default=None) is not None:
+        cli_overrides["paid"] = config.getoption("hexaqueue_paid")
+    if config.getoption("hexaqueue_free_tier", default=None) is not None:
+        cli_overrides["free_tier"] = config.getoption("hexaqueue_free_tier")
     if config.getoption("hexaqueue_fallback", default=None) is not None:
         cli_overrides["fallback"] = config.getoption("hexaqueue_fallback")
     if config.getoption("hexaqueue_slicer", default=None) is not None:
@@ -304,7 +313,7 @@ def pytest_runtestloop(session: pytest.Session) -> bool | None:
         pool = (
             session.config.getoption("hexaqueue_pool", default="default") or "default"
         )
-        free_tier = bool(session.config.getoption("hexaqueue_free_tier", default=False))
+        free_tier = not bool(session.config.getoption("hexaqueue_paid", default=False))
         opt_fallback = session.config.getoption("hexaqueue_fallback", default=True)
         allow_fallback = True if opt_fallback is None else bool(opt_fallback)
         is_container = bool(
@@ -381,7 +390,7 @@ def pytest_terminal_summary(
     free_tier = (
         resolved.free_tier
         if resolved
-        else config.getoption("hexaqueue_free_tier", default=False)
+        else not bool(config.getoption("hexaqueue_paid", default=False))
     )
     is_container = (
         (resolved.mode == "container")

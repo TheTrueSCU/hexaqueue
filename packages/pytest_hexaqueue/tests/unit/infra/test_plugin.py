@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import pytest_hexaqueue.infra.plugin as plugin_module
 from pytest_hexaqueue.adapters.client import InMemoryTestDispatchClient
+from pytest_hexaqueue.adapters.slicer import FileContiguousTestSlicer
 from pytest_hexaqueue.domain.outcome import (
     SliceOutcomeReport,
     TestOutcomeItem,
@@ -17,6 +18,7 @@ from pytest_hexaqueue.infra.plugin import (
     _CONFIG_KEY,
     _REPORTS_KEY,
     _SLICES_KEY,
+    _get_slicer,
     _notify_session_reports,
     _resolve_plugin_config,
     pytest_addoption,
@@ -24,6 +26,11 @@ from pytest_hexaqueue.infra.plugin import (
     pytest_configure,
     pytest_runtestloop,
     pytest_terminal_summary,
+)
+
+from hexaqueue_core.domain.runner_config import (
+    HexaqueueContainerConfig,
+    HexaqueueProfileConfig,
 )
 
 
@@ -46,6 +53,7 @@ def test_pytest_addoption() -> None:
     assert "hexaqueue_fallback" in dest_names
     assert "hexaqueue_api_token" in dest_names
     assert "hexaqueue_free_tier" in dest_names
+    assert "hexaqueue_paid" in dest_names
     assert "hexaqueue_fallback" in dest_names
     assert "hexaqueue_container" in dest_names
     assert "hexaqueue_worker_image" in dest_names
@@ -239,9 +247,6 @@ def test_pytest_terminal_summary() -> None:
 
 def test_plugin_slicer_file() -> None:
     """Test slicer selection for file strategy."""
-    from pytest_hexaqueue.adapters.slicer import FileContiguousTestSlicer
-    from pytest_hexaqueue.infra.plugin import _get_slicer
-
     file_slicer = _get_slicer("file")
     assert isinstance(file_slicer, FileContiguousTestSlicer)
 
@@ -372,8 +377,6 @@ def test_resolve_plugin_config_all_options() -> None:
 
 def test_pytest_collection_finish_with_resolved_config() -> None:
     """Test collection finish uses resolved configuration from stash."""
-    from hexaqueue_core.domain.runner_config import HexaqueueProfileConfig
-
     session = MagicMock()
     stash_dict: dict[Any, Any] = {
         _CONFIG_KEY: HexaqueueProfileConfig(slices=3, slicer="file")
@@ -396,11 +399,6 @@ def test_pytest_collection_finish_with_resolved_config() -> None:
 
 def test_pytest_runtestloop_with_resolved_config() -> None:
     """Test runtestloop uses resolved config from stash."""
-    from hexaqueue_core.domain.runner_config import (
-        HexaqueueContainerConfig,
-        HexaqueueProfileConfig,
-    )
-
     client = InMemoryTestDispatchClient()
     prof = HexaqueueProfileConfig(
         server_url="http://test-server:9000",
@@ -433,8 +431,6 @@ def test_pytest_runtestloop_with_resolved_config() -> None:
 
 def test_pytest_runtestloop_with_exception_and_fallback() -> None:
     """Test runtestloop catches exception and falls back to local execution when fallback is enabled."""
-    from hexaqueue_core.domain.runner_config import HexaqueueProfileConfig
-
     client = AsyncMock()
     client.health_check.return_value = True
     client.dispatch_run.side_effect = RuntimeError("Dispatch exploded")
@@ -461,8 +457,6 @@ def test_pytest_runtestloop_with_exception_and_fallback() -> None:
 
 def test_pytest_runtestloop_with_exception_and_no_fallback() -> None:
     """Test runtestloop re-raises exception when fallback is disabled."""
-    from hexaqueue_core.domain.runner_config import HexaqueueProfileConfig
-
     client = AsyncMock()
     client.health_check.return_value = True
     client.dispatch_run.side_effect = RuntimeError("Dispatch exploded")
@@ -512,3 +506,30 @@ def test_plugin_module_reload_coverage() -> None:
     """Ensure top-level module definitions in plugin.py are tracked under test coverage."""
     importlib.reload(plugin_module)
     assert hasattr(plugin_module, "pytest_addoption")
+
+
+def test_resolve_plugin_config_paid_overrides_free_tier() -> None:
+    """Verify --hq-paid overrides default free-tier setting to False."""
+    config = MagicMock()
+    options: dict[str, Any] = {
+        "hexaqueue_config_file": None,
+        "hexaqueue_paid": True,
+        "hexaqueue_free_tier": None,
+    }
+    config.getoption.side_effect = lambda name, default=None: options.get(name, default)
+    res = _resolve_plugin_config(config)
+    assert res.free_tier is False
+
+
+def test_resolve_plugin_config_paid_and_free_conflict_defaults_to_free() -> None:
+    """Verify conflict between --hq-paid and --hq-free-tier warns and defaults to free tier."""
+    config = MagicMock()
+    options: dict[str, Any] = {
+        "hexaqueue_config_file": None,
+        "hexaqueue_paid": True,
+        "hexaqueue_free_tier": True,
+    }
+    config.getoption.side_effect = lambda name, default=None: options.get(name, default)
+    with pytest.warns(UserWarning, match="both paid and free tier requested"):
+        res = _resolve_plugin_config(config)
+        assert res.free_tier is True

@@ -14,14 +14,94 @@ Notes/Architectural Intent:
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import tomllib
+import warnings
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from hexaqueue_core.utils.imports import optional_dependency
+
+logger = logging.getLogger(__name__)
+
+
+def parse_bool(val: Any, default: bool = False) -> bool:
+    """Parse string or boolean value to boolean.
+
+    Args:
+        val: Input string, boolean, or None.
+        default: Fallback boolean if val is None or empty.
+
+    Returns:
+        Converted boolean value.
+
+    Notes/Architectural Intent:
+        Centralizes Twelve-Factor environment variable and config boolean coercion,
+        recognizing standard truthy ('1', 'true', 'yes', 'on') and falsy ('0', 'false', 'no', 'off') strings.
+    """
+    if val is None:
+        return default
+    if isinstance(val, bool):
+        return val
+    str_val = str(val).strip().lower()
+    if str_val in ("1", "true", "yes", "on"):
+        return True
+    if str_val in ("0", "false", "no", "off"):
+        return False
+    return default
+
+
+def resolve_cost_preference(
+    paid: Any = None,
+    free_tier: Any = None,
+    source: str = "configuration",
+) -> bool | None:
+    """Resolve conflict between paid and free flags, defaulting to free tier.
+
+    Args:
+        paid: Whether paid compute is explicitly requested.
+        free_tier: Whether free tier is explicitly requested.
+        source: Description of configuration source for warning message.
+
+    Returns:
+        Resolved boolean for free_tier (True for free, False for paid), or None if neither set.
+
+    Notes/Architectural Intent:
+        Enforces the Zero-Spend Invariant (ADR-003): when conflicting signals are received,
+        Hexaqueue always defaults to the safe $0.00 spend ceiling.
+    """
+    has_paid = paid is not None
+    has_free = free_tier is not None
+    if not has_paid and not has_free:
+        return None
+
+    paid_bool = parse_bool(paid) if has_paid else False
+    free_bool = parse_bool(free_tier) if has_free else False
+
+    if has_paid and has_free and paid_bool and free_bool:
+        logger.warning(
+            "Conflict detected in %s: both paid and free tier are enabled. "
+            "Defaulting to zero-cost free tier ($0.00 spend ceiling) for safety.",
+            source,
+        )
+        warnings.warn(
+            f"Conflict detected in {source}: both paid and free tier requested. "
+            "Defaulting to zero-cost free tier ($0.00 spend ceiling) for safety.",
+            UserWarning,
+            stacklevel=3,
+        )
+        return True
+
+    if has_paid and paid_bool:
+        return False
+
+    if has_free:
+        return free_bool
+
+    return not paid_bool
 
 
 class HexaqueueContainerConfig(BaseModel):
@@ -70,7 +150,8 @@ class HexaqueueProfileConfig(BaseModel):
         default=True, description="Fall back to local execution if cluster offline"
     )
     free_tier: bool = Field(
-        default=False, description="Enforce zero-cost free-tier guards"
+        default=True,
+        description="Enforce zero-cost free-tier guards ($0.00 spend ceiling)",
     )
     mode: str = Field(
         default="subprocess",
@@ -114,7 +195,10 @@ class HexaqueueProjectConfig(BaseModel):
         default_factory=HexaqueueContainerConfig
     )
     fallback: bool = Field(default=True)
-    free_tier: bool = Field(default=False)
+    free_tier: bool = Field(
+        default=True,
+        description="Default zero-cost free-tier guards ($0.00 spend ceiling)",
+    )
     mode: str = Field(default="subprocess")
     pool: str = Field(default="default")
     profiles: dict[str, HexaqueueProfileConfig] = Field(default_factory=dict)
@@ -267,10 +351,17 @@ def _apply_env_overrides(values: dict[str, Any], env: dict[str, str]) -> None:
         values["pool"] = env["HEXAQUEUE_POOL"]
     if "HEXAQUEUE_MODE" in env:
         values["mode"] = env["HEXAQUEUE_MODE"]
-    if "HEXAQUEUE_FREE_TIER" in env:
-        values["free_tier"] = env["HEXAQUEUE_FREE_TIER"].lower() in ("1", "true", "yes")
     if "HEXAQUEUE_FALLBACK" in env:
-        values["fallback"] = env["HEXAQUEUE_FALLBACK"].lower() in ("1", "true", "yes")
+        values["fallback"] = parse_bool(env["HEXAQUEUE_FALLBACK"], default=True)
+
+    paid_env = env.get("HEXAQUEUE_PAID")
+    free_env = env.get("HEXAQUEUE_FREE_TIER", env.get("HEXAQUEUE_FREE"))
+    cost_override = resolve_cost_preference(
+        paid=paid_env, free_tier=free_env, source="environment variables"
+    )
+    if cost_override is not None:
+        values["free_tier"] = cost_override
+
     if "HEXAQUEUE_WORKER_IMAGE" in env:
         values["container"] = HexaqueueContainerConfig(
             image=env["HEXAQUEUE_WORKER_IMAGE"],
@@ -285,10 +376,18 @@ def _apply_cli_overrides(values: dict[str, Any], overrides: dict[str, Any]) -> N
             values[str_key] = overrides[str_key]
     if "slices" in overrides:
         values["slices"] = int(overrides["slices"])
-    for bool_key in ("free_tier", "fallback"):
-        if bool_key in overrides:
-            values[bool_key] = bool(overrides[bool_key])
-    if "container" in overrides and overrides["container"]:
+    if "fallback" in overrides:
+        values["fallback"] = parse_bool(overrides["fallback"], default=True)
+
+    cost_override = resolve_cost_preference(
+        paid=overrides.get("paid"),
+        free_tier=overrides.get("free_tier"),
+        source="CLI options",
+    )
+    if cost_override is not None:
+        values["free_tier"] = cost_override
+
+    if "container" in overrides and parse_bool(overrides["container"]):
         values["mode"] = "container"
     if "worker_image" in overrides:
         values["container"] = HexaqueueContainerConfig(
@@ -315,8 +414,9 @@ def resolve_runner_config(
         Fully resolved HexaqueueProfileConfig.
 
     Notes/Architectural Intent:
-        Follows Twelve-Factor and ADR-001 principles: clean separation between
+        Follows Twelve-Factor and ADR-001/ADR-003 principles: clean separation between
         static config files, active environment profiles, and dynamic invocation overrides.
+        Guarantees zero-spend by default (free_tier=True) to prevent accidental cloud budget spend.
     """
     cfg = project_config or HexaqueueProjectConfig()
     active_env = env if env is not None else dict(os.environ)
@@ -354,5 +454,7 @@ __all__ = [
     "HexaqueueProfileConfig",
     "HexaqueueProjectConfig",
     "load_project_config",
+    "parse_bool",
+    "resolve_cost_preference",
     "resolve_runner_config",
 ]

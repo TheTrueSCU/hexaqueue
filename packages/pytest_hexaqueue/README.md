@@ -174,6 +174,11 @@ fallback = false
 free_tier = true
 slices = 4
 pool = "arm64-always-free"
+
+[tool.hexaqueue.profiles.paid-cloud]
+free_tier = false
+slices = 8
+mode = "csp"
 ```
 
 ### CLI Overrides Reference
@@ -182,13 +187,14 @@ pool = "arm64-always-free"
 |---|---|---|---|
 | `--hexaqueue` | `HEXAQUEUE_PYTEST` | `False` | Enable Hexaqueue distributed test execution |
 | `--hq-config` | `HEXAQUEUE_CONFIG` | None | Path to configuration file (`pyproject.toml` or `hexaqueue.yaml`) |
-| `--hq-profile` | `HEXAQUEUE_PROFILE` | None | Active configuration profile name (e.g., `ci`, `container`, `free-tier`) |
+| `--hq-profile` | `HEXAQUEUE_PROFILE` | None | Active configuration profile name (e.g., `ci`, `container`, `paid-cloud`) |
 | `--hq-server` | `HEXAQUEUE_SERVER_URL` | Config / `http://127.0.0.1:8000` | Hexaqueue cluster controller base URL |
 | `--hq-token` | `HEXAQUEUE_API_TOKEN` | None | Authentication bearer token |
 | `--hq-slices` | `HEXAQUEUE_SLICES` | Config / `4` | Number of parallel execution slices |
 | `--hq-container` | `HEXAQUEUE_CONTAINER` | Config / `False` | Execute slices inside isolated OCI container sandboxes |
 | `--hq-image` | `HEXAQUEUE_WORKER_IMAGE` | Config / `latest` | Container image tag for worker runtime |
 | `--hq-pool` | `HEXAQUEUE_POOL` | Config / `default` | Target compute instance pool for runner placement |
-| `--hq-free-tier` | `HEXAQUEUE_FREE_TIER` | Config / `False` | Enforce zero-cost Multi-CSP Free-Tier mesh execution ($0.00 spend) |
+| `--hq-paid` | `HEXAQUEUE_PAID` | Config / `False` | Authorize paid cloud compute (disables zero-cost free-tier guardrails) |
+| `--hq-free-tier` | `HEXAQUEUE_FREE_TIER` | Config / `True` | Enforce zero-cost Multi-CSP Free-Tier mesh execution ($0.00 spend ceiling) |
 | `--hq-fallback` | `HEXAQUEUE_LOCAL_FALLBACK` | Config / `True` | Fall back to local in-process execution if cluster is unreachable |
 | `--hq-slicer` | `HEXAQUEUE_SLICER` | Config / `round-robin` | Test partitioning algorithm: `round-robin` or `file` |

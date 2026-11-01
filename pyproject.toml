@@ -111,6 +111,11 @@ free_tier = true
 slices = 4
 pool = "arm64-always-free"
 
+[tool.hexaqueue.profiles.paid-cloud]
+free_tier = false
+slices = 8
+mode = "csp"
+
 [tool.pytest.ini_options]
 testpaths = ["packages", "tests"]
 norecursedirs = ["examples", ".venv", "dist", "build", ".hypothesis", ".mutmut-cache"]

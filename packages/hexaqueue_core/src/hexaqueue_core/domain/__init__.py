@@ -200,6 +200,8 @@ from hexaqueue_core.domain.runner_config import (
     HexaqueueProjectConfig,
     discover_config_file,
     load_project_config,
+    parse_bool,
+    resolve_cost_preference,
     resolve_runner_config,
 )
 from hexaqueue_core.domain.scheduling import (
@@ -362,6 +364,7 @@ __all__ = [
     "NotifyLogUploadCompleteCommand",
     "OCI_ALWAYS_FREE_PROFILE",
     "OciCredentialsConfig",
+    "parse_bool",
     "PendingReason",
     "PendingReasonCode",
     "PermissionDeniedError",
@@ -379,6 +382,7 @@ __all__ = [
     "ReleaseJobCommand",
     "RequestLogUploadUrlCommand",
     "ReservationState",
+    "resolve_cost_preference",
     "resolve_runner_config",
     "ResolvedContext",
     "ResolvedJobCollection",

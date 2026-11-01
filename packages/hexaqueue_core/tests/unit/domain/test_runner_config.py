@@ -9,6 +9,8 @@ from hexaqueue_core.domain.runner_config import (
     HexaqueueProjectConfig,
     discover_config_file,
     load_project_config,
+    parse_bool,
+    resolve_cost_preference,
     resolve_runner_config,
 )
 
@@ -20,7 +22,7 @@ def test_default_project_config() -> None:
     assert cfg.slices == 4
     assert cfg.slicer == "round-robin"
     assert cfg.fallback is True
-    assert cfg.free_tier is False
+    assert cfg.free_tier is True
     assert cfg.mode == "subprocess"
     assert cfg.container.image == "hexaqueue-worker:latest"
     assert cfg.profiles == {}
@@ -168,3 +170,74 @@ def test_resolve_runner_config_layers() -> None:
     assert res_cli.slices == 16
     assert res_cli.mode == "container"
     assert res_cli.container.image == "cli-image:v4"
+
+
+def test_parse_bool() -> None:
+    """Verify boolean parsing handles truthy, falsy, None, and fallbacks."""
+    for truthy in ("1", "true", "True", "YES", "yes", "on", "ON", True):
+        assert parse_bool(truthy) is True
+
+    for falsy in ("0", "false", "FALSE", "no", "NO", "off", "OFF", False):
+        assert parse_bool(falsy) is False
+
+    assert parse_bool(None, default=True) is True
+    assert parse_bool(None, default=False) is False
+    assert parse_bool("unknown-value", default=True) is True
+
+
+def test_resolve_cost_preference_clean() -> None:
+    """Verify resolve_cost_preference for non-conflicting states."""
+    assert resolve_cost_preference(paid=None, free_tier=None) is None
+    assert resolve_cost_preference(paid=True, free_tier=None) is False
+    assert resolve_cost_preference(paid=None, free_tier=True) is True
+    assert resolve_cost_preference(paid=False, free_tier=None) is True
+    assert resolve_cost_preference(paid=None, free_tier=False) is False
+
+
+def test_resolve_cost_preference_conflict_defaults_to_free() -> None:
+    """Verify conflict between paid and free triggers warning and defaults to free tier."""
+    import pytest
+
+    with pytest.warns(UserWarning, match="both paid and free tier requested"):
+        res = resolve_cost_preference(
+            paid=True, free_tier=True, source="test environment"
+        )
+        assert res is True
+
+
+def test_resolve_runner_config_cost_env_and_cli() -> None:
+    """Verify cost preference resolution across env variables and CLI overrides."""
+    import pytest
+
+    base = HexaqueueProjectConfig()
+    assert base.free_tier is True
+
+    # 1. Authorize paid via env
+    res_paid_env = resolve_runner_config(
+        project_config=base, env={"HEXAQUEUE_PAID": "1"}
+    )
+    assert res_paid_env.free_tier is False
+
+    # 2. Conflict in env triggers warning and defaults to free
+    with pytest.warns(UserWarning, match="both paid and free tier requested"):
+        res_conflict_env = resolve_runner_config(
+            project_config=base,
+            env={"HEXAQUEUE_PAID": "1", "HEXAQUEUE_FREE_TIER": "1"},
+        )
+        assert res_conflict_env.free_tier is True
+
+    # 3. CLI override unlocks paid
+    res_cli_paid = resolve_runner_config(
+        project_config=base,
+        env={"HEXAQUEUE_FREE_TIER": "1"},
+        cli_overrides={"paid": True},
+    )
+    assert res_cli_paid.free_tier is False
+
+    # 4. CLI conflict triggers warning and defaults to free
+    with pytest.warns(UserWarning, match="both paid and free tier requested"):
+        res_cli_conflict = resolve_runner_config(
+            project_config=base,
+            cli_overrides={"paid": True, "free_tier": True},
+        )
+        assert res_cli_conflict.free_tier is True
