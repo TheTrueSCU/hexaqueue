@@ -30,6 +30,7 @@ hexaqueue-scanner = { workspace = true }
 hexaqueue-server = { workspace = true }
 hexaqueue-worker = { workspace = true }
 hexaqueue-workflow = { workspace = true }
+pytest-hexaqueue = { workspace = true }
 
 [dependency-groups]
 dev = [

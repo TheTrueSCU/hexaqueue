@@ -23,6 +23,7 @@ members = [
     "hexaqueue-worker",
     "hexaqueue-workflow",
     "hexaqueue-workspace",
+    "pytest-hexaqueue",
 ]
 
 [[package]]
@@ -1029,11 +1030,15 @@ dependencies = [
     { name = "hexaqueue-server" },
     { name = "hexaqueue-worker" },
     { name = "hexaqueue-workflow" },
+    { name = "pytest-hexaqueue" },
 ]
 
 [package.optional-dependencies]
 github = [
     { name = "hexaqueue-server", extra = ["github"] },
+]
+pytest = [
+    { name = "pytest-hexaqueue" },
 ]
 sentry = [
     { name = "hexaqueue-worker", extra = ["sentry"] },
@@ -1055,8 +1060,10 @@ requires-dist = [
     { name = "hexaqueue-worker", editable = "packages/hexaqueue_worker" },
     { name = "hexaqueue-worker", extras = ["sentry"], marker = "extra == 'sentry'", editable = "packages/hexaqueue_worker" },
     { name = "hexaqueue-workflow", editable = "packages/hexaqueue_workflow" },
+    { name = "pytest-hexaqueue", editable = "packages/pytest_hexaqueue" },
+    { name = "pytest-hexaqueue", marker = "extra == 'pytest'", editable = "packages/pytest_hexaqueue" },
 ]
-provides-extras = ["github", "sentry"]
+provides-extras = ["github", "pytest", "sentry"]
 
 [[package]]
 name = "hexaqueue-cli"
@@ -2740,6 +2747,27 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/3b/b6/74470cd5b97eb0cf5f3d7e2ef7feb2d6136b5cbe2df6e070299c5faf5e7c/pytest_gremlins-1.9.0.tar.gz", hash = "sha256:12966b4d24146b46d58aa1dc8a6d0881918863ca4454a44d109b295f22d27c24", size = 4013393, upload-time = "2026-07-01T12:55:33.149Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f6/f7/f582cd587ebdfad6e7f6426ca3220b051d7adb41c824576851732843777a/pytest_gremlins-1.9.0-py3-none-any.whl", hash = "sha256:26997e1e6ac0cbdef70c68ddadbbd2bf93c7d41e143d9f2d84ec318b7d552b67", size = 118421, upload-time = "2026-07-01T12:55:31.708Z" },
+]
+
+[[package]]
+name = "pytest-hexaqueue"
+version = "0.5.0"
+source = { editable = "packages/pytest_hexaqueue" }
+dependencies = [
+    { name = "hexaqueue-collateral" },
+    { name = "hexaqueue-core" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "hexaqueue-collateral", editable = "packages/hexaqueue_collateral" },
+    { name = "hexaqueue-core", editable = "packages/hexaqueue_core" },
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", specifier = ">=8.3.0" },
 ]
 
 [[package]]

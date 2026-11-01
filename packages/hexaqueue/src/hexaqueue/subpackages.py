@@ -22,6 +22,7 @@ ALL_SUBPACKAGES: list[str] = [
     "gitlab_runner",
     "kueue",
     "monitor",
+    "pytest",
     "scanner",
     "server",
     "worker",
@@ -49,7 +50,9 @@ def discover_and_register_subpackages(
     """
     installed: list[str] = []
     for shorthand in shorthands:
-        module_name = f"hexaqueue_{shorthand}"
+        module_name = (
+            "pytest_hexaqueue" if shorthand == "pytest" else f"hexaqueue_{shorthand}"
+        )
         if importlib.util.find_spec(module_name) is not None:
             try:
                 mod = importlib.import_module(module_name)
@@ -92,7 +95,11 @@ def handle_missing_subpackage(name: str, known_shorthands: list[str]) -> Any:
         AttributeError: Always raised with installation guidance.
     """
     if name in known_shorthands:
-        pkg_name = f"hexaqueue-{name.replace('_', '-')}"
+        pkg_name = (
+            "pytest-hexaqueue"
+            if name == "pytest"
+            else f"hexaqueue-{name.replace('_', '-')}"
+        )
         msg = (
             f"Subpackage '{name}' is part of the Hexaqueue ecosystem but is not "
             f"currently installed in this environment.\n"

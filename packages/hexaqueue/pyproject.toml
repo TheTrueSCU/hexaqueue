@@ -21,11 +21,15 @@ dependencies = [
     "hexaqueue-server",
     "hexaqueue-worker",
     "hexaqueue-workflow",
+    "pytest-hexaqueue",
 ]
 
 [project.optional-dependencies]
 github = [
     "hexaqueue-server[github]",
+]
+pytest = [
+    "pytest-hexaqueue",
 ]
 sentry = [
     "hexaqueue-worker[sentry]",
@@ -48,3 +52,4 @@ hexaqueue-scanner = { workspace = true }
 hexaqueue-server = { workspace = true }
 hexaqueue-worker = { workspace = true }
 hexaqueue-workflow = { workspace = true }
+pytest-hexaqueue = { workspace = true }
