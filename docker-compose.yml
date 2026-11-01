@@ -1,0 +1,57 @@
+# Hexaqueue Local Multi-Worker Docker Compose Manifest
+services:
+  server:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: server
+    image: hexaqueue-server:latest
+    container_name: hexaqueue-server
+    ports:
+      - "8000:8000"
+    environment:
+      - HEXAQUEUE_HOST=0.0.0.0
+      - HEXAQUEUE_PORT=8000
+      - HEXAQUEUE_API_TOKEN=${HEXAQUEUE_API_TOKEN:-local-dev-token}
+      - HEXAQUEUE_LOG_LEVEL=info
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+
+  worker-1:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: worker
+    image: hexaqueue-worker:latest
+    container_name: hexaqueue-worker-1
+    depends_on:
+      server:
+        condition: service_healthy
+    environment:
+      - HEXAQUEUE_SERVER_URL=http://server:8000
+      - HEXAQUEUE_API_TOKEN=${HEXAQUEUE_API_TOKEN:-local-dev-token}
+      - HEXAQUEUE_WORKER_ID=worker-container-1
+      - HEXAQUEUE_POOL=container
+    restart: unless-stopped
+
+  worker-2:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: worker
+    image: hexaqueue-worker:latest
+    container_name: hexaqueue-worker-2
+    depends_on:
+      server:
+        condition: service_healthy
+    environment:
+      - HEXAQUEUE_SERVER_URL=http://server:8000
+      - HEXAQUEUE_API_TOKEN=${HEXAQUEUE_API_TOKEN:-local-dev-token}
+      - HEXAQUEUE_WORKER_ID=worker-container-2
+      - HEXAQUEUE_POOL=container
+    restart: unless-stopped

@@ -8,8 +8,11 @@ Notes/Architectural Intent:
 """
 
 import asyncio
+import shutil
 import sys
 import time
+import uuid
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
@@ -40,6 +43,8 @@ class TestRunDispatchRequest(BaseModel):
     session_id: str
     pool: str = "default"
     free_tier: bool = False
+    container: bool = False
+    container_image: str | None = None
     slices: list[TestSliceDispatch] = Field(default_factory=list)
     bundle: dict[str, Any] | None = None
 
@@ -79,27 +84,41 @@ class TestRunDispatchResponse(BaseModel):
     reports: list[SliceOutcomeResponse] = Field(default_factory=list)
 
 
-async def _execute_slice(
+def _build_slice_cmd(
     slice_spec: TestSliceDispatch,
     worker_index: int,
-    is_free_tier: bool,
-) -> SliceOutcomeResponse:
-    """Execute a single test slice in a dedicated worker subprocess."""
+    is_container: bool,
+    container_image: str | None,
+) -> tuple[list[str], str, str]:
+    """Construct execution command line, provider name, and worker ID for a slice."""
+    if is_container:
+        container_bin = shutil.which("docker") or shutil.which("podman") or "docker"
+        image = container_image or "hexaqueue-worker:latest"
+        provider = "CONTAINER"
+        worker_id = f"worker-container-{worker_index}"
+        unique_suffix = uuid.uuid4().hex[:8]
+        cmd = [
+            container_bin,
+            "run",
+            "--rm",
+            "--name",
+            f"hq-slice-{slice_spec.slice_id}-{unique_suffix}",
+            "-v",
+            f"{Path.cwd()}:/workspace",
+            "-w",
+            "/workspace",
+            image,
+            "pytest",
+            *slice_spec.test_nodeids,
+            "-o",
+            "addopts=",
+            "--tb=short",
+            "-q",
+        ]
+        return cmd, provider, worker_id
+
+    provider = "LOCAL"
     worker_id = f"worker-local-{worker_index}"
-    start_time = time.monotonic()
-    outcomes: list[TestOutcomeRecord] = []
-
-    if not slice_spec.test_nodeids:
-        return SliceOutcomeResponse(
-            slice_id=slice_spec.slice_id,
-            slice_index=slice_spec.slice_index,
-            worker_id=worker_id,
-            provider="LOCAL",
-            is_free_tier=is_free_tier,
-            outcomes=[],
-            duration_seconds=0.0,
-        )
-
     cmd = [
         sys.executable,
         "-m",
@@ -110,6 +129,55 @@ async def _execute_slice(
         "--tb=short",
         "-q",
     ]
+    return cmd, provider, worker_id
+
+
+def _create_outcome_records(
+    test_nodeids: list[str],
+    outcome: str,
+    duration: float,
+    stdout: str | None = None,
+    stderr: str | None = None,
+    longrepr: str | None = None,
+) -> list[TestOutcomeRecord]:
+    """Create per-test outcome records partitioned across a slice."""
+    per_item_duration = duration / max(1, len(test_nodeids))
+    return [
+        TestOutcomeRecord(
+            nodeid=nid,
+            outcome=outcome,
+            duration_seconds=round(per_item_duration, 3),
+            stdout=stdout,
+            stderr=stderr,
+            longrepr=longrepr,
+        )
+        for nid in test_nodeids
+    ]
+
+
+async def _execute_slice(
+    slice_spec: TestSliceDispatch,
+    worker_index: int,
+    is_free_tier: bool,
+    is_container: bool = False,
+    container_image: str | None = None,
+) -> SliceOutcomeResponse:
+    """Execute a single test slice in a dedicated worker subprocess or container."""
+    cmd, provider, worker_id = _build_slice_cmd(
+        slice_spec, worker_index, is_container, container_image
+    )
+    start_time = time.monotonic()
+
+    if not slice_spec.test_nodeids:
+        return SliceOutcomeResponse(
+            slice_id=slice_spec.slice_id,
+            slice_index=slice_spec.slice_index,
+            worker_id=worker_id,
+            provider=provider,
+            is_free_tier=is_free_tier,
+            outcomes=[],
+            duration_seconds=0.0,
+        )
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -124,44 +192,37 @@ async def _execute_slice(
 
         default_outcome = "passed" if exit_code == 0 else "failed"
         slice_duration = max(0.001, time.monotonic() - start_time)
-        per_item_duration = slice_duration / max(1, len(slice_spec.test_nodeids))
 
-        for nid in slice_spec.test_nodeids:
-            outcomes.append(
-                TestOutcomeRecord(
-                    nodeid=nid,
-                    outcome=default_outcome,
-                    duration_seconds=round(per_item_duration, 3),
-                    stdout=stdout_text if exit_code != 0 else None,
-                    stderr=stderr_text if exit_code != 0 else None,
-                )
-            )
+        outcomes = _create_outcome_records(
+            slice_spec.test_nodeids,
+            outcome=default_outcome,
+            duration=slice_duration,
+            stdout=stdout_text if exit_code != 0 else None,
+            stderr=stderr_text if exit_code != 0 else None,
+        )
 
         return SliceOutcomeResponse(
             slice_id=slice_spec.slice_id,
             slice_index=slice_spec.slice_index,
             worker_id=worker_id,
-            provider="LOCAL",
+            provider=provider,
             is_free_tier=is_free_tier,
             outcomes=outcomes,
             duration_seconds=round(slice_duration, 3),
         )
     except Exception as exc:
         slice_duration = max(0.001, time.monotonic() - start_time)
-        for nid in slice_spec.test_nodeids:
-            outcomes.append(
-                TestOutcomeRecord(
-                    nodeid=nid,
-                    outcome="failed",
-                    duration_seconds=0.0,
-                    longrepr=str(exc),
-                )
-            )
+        outcomes = _create_outcome_records(
+            slice_spec.test_nodeids,
+            outcome="failed",
+            duration=0.0,
+            longrepr=str(exc),
+        )
         return SliceOutcomeResponse(
             slice_id=slice_spec.slice_id,
             slice_index=slice_spec.slice_index,
             worker_id=worker_id,
-            provider="LOCAL",
+            provider=provider,
             is_free_tier=is_free_tier,
             outcomes=outcomes,
             duration_seconds=round(slice_duration, 3),
@@ -186,7 +247,17 @@ def create_test_runs_router() -> APIRouter:
         auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> TestRunDispatchResponse:
         """Receive test slices and execute them concurrently across worker nodes."""
-        tasks = [_execute_slice(s, i, req.free_tier) for i, s in enumerate(req.slices)]
+        is_container = req.container or req.pool == "container"
+        tasks = [
+            _execute_slice(
+                s,
+                i,
+                req.free_tier,
+                is_container=is_container,
+                container_image=req.container_image,
+            )
+            for i, s in enumerate(req.slices)
+        ]
         reports = await asyncio.gather(*tasks)
         return TestRunDispatchResponse(reports=list(reports))
 

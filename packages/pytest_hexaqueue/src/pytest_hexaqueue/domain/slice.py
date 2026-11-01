@@ -69,11 +69,19 @@ class TestRunSession(BaseModel):
         server_url: Target Hexaqueue cluster controller API URL.
         pool: Target compute pool for runner placement.
         free_tier: Whether execution is governed under zero-cost Free-Tier Safety Mode.
+        container: Whether to execute slices inside isolated OCI container sandboxes.
+        container_image: Optional container image tag for worker runtime.
     """
 
     __test__ = False
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    container: bool = Field(
+        default=False, description="Execute slices inside container worker runtime"
+    )
+    container_image: str | None = Field(
+        default=None, description="Optional container image for worker runtime"
+    )
     free_tier: bool = Field(
         default=False, description="Enforce zero-cost Free-Tier limits"
     )

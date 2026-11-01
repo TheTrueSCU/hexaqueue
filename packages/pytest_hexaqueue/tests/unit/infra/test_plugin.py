@@ -42,6 +42,8 @@ def test_pytest_addoption() -> None:
     assert "hexaqueue_api_token" in dest_names
     assert "hexaqueue_free_tier" in dest_names
     assert "hexaqueue_fallback" in dest_names
+    assert "hexaqueue_container" in dest_names
+    assert "hexaqueue_worker_image" in dest_names
 
 
 def test_pytest_configure() -> None:
@@ -271,3 +273,37 @@ def test_pytest_terminal_summary_disabled_or_empty() -> None:
     reporter.reset_mock()
     pytest_terminal_summary(reporter, exitstatus=0, config=config)
     reporter.section.assert_not_called()
+
+
+def test_pytest_terminal_summary_containerized() -> None:
+    """Test terminal summary includes containerized topology label."""
+    reporter = MagicMock()
+    config = MagicMock()
+
+    def getoption(name: str, default: bool | int | str = False) -> bool | int | str:
+        if name == "hexaqueue_enabled":
+            return True
+        if name == "hexaqueue_container":
+            return True
+        if name == "hexaqueue_free_tier":
+            return False
+        return default
+
+    config.getoption.side_effect = getoption
+    report = SliceOutcomeReport(
+        slice_id="slice-0",
+        slice_index=0,
+        worker_id="worker-container-0",
+        provider="CONTAINER",
+        is_free_tier=False,
+        outcomes=[TestOutcomeItem(nodeid="t1", outcome="passed")],
+        duration_seconds=1.23,
+    )
+    config.stash = {_REPORTS_KEY: [report]}
+
+    pytest_terminal_summary(reporter, exitstatus=0, config=config)
+    reporter.section.assert_called_with("Hexaqueue Distributed Execution Summary")
+    # Verify that Containerized label was rendered
+    written_lines = [call[0][0] for call in reporter.write_line.call_args_list]
+    has_cont = any("Containerized" in line for line in written_lines)
+    assert has_cont is True

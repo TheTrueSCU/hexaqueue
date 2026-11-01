@@ -88,6 +88,20 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         dest="hexaqueue_slicer",
         help="Test partitioning algorithm: 'round-robin' or 'file'",
     )
+    group.addoption(
+        "--hq-container",
+        action="store_true",
+        default=False,
+        dest="hexaqueue_container",
+        help="Execute test slices inside isolated OCI container sandboxes (Docker / Podman)",
+    )
+    group.addoption(
+        "--hq-image",
+        action="store",
+        default=os.environ.get("HEXAQUEUE_WORKER_IMAGE", "hexaqueue-worker:latest"),
+        dest="hexaqueue_worker_image",
+        help="Container image tag used for containerized worker execution",
+    )
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -207,6 +221,8 @@ def pytest_runtestloop(session: pytest.Session) -> bool | None:
     pool = session.config.getoption("hexaqueue_pool")
     free_tier = session.config.getoption("hexaqueue_free_tier", default=False)
     allow_fallback = session.config.getoption("hexaqueue_fallback", default=True)
+    container = session.config.getoption("hexaqueue_container", default=False)
+    container_image = session.config.getoption("hexaqueue_worker_image", default=None)
 
     client: HexaqueueTestDispatchPort = session.config.stash.get(
         _CLIENT_KEY,
@@ -225,6 +241,8 @@ def pytest_runtestloop(session: pytest.Session) -> bool | None:
         server_url=server_url,
         pool=pool,
         free_tier=free_tier,
+        container=container,
+        container_image=container_image,
     )
 
     async def _execute() -> list[SliceOutcomeReport] | None:
@@ -272,9 +290,13 @@ def pytest_terminal_summary(
 
     terminalreporter.section("Hexaqueue Distributed Execution Summary")
     free_tier = config.getoption("hexaqueue_free_tier", default=False)
+    container = config.getoption("hexaqueue_container", default=False)
+    container_label = " (Containerized)" if container else ""
     tier_label = " (Verified $0.00 Multi-CSP Free-Tier)" if free_tier else ""
 
-    terminalreporter.write_line(f"Topology: {len(reports)} Remote Slices{tier_label}")
+    terminalreporter.write_line(
+        f"Topology: {len(reports)} Remote Slices{container_label}{tier_label}"
+    )
     for rep in reports:
         prov_label = f" [{rep.provider}]" if rep.provider else ""
         terminalreporter.write_line(
