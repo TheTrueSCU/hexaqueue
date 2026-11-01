@@ -23,6 +23,7 @@ from hexaqueue_server.adapters.api.logs import create_logs_router
 from hexaqueue_server.adapters.api.middleware import ZeroTrustBoundaryMiddleware
 from hexaqueue_server.adapters.api.nodes import create_nodes_router
 from hexaqueue_server.adapters.api.runs import create_runs_router
+from hexaqueue_server.adapters.api.test_runs import create_test_runs_router
 from hexaqueue_server.adapters.api.webhooks import create_webhooks_router
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
 from hexaqueue_server.adapters.mcp import mount_mcp_server
@@ -45,6 +46,7 @@ def create_server_api_router(
     router = APIRouter(prefix="/v1")
     if cfg.runs:
         router.include_router(create_runs_router())
+        router.include_router(create_test_runs_router())
     if cfg.jobs:
         router.include_router(create_jobs_router())
     if cfg.logs:
@@ -99,6 +101,11 @@ def create_server_app(
     container.add_instance(effective_pipeline, declared_class=ExecutionPipeline)
 
     app = create_fastapi_app(container=container, pipeline=effective_pipeline)
+
+    @app.get("/health", summary="Cluster health check", tags=["Health"])
+    def cluster_health() -> dict[str, str]:
+        return {"status": "ok"}
+
     api_router = create_server_api_router(server_cfg.interfaces)
     app.include_router(api_router)
     app.include_router(api_router, prefix="/api")

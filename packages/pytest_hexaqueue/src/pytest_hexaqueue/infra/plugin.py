@@ -9,9 +9,12 @@ Notes/Architectural Intent:
 import asyncio
 import os
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import pytest
+
+if TYPE_CHECKING:
+    from pytest_hexaqueue.domain.outcome import SliceOutcomeReport
 
 _SLICES_KEY: pytest.StashKey[list[Any]] = pytest.StashKey()
 _REPORTS_KEY: pytest.StashKey[list[Any]] = pytest.StashKey()
@@ -93,6 +96,13 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "hexaqueue: mark test for execution on Hexaqueue distributed cluster",
     )
+    if config.getoption("hexaqueue_enabled", default=False):
+        # When Hexaqueue handles distributed slice orchestration, disable
+        # pytest-xdist local worker loops to prevent runner conflict.
+        if hasattr(config.option, "numprocesses"):
+            config.option.numprocesses = 0
+        if hasattr(config.option, "dist"):
+            config.option.dist = "no"
 
 
 def _get_slicer(strategy: str) -> Any:
@@ -132,6 +142,43 @@ def pytest_collection_finish(session: pytest.Session) -> None:
 
     slices = slicer.slice_items(items, num_slices)
     session.config.stash[_SLICES_KEY] = slices
+
+
+def _notify_session_reports(
+    session: pytest.Session, reports: list["SliceOutcomeReport"]
+) -> None:
+    """Propagate distributed slice outcomes to pytest session and terminal reporters."""
+    total_failed = sum(r.failed_count for r in reports)
+    session.testsfailed = getattr(session, "testsfailed", 0) + total_failed
+    if total_failed > 0:
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+    else:
+        session.exitstatus = pytest.ExitCode.OK
+
+    items_by_nodeid = {item.nodeid: item for item in session.items}
+    for rep in reports:
+        for out in rep.outcomes:
+            item = items_by_nodeid.get(out.nodeid)
+            location = (
+                item.location if item is not None else (out.nodeid, 0, out.nodeid)
+            )
+            keywords = dict.fromkeys(item.keywords, 1) if item is not None else {}
+            outcome_literal: Literal["passed", "failed", "skipped"] = (
+                "passed"
+                if out.outcome == "passed"
+                else ("skipped" if out.outcome == "skipped" else "failed")
+            )
+            tr = pytest.TestReport(
+                nodeid=out.nodeid,
+                location=location,
+                keywords=keywords,
+                outcome=outcome_literal,
+                longrepr=out.longrepr
+                or (out.stderr if outcome_literal == "failed" else None),
+                when="call",
+                duration=out.duration_seconds,
+            )
+            session.config.hook.pytest_runtest_logreport(report=tr)
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -201,6 +248,7 @@ def pytest_runtestloop(session: pytest.Session) -> bool | None:
         return None
 
     session.config.stash[_REPORTS_KEY] = reports
+    _notify_session_reports(session, reports)
     return True
 
 
