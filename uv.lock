@@ -981,7 +981,7 @@ wheels = [
 
 [[package]]
 name = "hexaqual"
-version = "0.9.10"
+version = "0.10.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "complexipy" },
@@ -998,9 +998,9 @@ dependencies = [
     { name = "rich" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3a/2d/96cf33227966353353f0bf0d706416f4c9af5442e5e9dd71b7d5b5c4d008/hexaqual-0.9.10.tar.gz", hash = "sha256:72470dae1348e5f261c70fcbe1cecb7adb4b2bf33279b1e9d8675a939948aec5", size = 6577392, upload-time = "2026-10-27T00:36:25.279Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5f/74/0992eb0937e9fe7e5c79886042ced47dd988f6f5a716ef6315158996170d/hexaqual-0.10.0.tar.gz", hash = "sha256:691ca9ff834633031e279f4a04296e19d4ca7796b1b3fd65b78f85e7663d47fd", size = 6579499, upload-time = "2026-11-01T21:10:44.026Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/86/d6/8a83a4cf99dcbfd4ea23204250120ba3e2926b7b032045cbee9becd635a9/hexaqual-0.9.10-py3-none-any.whl", hash = "sha256:873afc64ea7f082e521d186a4fa9af4692cbc5df5768d1870391fbc8b2b98867", size = 314816, upload-time = "2026-10-27T00:36:23.87Z" },
+    { url = "https://files.pythonhosted.org/packages/b3/2b/403c9f6b121afb30ebdd3d0f10a0cb91f32d8c6faff44d25658acea0b59f/hexaqual-0.10.0-py3-none-any.whl", hash = "sha256:4fbde48416807a01926073b94208a27c5ea29d20461e7fc141bdcd5eb7a1d42b", size = 314999, upload-time = "2026-11-01T21:10:42.213Z" },
 ]
 
 [package.optional-dependencies]
@@ -1409,7 +1409,7 @@ dev = [
     { name = "detect-secrets", specifier = ">=1.5.0" },
     { name = "diagrams", specifier = ">=0.23.0" },
     { name = "faker", specifier = ">=33.0.0" },
-    { name = "hexaqual", extras = ["all"], specifier = ">=0.9.10" },
+    { name = "hexaqual", extras = ["all"], specifier = ">=0.10.0" },
     { name = "hexastack-cli", specifier = ">=0.11.0" },
     { name = "hypothesis", specifier = ">=6.120.0" },
     { name = "import-linter", specifier = ">=2.13" },
