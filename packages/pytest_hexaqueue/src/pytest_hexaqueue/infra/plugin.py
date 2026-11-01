@@ -72,6 +72,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Fall back to local in-process execution if cluster is unreachable",
     )
     group.addoption(
+        "--no-hq-fallback",
+        action="store_false",
+        dest="hexaqueue_fallback",
+        help="Disable local fallback and fail if cluster is unreachable",
+    )
+    group.addoption(
         "--hq-slicer",
         action="store",
         default="round-robin",
@@ -101,6 +107,7 @@ def _get_slicer(strategy: str) -> Any:
     return RoundRobinTestSlicer()
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_collection_finish(session: pytest.Session) -> None:
     """Intercept test collection, extract item metadata, and partition into slices."""
     if not session.config.getoption("hexaqueue_enabled", default=False):
@@ -127,6 +134,7 @@ def pytest_collection_finish(session: pytest.Session) -> None:
     session.config.stash[_SLICES_KEY] = slices
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_runtestloop(session: pytest.Session) -> bool | None:
     """Execute distributed test loop dispatching slices across cluster workers."""
     if not session.config.getoption("hexaqueue_enabled", default=False):
