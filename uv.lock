@@ -1034,6 +1034,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+dotenv = [
+    { name = "hexaqueue-core", extra = ["dotenv"] },
+]
 github = [
     { name = "hexaqueue-server", extra = ["github"] },
 ]
@@ -1049,6 +1052,7 @@ requires-dist = [
     { name = "hexaqueue-cli", editable = "packages/hexaqueue_cli" },
     { name = "hexaqueue-collateral", editable = "packages/hexaqueue_collateral" },
     { name = "hexaqueue-core", editable = "packages/hexaqueue_core" },
+    { name = "hexaqueue-core", extras = ["dotenv"], marker = "extra == 'dotenv'", editable = "packages/hexaqueue_core" },
     { name = "hexaqueue-dashboard", editable = "packages/hexaqueue_dashboard" },
     { name = "hexaqueue-github-runner", editable = "packages/hexaqueue_github_runner" },
     { name = "hexaqueue-gitlab-runner", editable = "packages/hexaqueue_gitlab_runner" },
@@ -1063,7 +1067,7 @@ requires-dist = [
     { name = "pytest-hexaqueue", editable = "packages/pytest_hexaqueue" },
     { name = "pytest-hexaqueue", marker = "extra == 'pytest'", editable = "packages/pytest_hexaqueue" },
 ]
-provides-extras = ["github", "pytest", "sentry"]
+provides-extras = ["dotenv", "github", "pytest", "sentry"]
 
 [[package]]
 name = "hexaqueue-cli"
@@ -1130,13 +1134,20 @@ dependencies = [
     { name = "pydantic" },
 ]
 
+[package.optional-dependencies]
+dotenv = [
+    { name = "python-dotenv" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "cryptography", specifier = ">=42.0.0" },
     { name = "hexastack-core", specifier = ">=0.11.0" },
     { name = "hexastack-cqrs", specifier = ">=0.11.0" },
     { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "python-dotenv", marker = "extra == 'dotenv'", specifier = ">=1.0.1" },
 ]
+provides-extras = ["dotenv"]
 
 [[package]]
 name = "hexaqueue-dashboard"

@@ -36,6 +36,13 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Hexaqueue cluster controller base URL",
     )
     group.addoption(
+        "--hq-token",
+        action="store",
+        default=os.environ.get("HEXAQUEUE_API_TOKEN"),
+        dest="hexaqueue_api_token",
+        help="Hexaqueue cluster authentication token (defaults to HEXAQUEUE_API_TOKEN env var)",
+    )
+    group.addoption(
         "--hq-slices",
         action="store",
         type=int,
@@ -141,6 +148,7 @@ def pytest_runtestloop(session: pytest.Session) -> bool | None:
     slices: list[TestSliceSpec] = slices_val
 
     server_url = session.config.getoption("hexaqueue_server_url")
+    api_token = session.config.getoption("hexaqueue_api_token", default=None)
     pool = session.config.getoption("hexaqueue_pool")
     free_tier = session.config.getoption("hexaqueue_free_tier", default=False)
     allow_fallback = session.config.getoption("hexaqueue_fallback", default=True)
@@ -150,7 +158,7 @@ def pytest_runtestloop(session: pytest.Session) -> bool | None:
         getattr(
             session.config,
             "_hexaqueue_client",
-            HexaqueueTestDispatchClient(server_url=server_url),
+            HexaqueueTestDispatchClient(server_url=server_url, api_token=api_token),
         ),
     )
 

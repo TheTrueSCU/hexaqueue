@@ -38,6 +38,7 @@ def test_pytest_addoption() -> None:
     assert "hexaqueue_enabled" in dest_names
     assert "hexaqueue_slices" in dest_names
     assert "hexaqueue_server_url" in dest_names
+    assert "hexaqueue_api_token" in dest_names
     assert "hexaqueue_free_tier" in dest_names
     assert "hexaqueue_fallback" in dest_names
 

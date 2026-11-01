@@ -180,3 +180,49 @@ async def test_http_dispatch_client_error_response_mocked(
     session = TestRunSession(session_id="s1", total_items=1, total_slices=1)
     with pytest.raises(ConnectionError, match="HTTP 500"):
         await client.dispatch_run(session)
+
+
+@pytest.mark.asyncio
+async def test_http_dispatch_client_bearer_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test HTTP dispatch client passes Authorization: Bearer token in headers."""
+    import httpx
+
+    captured_headers: list[dict[str, str]] = []
+
+    class MockAsyncClientWithAuth:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            if "headers" in kwargs and isinstance(kwargs["headers"], dict):
+                captured_headers.append(kwargs["headers"])
+
+        async def __aenter__(self) -> "MockAsyncClientWithAuth":
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            pass
+
+        async def get(self, url: str) -> httpx.Response:
+            return httpx.Response(200, json={"status": "ok"})
+
+        async def post(
+            self, url: str, json: dict[str, object] | None = None
+        ) -> httpx.Response:
+            return httpx.Response(200, json={"reports": []})
+
+    monkeypatch.setattr(httpx, "AsyncClient", MockAsyncClientWithAuth)
+
+    client = HexaqueueTestDispatchClient(
+        server_url="http://mocked-hexaqueue:8000",
+        api_token="test-secret-token",
+    )
+    is_healthy = await client.health_check()
+    assert is_healthy is True
+
+    session = TestRunSession(session_id="s1", total_items=1, total_slices=1)
+    reports = await client.dispatch_run(session)
+    assert len(reports) == 0
+
+    assert len(captured_headers) == 2
+    assert captured_headers[0].get("Authorization") == "Bearer test-secret-token"
+    assert captured_headers[1].get("Authorization") == "Bearer test-secret-token"

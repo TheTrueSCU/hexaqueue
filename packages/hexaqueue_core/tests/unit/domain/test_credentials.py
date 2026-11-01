@@ -1,5 +1,9 @@
 """Unit tests for Cloud Service Provider (CSP) credentials configuration and SecretStr protection."""
 
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
 from pydantic import SecretStr
 
 from hexaqueue_core.domain.config import CspProvider
@@ -9,6 +13,8 @@ from hexaqueue_core.domain.credentials import (
     FederatedCspCredentialsConfig,
     GcpCredentialsConfig,
     OciCredentialsConfig,
+    _discover_and_merge_env,
+    _parse_env_file,
 )
 
 
@@ -162,3 +168,83 @@ def test_empty_env_resolution() -> None:
     assert fed.is_provider_configured(CspProvider.GCP) is False
     assert fed.is_provider_configured(CspProvider.AZURE) is False
     assert fed.is_provider_configured(CspProvider.LOCAL) is True
+
+
+def test_parse_env_file_stdlib(tmp_path: Path) -> None:
+    """Test standard library parsing of .env file with comments, export, and quotes."""
+    env_content = (
+        "# Top-level comment\n"
+        "\n"
+        "KEY_PLAIN=simple_val\n"
+        'export KEY_EXPORTED="quoted value with spaces"\n'
+        "KEY_SINGLE='single quoted'\n"
+        "INVALID_LINE_NO_EQUALS\n"
+        "# Another comment\n"
+    )
+    env_path = tmp_path / ".env"
+    env_path.write_text(env_content, encoding="utf-8")
+
+    with patch(
+        "hexaqueue_core.domain.credentials.optional_dependency", return_value=None
+    ):
+        res = _parse_env_file(env_path)
+
+    expected = {
+        "KEY_PLAIN": "simple_val",
+        "KEY_EXPORTED": "quoted value with spaces",
+        "KEY_SINGLE": "single quoted",
+    }
+    assert res == expected
+
+
+def test_parse_env_file_dotenv_when_available(tmp_path: Path) -> None:
+    """Test delegation to python-dotenv when available."""
+    env_path = tmp_path / ".env"
+    env_path.write_text("FOO=bar", encoding="utf-8")
+
+    mock_dotenv = MagicMock()
+    mock_dotenv.dotenv_values.return_value = {"FOO": "bar", "IGNORED_NONE": None}
+
+    with patch(
+        "hexaqueue_core.domain.credentials.optional_dependency",
+        return_value=mock_dotenv,
+    ):
+        res = _parse_env_file(env_path)
+
+    assert res == {"FOO": "bar"}
+    mock_dotenv.dotenv_values.assert_called_once_with(env_path)
+
+
+def test_parse_env_file_nonexistent_and_corrupt(tmp_path: Path) -> None:
+    """Test non-existent and unreadable paths return empty dictionary safely."""
+    missing_path = tmp_path / "does_not_exist.env"
+    res_missing = _parse_env_file(missing_path)
+    assert res_missing == {}
+
+
+def test_discover_and_merge_env_local_precedence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test hierarchical .env discovery where .env.local overrides .env, and os.environ overrides both."""
+    parent_dir = tmp_path / "workspace"
+    sub_dir = parent_dir / "packages" / "subpkg"
+    sub_dir.mkdir(parents=True)
+
+    # Root .env
+    (parent_dir / ".env").write_text(
+        "HEXAQUEUE_OCI_REGION=us-ashburn-1\nHEXAQUEUE_AWS_REGION=us-east-1\n",
+        encoding="utf-8",
+    )
+    # Root .env.local (overrides HEXAQUEUE_AWS_REGION)
+    (parent_dir / ".env.local").write_text(
+        "HEXAQUEUE_AWS_REGION=us-west-2\n",
+        encoding="utf-8",
+    )
+
+    # os.environ overrides both
+    monkeypatch.setenv("HEXAQUEUE_AWS_REGION", "eu-central-1")
+
+    merged = _discover_and_merge_env(cwd=sub_dir)
+
+    assert merged["HEXAQUEUE_OCI_REGION"] == "us-ashburn-1"
+    assert merged["HEXAQUEUE_AWS_REGION"] == "eu-central-1"

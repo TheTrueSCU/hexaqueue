@@ -25,20 +25,37 @@ class HexaqueueTestDispatchClient(HexaqueueTestDispatchPort):
     Args:
         server_url: Base URL of the Hexaqueue controller.
         timeout_seconds: HTTP request timeout limit.
+        api_token: Optional Bearer authentication token for secure control-plane communication.
+
+    Notes/Architectural Intent:
+        Enforces separation of control-plane authentication from compute-plane CSP credentials.
+        The client passes an optional Bearer token to authenticate with the Hexaqueue cluster
+        controller without requiring any CSP admin keys or cloud SDK access on the test runner.
     """
 
     def __init__(
         self,
         server_url: str = "http://127.0.0.1:8000",
         timeout_seconds: float = 30.0,
+        api_token: str | None = None,
     ) -> None:
         self.server_url = server_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
+        self.api_token = api_token
+
+    def _headers(self) -> dict[str, str]:
+        """Build request headers including Bearer authorization when configured."""
+        headers: dict[str, str] = {}
+        if self.api_token:
+            headers["Authorization"] = f"Bearer {self.api_token}"
+        return headers
 
     async def health_check(self) -> bool:
         """Query cluster controller health status endpoint."""
         try:
-            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+            async with httpx.AsyncClient(
+                timeout=self.timeout_seconds, headers=self._headers()
+            ) as client:
                 resp = await client.get(f"{self.server_url}/health")
                 return resp.status_code == 200
         except (httpx.HTTPError, OSError):
@@ -59,7 +76,9 @@ class HexaqueueTestDispatchClient(HexaqueueTestDispatchPort):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+            async with httpx.AsyncClient(
+                timeout=self.timeout_seconds, headers=self._headers()
+            ) as client:
                 resp = await client.post(
                     f"{self.server_url}/api/v1/test/runs",
                     json=payload,

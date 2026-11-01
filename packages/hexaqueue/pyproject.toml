@@ -25,6 +25,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+dotenv = [
+    "hexaqueue-core[dotenv]",
+]
 github = [
     "hexaqueue-server[github]",
 ]

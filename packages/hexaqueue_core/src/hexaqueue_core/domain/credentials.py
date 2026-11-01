@@ -8,18 +8,72 @@ Notes/Architectural Intent:
     variable resolution (HEXAQUEUE_CSP_*).
 """
 
+import contextlib
 import os
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from hexaqueue_core.domain.config import CspProvider
+from hexaqueue_core.utils.imports import optional_dependency
 
 
 def _parse_bool(val: str | None) -> bool:
     """Parse string representation of boolean."""
     return str(val).strip().lower() in ("true", "1", "yes", "on") if val else False
+
+
+def _parse_env_file(path: Path) -> dict[str, str]:
+    """Parse key=value environment variables from an unversioned .env file.
+
+    Notes/Architectural Intent:
+        Uses `python-dotenv` via `optional_dependency('dotenv')` when available
+        for multiline and bash variable expansions, falling back to a pure
+        zero-dependency standard library parser.
+    """
+    if not path.is_file():
+        return {}
+
+    dotenv_mod = optional_dependency("dotenv")
+    if dotenv_mod is not None:
+        with contextlib.suppress(Exception):
+            values = dotenv_mod.dotenv_values(path)
+            return {str(k): str(v) for k, v in values.items() if v is not None}
+
+    res: dict[str, str] = {}
+    with contextlib.suppress(OSError, UnicodeDecodeError):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if stripped.startswith("export "):
+                stripped = stripped[7:].strip()
+            if "=" in stripped:
+                k, v = stripped.split("=", 1)
+                k = k.strip()
+                v = v.strip().strip("'\"")
+                if k:
+                    res[k] = v
+    return res
+
+
+def _discover_and_merge_env(cwd: Path | None = None) -> dict[str, str]:
+    """Discover .env and .env.local files walking up directory tree, merging under os.environ."""
+    root = (cwd or Path.cwd()).resolve()
+    merged: dict[str, str] = {}
+    candidates: list[Path] = [root, *root.parents]
+    for directory in reversed(candidates):
+        env_file = directory / ".env"
+        env_local = directory / ".env.local"
+        if env_file.is_file():
+            merged.update(_parse_env_file(env_file))
+        if env_local.is_file():
+            merged.update(_parse_env_file(env_local))
+    merged.update(os.environ)
+    return merged
 
 
 class OciCredentialsConfig(BaseModel):
@@ -216,21 +270,28 @@ class FederatedCspCredentialsConfig(BaseModel):
         return False
 
     @classmethod
-    def from_env(cls, env: Mapping[str, str] | None = None) -> Self:
-        """Resolve CSP credentials securely from environment variables.
+    def from_env(
+        cls,
+        env: Mapping[str, str] | None = None,
+        cwd: Path | None = None,
+    ) -> Self:
+        """Resolve CSP credentials securely from environment variables and .env files.
 
         Args:
-            env: Optional dictionary of environment variables (defaults to os.environ).
+            env: Optional dictionary of environment variables. When omitted, automatically
+                discovers and merges .env.local and .env files under os.environ.
+            cwd: Optional base directory to initiate .env upward discovery from.
 
         Returns:
             Configured FederatedCspCredentialsConfig instance.
 
         Notes/Architectural Intent:
             Checks Hexaqueue-prefixed variables first (HEXAQUEUE_OCI_*), falling back
-            to standard cloud SDK conventions (AWS_ACCESS_KEY_ID, GOOGLE_APPLICATION_CREDENTIALS)
-            without exposing secrets to disk or git.
+            to standard cloud SDK conventions (AWS_ACCESS_KEY_ID, GOOGLE_APPLICATION_CREDENTIALS).
+            Discovers local unversioned .env.local and .env files with zero external dependencies,
+            preventing secret leakage while ensuring frictionless local developer ergonomics.
         """
-        e = os.environ if env is None else env
+        e = _discover_and_merge_env(cwd=cwd) if env is None else env
 
         # 1. OCI
         oci_key_content = e.get("HEXAQUEUE_OCI_KEY_CONTENT")
