@@ -7,8 +7,10 @@ Notes/Architectural Intent:
 """
 
 import asyncio
+import base64
 import os
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import pytest
@@ -272,6 +274,83 @@ def _notify_session_reports(
             session.config.hook.pytest_runtest_logreport(report=tr)
 
 
+def _resolve_session_params(
+    session: pytest.Session,
+) -> tuple[str, str | None, str, bool, bool, bool, str | None]:
+    """Resolve cluster URL, authentication token, pool, tier, and container execution options.
+
+    Args:
+        session: Active pytest test session.
+
+    Returns:
+        Tuple of (server_url, api_token, pool, free_tier, allow_fallback, is_container, worker_image).
+
+    Raises:
+        None.
+
+    Notes/Architectural Intent:
+        Centralizes profile extraction from stash with fallback to command-line options
+        while enforcing zero-cost free-tier defaults.
+    """
+    resolved = session.config.stash.get(_CONFIG_KEY, None)
+    if resolved is not None:
+        return (
+            resolved.server_url,
+            resolved.api_token,
+            resolved.pool,
+            resolved.free_tier,
+            resolved.fallback,
+            resolved.mode == "container",
+            resolved.container.image,
+        )
+    server_url = (
+        session.config.getoption(
+            "hexaqueue_server_url", default="http://127.0.0.1:8000"
+        )
+        or "http://127.0.0.1:8000"
+    )
+    api_token = session.config.getoption("hexaqueue_api_token", default=None)
+    pool = session.config.getoption("hexaqueue_pool", default="default") or "default"
+    free_tier = not bool(session.config.getoption("hexaqueue_paid", default=False))
+    opt_fallback = session.config.getoption("hexaqueue_fallback", default=True)
+    allow_fallback = True if opt_fallback is None else bool(opt_fallback)
+    is_container = bool(session.config.getoption("hexaqueue_container", default=False))
+    worker_image = session.config.getoption("hexaqueue_worker_image", default=None)
+    return (
+        server_url,
+        api_token,
+        pool,
+        free_tier,
+        allow_fallback,
+        is_container,
+        worker_image,
+    )
+
+
+def _unpack_slice_coverage(reports: list["SliceOutcomeReport"]) -> None:
+    """Materialize serialized SQLite coverage payloads from remote worker slices onto disk.
+
+    Args:
+        reports: List of slice execution outcome reports.
+
+    Returns:
+        None.
+
+    Raises:
+        None.
+
+    Notes/Architectural Intent:
+        Enables distributed coverage aggregation by writing worker coverage sqlite databases
+        as `.coverage.hq.<slice_id>` so pytest-cov can combine them automatically.
+    """
+    for rep in reports:
+        if rep.coverage_data and "sqlite_b64" in rep.coverage_data:
+            cov_path = Path(f".coverage.hq.{rep.slice_id}")
+            if not cov_path.exists():
+                cov_bytes = base64.b64decode(rep.coverage_data["sqlite_b64"])
+                cov_path.write_bytes(cov_bytes)
+
+
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtestloop(session: pytest.Session) -> bool | None:
     """Execute distributed test loop dispatching slices across cluster workers."""
@@ -293,33 +372,15 @@ def pytest_runtestloop(session: pytest.Session) -> bool | None:
         return None
     slices: list[TestSliceSpec] = slices_val
 
-    resolved = session.config.stash.get(_CONFIG_KEY, None)
-    if resolved is not None:
-        server_url = resolved.server_url
-        api_token = resolved.api_token
-        pool = resolved.pool
-        free_tier = resolved.free_tier
-        allow_fallback = resolved.fallback
-        is_container = resolved.mode == "container"
-        worker_image = resolved.container.image
-    else:
-        server_url = (
-            session.config.getoption(
-                "hexaqueue_server_url", default="http://127.0.0.1:8000"
-            )
-            or "http://127.0.0.1:8000"
-        )
-        api_token = session.config.getoption("hexaqueue_api_token", default=None)
-        pool = (
-            session.config.getoption("hexaqueue_pool", default="default") or "default"
-        )
-        free_tier = not bool(session.config.getoption("hexaqueue_paid", default=False))
-        opt_fallback = session.config.getoption("hexaqueue_fallback", default=True)
-        allow_fallback = True if opt_fallback is None else bool(opt_fallback)
-        is_container = bool(
-            session.config.getoption("hexaqueue_container", default=False)
-        )
-        worker_image = session.config.getoption("hexaqueue_worker_image", default=None)
+    (
+        server_url,
+        api_token,
+        pool,
+        free_tier,
+        allow_fallback,
+        is_container,
+        worker_image,
+    ) = _resolve_session_params(session)
 
     client: HexaqueueTestDispatchPort = session.config.stash.get(
         _CLIENT_KEY,
@@ -329,6 +390,11 @@ def pytest_runtestloop(session: pytest.Session) -> bool | None:
             HexaqueueTestDispatchClient(server_url=server_url, api_token=api_token),
         ),
     )
+
+    cov_sources: list[str] = []
+    opt_cov = getattr(session.config.option, "cov_source", None)
+    if opt_cov:
+        cov_sources = [str(s) for s in opt_cov]
 
     run_session = TestRunSession(
         session_id=str(uuid.uuid4()),
@@ -340,6 +406,7 @@ def pytest_runtestloop(session: pytest.Session) -> bool | None:
         free_tier=free_tier,
         container=is_container,
         container_image=worker_image,
+        coverage_sources=cov_sources,
     )
 
     async def _execute() -> list[SliceOutcomeReport] | None:
@@ -363,6 +430,9 @@ def pytest_runtestloop(session: pytest.Session) -> bool | None:
         return None
 
     session.config.stash[_REPORTS_KEY] = reports
+    if cov_sources:
+        _unpack_slice_coverage(reports)
+
     _notify_session_reports(session, reports)
     return True
 

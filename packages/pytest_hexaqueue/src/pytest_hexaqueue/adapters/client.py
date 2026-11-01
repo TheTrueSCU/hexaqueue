@@ -71,6 +71,9 @@ class HexaqueueTestDispatchClient(HexaqueueTestDispatchPort):
             "session_id": session.session_id,
             "pool": session.pool,
             "free_tier": session.free_tier,
+            "container": session.container,
+            "container_image": session.container_image,
+            "coverage_sources": session.coverage_sources,
             "slices": [s.model_dump() for s in session.slices],
             "bundle": bundle.model_dump() if bundle else None,
         }

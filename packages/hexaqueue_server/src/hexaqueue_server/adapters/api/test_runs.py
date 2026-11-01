@@ -8,6 +8,8 @@ Notes/Architectural Intent:
 """
 
 import asyncio
+import base64
+import os
 import shutil
 import sys
 import time
@@ -45,6 +47,7 @@ class TestRunDispatchRequest(BaseModel):
     free_tier: bool = False
     container: bool = False
     container_image: str | None = None
+    coverage_sources: list[str] = Field(default_factory=list)
     slices: list[TestSliceDispatch] = Field(default_factory=list)
     bundle: dict[str, Any] | None = None
 
@@ -89,8 +92,15 @@ def _build_slice_cmd(
     worker_index: int,
     is_container: bool,
     container_image: str | None,
+    coverage_sources: list[str] | None = None,
 ) -> tuple[list[str], str, str]:
     """Construct execution command line, provider name, and worker ID for a slice."""
+    cov_flags: list[str] = []
+    if coverage_sources:
+        for src in coverage_sources:
+            cov_flags.append(f"--cov={src}")
+        cov_flags.extend(["--cov-report=", "--cov-fail-under=0"])
+
     if is_container:
         container_bin = shutil.which("docker") or shutil.which("podman") or "docker"
         image = container_image or "hexaqueue-worker:latest"
@@ -114,6 +124,7 @@ def _build_slice_cmd(
             "addopts=",
             "--tb=short",
             "-q",
+            *cov_flags,
         ]
         return cmd, provider, worker_id
 
@@ -128,6 +139,7 @@ def _build_slice_cmd(
         "addopts=",
         "--tb=short",
         "-q",
+        *cov_flags,
     ]
     return cmd, provider, worker_id
 
@@ -161,10 +173,15 @@ async def _execute_slice(
     is_free_tier: bool,
     is_container: bool = False,
     container_image: str | None = None,
+    coverage_sources: list[str] | None = None,
 ) -> SliceOutcomeResponse:
     """Execute a single test slice in a dedicated worker subprocess or container."""
     cmd, provider, worker_id = _build_slice_cmd(
-        slice_spec, worker_index, is_container, container_image
+        slice_spec,
+        worker_index,
+        is_container,
+        container_image,
+        coverage_sources=coverage_sources,
     )
     start_time = time.monotonic()
 
@@ -179,9 +196,15 @@ async def _execute_slice(
             duration_seconds=0.0,
         )
 
+    cov_file = f".coverage.hq.{slice_spec.slice_id}"
+    env = dict(os.environ)
+    if coverage_sources:
+        env["COVERAGE_FILE"] = cov_file
+
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
+            env=env,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -201,12 +224,22 @@ async def _execute_slice(
             stderr=stderr_text if exit_code != 0 else None,
         )
 
+        cov_data: dict[str, Any] | None = None
+        if coverage_sources:
+            cov_path = Path(cov_file)
+            if cov_path.exists():
+                file_bytes = cov_path.read_bytes()
+                cov_data = {
+                    "sqlite_b64": base64.b64encode(file_bytes).decode("ascii"),
+                }
+
         return SliceOutcomeResponse(
             slice_id=slice_spec.slice_id,
             slice_index=slice_spec.slice_index,
             worker_id=worker_id,
             provider=provider,
             is_free_tier=is_free_tier,
+            coverage_data=cov_data,
             outcomes=outcomes,
             duration_seconds=round(slice_duration, 3),
         )
@@ -255,6 +288,7 @@ def create_test_runs_router() -> APIRouter:
                 req.free_tier,
                 is_container=is_container,
                 container_image=req.container_image,
+                coverage_sources=req.coverage_sources,
             )
             for i, s in enumerate(req.slices)
         ]

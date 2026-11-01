@@ -1,5 +1,6 @@
 """Unit tests for distributed test slice dispatch API endpoints."""
 
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -172,3 +173,66 @@ async def test_dispatch_test_run_container_mode() -> None:
         assert len(data["reports"]) == 1
         assert data["reports"][0]["provider"] == "CONTAINER"
         assert data["reports"][0]["worker_id"] == "worker-container-0"
+
+
+def test_build_slice_cmd_with_coverage() -> None:
+    """Verify slice command construction appends --cov flags when requested."""
+    slice_spec = TestSliceDispatch(
+        slice_id="s-cov-0",
+        slice_index=0,
+        total_slices=1,
+        test_nodeids=["tests/unit/test_demo.py::test_it"],
+    )
+    cmd, provider, worker_id = _build_slice_cmd(
+        slice_spec,
+        worker_index=0,
+        is_container=False,
+        container_image=None,
+        coverage_sources=["packages/my_pkg/src"],
+    )
+    is_local = provider == "LOCAL"
+    is_worker = worker_id == "worker-local-0"
+    has_cov = "--cov=packages/my_pkg/src" in cmd
+    has_report = "--cov-report=" in cmd
+    has_fail_under = "--cov-fail-under=0" in cmd
+    assert is_local is True
+    assert is_worker is True
+    assert has_cov is True
+    assert has_report is True
+    assert has_fail_under is True
+
+
+@pytest.mark.asyncio
+async def test_execute_slice_with_coverage_serialization(tmp_path: Path) -> None:
+    """Verify executing slice with coverage serializes sqlite database to base64."""
+    slice_spec = TestSliceDispatch(
+        slice_id="s-cov-1",
+        slice_index=0,
+        total_slices=1,
+        test_nodeids=["tests/unit/test_demo.py::test_it"],
+    )
+
+    cov_file = Path(f".coverage.hq.{slice_spec.slice_id}")
+    cov_file.write_bytes(b"dummy-sqlite-data")
+
+    mock_proc = AsyncMock()
+    mock_proc.communicate.return_value = (b"1 passed", b"")
+    mock_proc.returncode = 0
+
+    try:
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            res = await _execute_slice(
+                slice_spec,
+                worker_index=0,
+                is_free_tier=True,
+                is_container=False,
+                container_image=None,
+                coverage_sources=["packages/my_pkg"],
+            )
+
+        cov_data = res.coverage_data
+        has_cov = cov_data is not None and "sqlite_b64" in cov_data
+        assert has_cov is True
+    finally:
+        if cov_file.exists():
+            cov_file.unlink()

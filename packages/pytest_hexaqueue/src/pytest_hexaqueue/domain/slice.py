@@ -71,6 +71,7 @@ class TestRunSession(BaseModel):
         free_tier: Whether execution is governed under zero-cost Free-Tier Safety Mode.
         container: Whether to execute slices inside isolated OCI container sandboxes.
         container_image: Optional container image tag for worker runtime.
+        coverage_sources: Sequence of source packages or paths for coverage collection.
     """
 
     __test__ = False
@@ -81,6 +82,10 @@ class TestRunSession(BaseModel):
     )
     container_image: str | None = Field(
         default=None, description="Optional container image for worker runtime"
+    )
+    coverage_sources: list[str] = Field(
+        default_factory=list,
+        description="Target packages or paths for coverage collection",
     )
     free_tier: bool = Field(
         default=False, description="Enforce zero-cost Free-Tier limits"
