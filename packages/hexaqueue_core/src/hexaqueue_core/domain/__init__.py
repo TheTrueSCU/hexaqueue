@@ -194,6 +194,14 @@ from hexaqueue_core.domain.retry import (
 from hexaqueue_core.domain.run import (
     RunSpec,
 )
+from hexaqueue_core.domain.runner_config import (
+    HexaqueueContainerConfig,
+    HexaqueueProfileConfig,
+    HexaqueueProjectConfig,
+    discover_config_file,
+    load_project_config,
+    resolve_runner_config,
+)
 from hexaqueue_core.domain.scheduling import (
     BatchSchedulerEngine,
     ConservativeBackfillScheduler,
@@ -277,6 +285,7 @@ __all__ = [
     "DEFAULT_FEDERATED_FREE_TIER_MESH",
     "DependencyCycleError",
     "DependencySpec",
+    "discover_config_file",
     "EncryptedEnvelope",
     "ExecutionMode",
     "ExecutionSegmentRecord",
@@ -314,8 +323,11 @@ __all__ = [
     "HeartbeatNodeCommand",
     "HexaqueueConfig",
     "HexaqueueConfigError",
+    "HexaqueueContainerConfig",
     "HexaqueueCoreConfig",
     "HexaqueueError",
+    "HexaqueueProfileConfig",
+    "HexaqueueProjectConfig",
     "HoldJobCommand",
     "HypervisorBackend",
     "InstancePoolState",
@@ -333,6 +345,7 @@ __all__ = [
     "LeaderLease",
     "ListComputeNodesQuery",
     "ListJobsQuery",
+    "load_project_config",
     "LOCAL_FREE_TIER_PROFILE",
     "LogRetentionPolicy",
     "LogRetentionTier",
@@ -366,6 +379,7 @@ __all__ = [
     "ReleaseJobCommand",
     "RequestLogUploadUrlCommand",
     "ReservationState",
+    "resolve_runner_config",
     "ResolvedContext",
     "ResolvedJobCollection",
     "ResourceOverrideSpec",

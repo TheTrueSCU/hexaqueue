@@ -151,7 +151,7 @@ jobs:
           HEXAQUEUE_SERVER_URL: ${{ vars.HEXAQUEUE_SERVER_URL || 'http://127.0.0.1:8000' }}
           HEXAQUEUE_API_TOKEN: ${{ secrets.HEXAQUEUE_API_TOKEN }}
         run: |
-          uv run pytest --hexaqueue --hq-slices 8 --hq-fallback
+          uv run pytest --hexaqueue --hq-profile ci
 ```
 
 ---
@@ -166,15 +166,17 @@ flowchart TD
     L2["2. Process Environment Variables (HEXAQUEUE_*, AWS_*, GCP_*)"] --> L3
     L3["3. Local Unversioned Override (.env.local)"] --> L4
     L4["4. Shared Unversioned Config (.env)"] --> L5
-    L5["5. Ambient Cloud Identity (Instance Principals, IAM Roles, WIF)"]
+    L5["5. Project Config File (pyproject.toml [tool.hexaqueue] / hexaqueue.yaml)"] --> L6
+    L6["6. Ambient Cloud Identity (Instance Principals, IAM Roles, WIF)"]
 ```
 
 ### Precedence Rules:
-1. **Explicit CLI flags** override all environment variables.
-2. **Process environment variables** (including GitHub Actions Secrets) override `.env` files.
+1. **Explicit CLI flags** override all environment and configuration settings.
+2. **Process environment variables** (including GitHub Actions Secrets) override config files and `.env` files.
 3. **`.env.local`** overrides keys defined in `.env`.
-4. **`.env`** provides default fallback configurations.
-5. If no explicit keys are provided, cloud provider SDKs automatically check for **ambient identity** (Instance Principals on OCI, IAM instance profiles on AWS EC2, Managed Identity on Azure, Workload Identity on GCP).
+4. **`.env`** provides default local environment configurations.
+5. **Project Config File** (`pyproject.toml [tool.hexaqueue]` or `hexaqueue.yaml`) provides version-controlled topology defaults and named profiles.
+6. If no explicit keys are provided, cloud provider SDKs automatically check for **ambient identity** (Instance Principals on OCI, IAM instance profiles on AWS EC2, Managed Identity on Azure, Workload Identity on GCP).
 
 ---
 

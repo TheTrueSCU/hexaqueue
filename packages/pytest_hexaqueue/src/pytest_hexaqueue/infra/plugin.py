@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 _SLICES_KEY: pytest.StashKey[list[Any]] = pytest.StashKey()
 _REPORTS_KEY: pytest.StashKey[list[Any]] = pytest.StashKey()
 _CLIENT_KEY: pytest.StashKey[Any] = pytest.StashKey()
+_CONFIG_KEY: pytest.StashKey[Any] = pytest.StashKey()
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -32,45 +33,59 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Enable distributed test execution across Hexaqueue cluster workers",
     )
     group.addoption(
+        "--hq-config",
+        action="store",
+        default=None,
+        dest="hexaqueue_config_file",
+        help="Path to Hexaqueue configuration file (pyproject.toml or hexaqueue.yaml)",
+    )
+    group.addoption(
+        "--hq-profile",
+        action="store",
+        default=os.environ.get("HEXAQUEUE_PROFILE"),
+        dest="hexaqueue_profile",
+        help="Active configuration profile to apply (e.g. 'ci', 'container', 'free-tier')",
+    )
+    group.addoption(
         "--hq-server",
         action="store",
-        default=os.environ.get("HEXAQUEUE_SERVER_URL", "http://127.0.0.1:8000"),
+        default=None,
         dest="hexaqueue_server_url",
-        help="Hexaqueue cluster controller base URL",
+        help="Hexaqueue cluster controller base URL (overrides config file / env)",
     )
     group.addoption(
         "--hq-token",
         action="store",
-        default=os.environ.get("HEXAQUEUE_API_TOKEN"),
+        default=None,
         dest="hexaqueue_api_token",
-        help="Hexaqueue cluster authentication token (defaults to HEXAQUEUE_API_TOKEN env var)",
+        help="Hexaqueue cluster authentication token (overrides config file / env)",
     )
     group.addoption(
         "--hq-slices",
         action="store",
         type=int,
-        default=int(os.environ.get("HEXAQUEUE_SLICES", "4")),
+        default=None,
         dest="hexaqueue_slices",
-        help="Number of parallel execution slices to partition the suite into",
+        help="Number of parallel execution slices to partition the suite into (overrides config file)",
     )
     group.addoption(
         "--hq-pool",
         action="store",
-        default="default",
+        default=None,
         dest="hexaqueue_pool",
-        help="Target compute instance pool for runner placement",
+        help="Target compute instance pool for runner placement (overrides config file)",
     )
     group.addoption(
         "--hq-free-tier",
         action="store_true",
-        default=False,
+        default=None,
         dest="hexaqueue_free_tier",
         help="Enforce zero-cost Multi-CSP Free-Tier mesh execution ($0.00 spend)",
     )
     group.addoption(
         "--hq-fallback",
         action="store_true",
-        default=True,
+        default=None,
         dest="hexaqueue_fallback",
         help="Fall back to local in-process execution if cluster is unreachable",
     )
@@ -83,7 +98,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     group.addoption(
         "--hq-slicer",
         action="store",
-        default="round-robin",
+        default=None,
         choices=["round-robin", "file"],
         dest="hexaqueue_slicer",
         help="Test partitioning algorithm: 'round-robin' or 'file'",
@@ -91,16 +106,54 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     group.addoption(
         "--hq-container",
         action="store_true",
-        default=False,
+        default=None,
         dest="hexaqueue_container",
         help="Execute test slices inside isolated OCI container sandboxes (Docker / Podman)",
     )
     group.addoption(
         "--hq-image",
         action="store",
-        default=os.environ.get("HEXAQUEUE_WORKER_IMAGE", "hexaqueue-worker:latest"),
+        default=None,
         dest="hexaqueue_worker_image",
         help="Container image tag used for containerized worker execution",
+    )
+
+
+def _resolve_plugin_config(config: pytest.Config) -> Any:
+    """Load configuration file, apply active profile and CLI overrides."""
+    from hexaqueue_core.domain.runner_config import (
+        load_project_config,
+        resolve_runner_config,
+    )
+
+    explicit_cfg = config.getoption("hexaqueue_config_file", default=None)
+    project_cfg = load_project_config(explicit_path=explicit_cfg)
+
+    cli_overrides: dict[str, Any] = {}
+    if config.getoption("hexaqueue_server_url", default=None) is not None:
+        cli_overrides["server_url"] = config.getoption("hexaqueue_server_url")
+    if config.getoption("hexaqueue_api_token", default=None) is not None:
+        cli_overrides["api_token"] = config.getoption("hexaqueue_api_token")
+    if config.getoption("hexaqueue_slices", default=None) is not None:
+        cli_overrides["slices"] = config.getoption("hexaqueue_slices")
+    if config.getoption("hexaqueue_pool", default=None) is not None:
+        cli_overrides["pool"] = config.getoption("hexaqueue_pool")
+    if config.getoption("hexaqueue_container", default=None) is True:
+        cli_overrides["container"] = True
+    if config.getoption("hexaqueue_worker_image", default=None) is not None:
+        cli_overrides["worker_image"] = config.getoption("hexaqueue_worker_image")
+    if config.getoption("hexaqueue_free_tier", default=None) is True:
+        cli_overrides["free_tier"] = True
+    if config.getoption("hexaqueue_fallback", default=None) is not None:
+        cli_overrides["fallback"] = config.getoption("hexaqueue_fallback")
+    if config.getoption("hexaqueue_slicer", default=None) is not None:
+        cli_overrides["slicer"] = config.getoption("hexaqueue_slicer")
+
+    profile = config.getoption("hexaqueue_profile", default=None)
+    return resolve_runner_config(
+        project_config=project_cfg,
+        profile=profile,
+        cli_overrides=cli_overrides,
     )
 
 
@@ -110,13 +163,17 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "hexaqueue: mark test for execution on Hexaqueue distributed cluster",
     )
-    if config.getoption("hexaqueue_enabled", default=False):
-        # When Hexaqueue handles distributed slice orchestration, disable
-        # pytest-xdist local worker loops to prevent runner conflict.
-        if hasattr(config.option, "numprocesses"):
-            config.option.numprocesses = 0
-        if hasattr(config.option, "dist"):
-            config.option.dist = "no"
+    if not config.getoption("hexaqueue_enabled", default=False):
+        return
+
+    # When Hexaqueue handles distributed slice orchestration, disable
+    # pytest-xdist local worker loops to prevent runner conflict.
+    if hasattr(config.option, "numprocesses"):
+        config.option.numprocesses = 0
+    if hasattr(config.option, "dist"):
+        config.option.dist = "no"
+
+    config.stash[_CONFIG_KEY] = _resolve_plugin_config(config)
 
 
 def _get_slicer(strategy: str) -> Any:
@@ -150,8 +207,19 @@ def pytest_collection_finish(session: pytest.Session) -> None:
             )
         )
 
-    num_slices = max(1, session.config.getoption("hexaqueue_slices", default=4))
-    slicer_name = session.config.getoption("hexaqueue_slicer", default="round-robin")
+    resolved = session.config.stash.get(_CONFIG_KEY, None)
+    if resolved is not None:
+        num_slices = max(1, resolved.slices)
+        slicer_name = resolved.slicer
+    else:
+        num_slices = max(
+            1,
+            session.config.getoption("hexaqueue_slices", default=4) or 4,
+        )
+        slicer_name = (
+            session.config.getoption("hexaqueue_slicer", default="round-robin")
+            or "round-robin"
+        )
     slicer = _get_slicer(slicer_name)
 
     slices = slicer.slice_items(items, num_slices)
@@ -216,13 +284,33 @@ def pytest_runtestloop(session: pytest.Session) -> bool | None:
         return None
     slices: list[TestSliceSpec] = slices_val
 
-    server_url = session.config.getoption("hexaqueue_server_url")
-    api_token = session.config.getoption("hexaqueue_api_token", default=None)
-    pool = session.config.getoption("hexaqueue_pool")
-    free_tier = session.config.getoption("hexaqueue_free_tier", default=False)
-    allow_fallback = session.config.getoption("hexaqueue_fallback", default=True)
-    container = session.config.getoption("hexaqueue_container", default=False)
-    container_image = session.config.getoption("hexaqueue_worker_image", default=None)
+    resolved = session.config.stash.get(_CONFIG_KEY, None)
+    if resolved is not None:
+        server_url = resolved.server_url
+        api_token = resolved.api_token
+        pool = resolved.pool
+        free_tier = resolved.free_tier
+        allow_fallback = resolved.fallback
+        is_container = resolved.mode == "container"
+        worker_image = resolved.container.image
+    else:
+        server_url = (
+            session.config.getoption(
+                "hexaqueue_server_url", default="http://127.0.0.1:8000"
+            )
+            or "http://127.0.0.1:8000"
+        )
+        api_token = session.config.getoption("hexaqueue_api_token", default=None)
+        pool = (
+            session.config.getoption("hexaqueue_pool", default="default") or "default"
+        )
+        free_tier = bool(session.config.getoption("hexaqueue_free_tier", default=False))
+        opt_fallback = session.config.getoption("hexaqueue_fallback", default=True)
+        allow_fallback = True if opt_fallback is None else bool(opt_fallback)
+        is_container = bool(
+            session.config.getoption("hexaqueue_container", default=False)
+        )
+        worker_image = session.config.getoption("hexaqueue_worker_image", default=None)
 
     client: HexaqueueTestDispatchPort = session.config.stash.get(
         _CLIENT_KEY,
@@ -241,8 +329,8 @@ def pytest_runtestloop(session: pytest.Session) -> bool | None:
         server_url=server_url,
         pool=pool,
         free_tier=free_tier,
-        container=container,
-        container_image=container_image,
+        container=is_container,
+        container_image=worker_image,
     )
 
     async def _execute() -> list[SliceOutcomeReport] | None:
@@ -289,13 +377,24 @@ def pytest_terminal_summary(
     reports: list[SliceOutcomeReport] = reports_val
 
     terminalreporter.section("Hexaqueue Distributed Execution Summary")
-    free_tier = config.getoption("hexaqueue_free_tier", default=False)
-    container = config.getoption("hexaqueue_container", default=False)
-    container_label = " (Containerized)" if container else ""
+    resolved = config.stash.get(_CONFIG_KEY, None)
+    free_tier = (
+        resolved.free_tier
+        if resolved
+        else config.getoption("hexaqueue_free_tier", default=False)
+    )
+    is_container = (
+        (resolved.mode == "container")
+        if resolved
+        else config.getoption("hexaqueue_container", default=False)
+    )
+    profile_name = config.getoption("hexaqueue_profile", default=None)
+    profile_label = f" [Profile: {profile_name}]" if profile_name else ""
+    container_label = " (Containerized)" if is_container else ""
     tier_label = " (Verified $0.00 Multi-CSP Free-Tier)" if free_tier else ""
 
     terminalreporter.write_line(
-        f"Topology: {len(reports)} Remote Slices{container_label}{tier_label}"
+        f"Topology: {len(reports)} Remote Slices{profile_label}{container_label}{tier_label}"
     )
     for rep in reports:
         prov_label = f" [{rep.provider}]" if rep.provider else ""

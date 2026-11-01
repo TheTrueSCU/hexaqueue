@@ -1,9 +1,11 @@
 """Unit tests for pytest-hexaqueue plugin hooks and execution loop."""
 
+import importlib
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import pytest_hexaqueue.infra.plugin as plugin_module
 from pytest_hexaqueue.adapters.client import InMemoryTestDispatchClient
 from pytest_hexaqueue.domain.outcome import (
     SliceOutcomeReport,
@@ -12,8 +14,11 @@ from pytest_hexaqueue.domain.outcome import (
 from pytest_hexaqueue.domain.slice import TestSliceSpec
 from pytest_hexaqueue.infra.plugin import (
     _CLIENT_KEY,
+    _CONFIG_KEY,
     _REPORTS_KEY,
     _SLICES_KEY,
+    _notify_session_reports,
+    _resolve_plugin_config,
     pytest_addoption,
     pytest_collection_finish,
     pytest_configure,
@@ -44,16 +49,43 @@ def test_pytest_addoption() -> None:
     assert "hexaqueue_fallback" in dest_names
     assert "hexaqueue_container" in dest_names
     assert "hexaqueue_worker_image" in dest_names
+    assert "hexaqueue_config_file" in dest_names
+    assert "hexaqueue_profile" in dest_names
 
 
 def test_pytest_configure() -> None:
-    """Test marker configuration."""
+    """Test marker configuration and profile resolution."""
     config = MagicMock()
+    config.getoption.side_effect = lambda name, default=None: (
+        False if name == "hexaqueue_enabled" else default
+    )
     pytest_configure(config)
     config.addinivalue_line.assert_called_with(
         "markers",
         "hexaqueue: mark test for execution on Hexaqueue distributed cluster",
     )
+
+
+def test_pytest_configure_when_enabled() -> None:
+    """Test configuration loading when plugin is enabled."""
+    config = MagicMock()
+    config.stash = {}
+    config.option = MagicMock(numprocesses=2, dist="load")
+
+    def getoption(name: str, default: Any = None) -> Any:
+        if name == "hexaqueue_enabled":
+            return True
+        if name == "hexaqueue_slices":
+            return 8
+        if name == "hexaqueue_profile":
+            return "ci"
+        return default
+
+    config.getoption.side_effect = getoption
+    pytest_configure(config)
+
+    assert config.option.numprocesses == 0
+    assert config.option.dist == "no"
 
 
 def test_pytest_collection_finish_when_disabled() -> None:
@@ -307,3 +339,176 @@ def test_pytest_terminal_summary_containerized() -> None:
     written_lines = [call[0][0] for call in reporter.write_line.call_args_list]
     has_cont = any("Containerized" in line for line in written_lines)
     assert has_cont is True
+
+
+def test_resolve_plugin_config_all_options() -> None:
+    """Test _resolve_plugin_config when all CLI flags are explicitly provided."""
+    config = MagicMock()
+    options: dict[str, Any] = {
+        "hexaqueue_config_file": None,
+        "hexaqueue_server_url": "https://custom.server",
+        "hexaqueue_api_token": "secret-token",
+        "hexaqueue_slices": 6,
+        "hexaqueue_pool": "special-pool",
+        "hexaqueue_container": True,
+        "hexaqueue_worker_image": "custom:v1",
+        "hexaqueue_free_tier": True,
+        "hexaqueue_fallback": False,
+        "hexaqueue_slicer": "file",
+        "hexaqueue_profile": "ci",
+    }
+    config.getoption.side_effect = lambda name, default=None: options.get(name, default)
+    res = _resolve_plugin_config(config)
+    assert res.server_url == "https://custom.server"
+    assert res.api_token == "secret-token"
+    assert res.slices == 6
+    assert res.pool == "special-pool"
+    assert res.mode == "container"
+    assert res.container.image == "custom:v1"
+    assert res.free_tier is True
+    assert res.fallback is False
+    assert res.slicer == "file"
+
+
+def test_pytest_collection_finish_with_resolved_config() -> None:
+    """Test collection finish uses resolved configuration from stash."""
+    from hexaqueue_core.domain.runner_config import HexaqueueProfileConfig
+
+    session = MagicMock()
+    stash_dict: dict[Any, Any] = {
+        _CONFIG_KEY: HexaqueueProfileConfig(slices=3, slicer="file")
+    }
+    session.config.stash = stash_dict
+    session.config.getoption.side_effect = lambda name, default=None: (
+        True if name == "hexaqueue_enabled" else default
+    )
+    item1 = MagicMock(nodeid="t1", path="test_1.py")
+    item1.iter_markers.return_value = []
+    item2 = MagicMock(nodeid="t2", path="test_2.py")
+    item2.iter_markers.return_value = []
+    session.items = [item1, item2]
+
+    pytest_collection_finish(session)
+    assert _SLICES_KEY in session.config.stash
+    slices = session.config.stash[_SLICES_KEY]
+    assert len(slices) == 3
+
+
+def test_pytest_runtestloop_with_resolved_config() -> None:
+    """Test runtestloop uses resolved config from stash."""
+    from hexaqueue_core.domain.runner_config import (
+        HexaqueueContainerConfig,
+        HexaqueueProfileConfig,
+    )
+
+    client = InMemoryTestDispatchClient()
+    prof = HexaqueueProfileConfig(
+        server_url="http://test-server:9000",
+        api_token="test-token",
+        slices=2,
+        pool="ci-pool",
+        mode="container",
+        container=HexaqueueContainerConfig(image="worker:test"),
+        free_tier=True,
+        fallback=False,
+    )
+    session = MagicMock()
+    session.config.getoption.side_effect = lambda name, default=None: (
+        True if name == "hexaqueue_enabled" else default
+    )
+    session.config.stash = {
+        _CLIENT_KEY: client,
+        _CONFIG_KEY: prof,
+        _SLICES_KEY: [
+            TestSliceSpec(
+                slice_id="s1", slice_index=0, total_slices=1, test_nodeids=["t1"]
+            ),
+        ],
+    }
+    session.items = [MagicMock(nodeid="t1")]
+
+    result = pytest_runtestloop(session)
+    assert result is True
+
+
+def test_pytest_runtestloop_with_exception_and_fallback() -> None:
+    """Test runtestloop catches exception and falls back to local execution when fallback is enabled."""
+    from hexaqueue_core.domain.runner_config import HexaqueueProfileConfig
+
+    client = AsyncMock()
+    client.health_check.return_value = True
+    client.dispatch_run.side_effect = RuntimeError("Dispatch exploded")
+
+    session = MagicMock()
+    session.config.getoption.side_effect = lambda name, default=None: (
+        True if name == "hexaqueue_enabled" else default
+    )
+    prof = HexaqueueProfileConfig(fallback=True)
+    session.config.stash = {
+        _CLIENT_KEY: client,
+        _CONFIG_KEY: prof,
+        _SLICES_KEY: [
+            TestSliceSpec(
+                slice_id="s1", slice_index=0, total_slices=1, test_nodeids=["t1"]
+            ),
+        ],
+    }
+    session.items = [MagicMock(nodeid="t1")]
+
+    res = pytest_runtestloop(session)
+    assert res is None
+
+
+def test_pytest_runtestloop_with_exception_and_no_fallback() -> None:
+    """Test runtestloop re-raises exception when fallback is disabled."""
+    from hexaqueue_core.domain.runner_config import HexaqueueProfileConfig
+
+    client = AsyncMock()
+    client.health_check.return_value = True
+    client.dispatch_run.side_effect = RuntimeError("Dispatch exploded")
+
+    session = MagicMock()
+    session.config.getoption.side_effect = lambda name, default=None: (
+        True if name == "hexaqueue_enabled" else default
+    )
+    prof = HexaqueueProfileConfig(fallback=False)
+    session.config.stash = {
+        _CLIENT_KEY: client,
+        _CONFIG_KEY: prof,
+        _SLICES_KEY: [
+            TestSliceSpec(
+                slice_id="s1", slice_index=0, total_slices=1, test_nodeids=["t1"]
+            ),
+        ],
+    }
+    session.items = [MagicMock(nodeid="t1")]
+
+    with pytest.raises(RuntimeError, match="Dispatch exploded"):
+        pytest_runtestloop(session)
+
+
+def test_notify_session_reports_with_failures() -> None:
+    """Test _notify_session_reports sets exitstatus to TESTS_FAILED when failures are present."""
+    session = MagicMock()
+    session.testsfailed = 0
+    session.items = []
+    rep = SliceOutcomeReport(
+        slice_id="s1",
+        slice_index=0,
+        worker_id="w1",
+        provider="LOCAL",
+        is_free_tier=False,
+        outcomes=[
+            TestOutcomeItem(nodeid="t1", outcome="failed", longrepr="AssertionError"),
+        ],
+        duration_seconds=0.5,
+    )
+    _notify_session_reports(session, [rep])
+    assert session.exitstatus == pytest.ExitCode.TESTS_FAILED
+    assert session.testsfailed == 1
+
+
+def test_plugin_module_reload_coverage() -> None:
+    """Ensure top-level module definitions in plugin.py are tracked under test coverage."""
+    importlib.reload(plugin_module)
+    assert hasattr(plugin_module, "pytest_addoption")

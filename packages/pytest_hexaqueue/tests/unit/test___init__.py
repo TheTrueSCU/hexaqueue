@@ -1,11 +1,16 @@
 """Tests for pytest_hexaqueue root package exports."""
 
+import importlib
+
 import pytest
 import pytest_hexaqueue
 
 
 def test_root_package_exports() -> None:
     """Verify root package exports are available."""
+    # Reload under coverage to trace top-level module code
+    importlib.reload(pytest_hexaqueue)
+
     exports = dir(pytest_hexaqueue)
     assert "RoundRobinTestSlicer" in exports
     assert "FileContiguousTestSlicer" in exports

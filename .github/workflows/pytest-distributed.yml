@@ -59,6 +59,5 @@ jobs:
         run: |
           uv run pytest packages/pytest_hexaqueue/tests/unit/ \
             --hexaqueue \
-            --hq-slices ${{ github.event.inputs.slices || '4' }} \
-            --hq-fallback \
+            --hq-profile ci \
             -v

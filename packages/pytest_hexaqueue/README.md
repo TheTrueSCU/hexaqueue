@@ -119,20 +119,20 @@ uv add --dev pytest-hexaqueue
 pip install pytest-hexaqueue
 ```
 
-### 2. Standalone Distributed Run (In Place of xdist)
+### 2. Standalone Distributed Run
 
 ```bash
-# Fan out tests across 4 cluster slices
-pytest --hexaqueue --hq-slices 4
+# Uses project config in pyproject.toml / hexaqueue.yaml
+pytest --hexaqueue
 
-# Enforce strictly zero-cost Multi-CSP Free-Tier execution
-pytest --hexaqueue --hq-slices 6 --hq-free-tier
+# Activate a named profile (e.g. CI, container, free-tier)
+pytest --hexaqueue --hq-profile ci
+pytest --hexaqueue --hq-profile container
+pytest --hexaqueue --hq-profile free-tier
 
-# Use file-contiguous slicing instead of round-robin
-pytest --hexaqueue --hq-slices 4 --hq-slicer file
-
-# Specify custom controller endpoint and pool
-pytest --hexaqueue --hq-server http://hexaqueue.corp:8000 --hq-pool ci-fast
+# Explicit one-off overrides
+pytest --hexaqueue --hq-slices 8
+pytest --hexaqueue --hq-config path/to/custom.yaml
 ```
 
 ### 3. Hybrid Two-Tier Execution (Alongside xdist)
@@ -146,26 +146,49 @@ pytest $(cat /tmp/hexaqueue/slice_items.txt) -n auto
 
 ---
 
-## ⚙️ CLI Options & Configuration Reference
+## ⚙️ Configuration & Options Reference
+
+### Configuration via `pyproject.toml` or `hexaqueue.yaml`
+
+Instead of passing CLI flags, configure project defaults and named profiles in `pyproject.toml`:
+
+```toml
+[tool.hexaqueue]
+server_url = "http://127.0.0.1:8000"
+slices = 4
+slicer = "round-robin"
+fallback = true
+mode = "subprocess"
+
+[tool.hexaqueue.profiles.container]
+mode = "container"
+slices = 4
+container = { image = "hexaqueue-worker:latest", runtime = "auto" }
+
+[tool.hexaqueue.profiles.ci]
+server_url = "https://hq-cluster.corp.internal"
+slices = 16
+fallback = false
+
+[tool.hexaqueue.profiles.free-tier]
+free_tier = true
+slices = 4
+pool = "arm64-always-free"
+```
+
+### CLI Overrides Reference
 
 | Option | Environment Variable | Default | Description |
 |---|---|---|---|
 | `--hexaqueue` | `HEXAQUEUE_PYTEST` | `False` | Enable Hexaqueue distributed test execution |
-| `--hq-server` | `HEXAQUEUE_SERVER_URL` | `http://127.0.0.1:8000` | Hexaqueue cluster controller base URL |
-| `--hq-slices` | `HEXAQUEUE_SLICES` | `4` | Number of parallel execution slices to partition the suite into |
-| `--hq-pool` | `HEXAQUEUE_POOL` | `default` | Target compute instance pool for runner placement |
-| `--hq-free-tier` | `HEXAQUEUE_FREE_TIER` | `False` | Enforce zero-cost Multi-CSP Free-Tier mesh execution ($0.00 spend) |
-| `--hq-fallback` | `HEXAQUEUE_LOCAL_FALLBACK` | `True` | Fall back to local in-process execution if cluster is unreachable |
-| `--hq-slicer` | `HEXAQUEUE_SLICER` | `round-robin` | Test partitioning algorithm: `round-robin` or `file` |
-
-### Configuration via `pyproject.toml`
-
-You can persist defaults in `pyproject.toml` so team members do not need to pass flags manually:
-
-```toml
-[tool.pytest.ini_options]
-addopts = "--hexaqueue --hq-slices 4 --hq-fallback"
-markers = [
-    "hexaqueue: mark test for execution on Hexaqueue distributed cluster",
-]
-```
+| `--hq-config` | `HEXAQUEUE_CONFIG` | None | Path to configuration file (`pyproject.toml` or `hexaqueue.yaml`) |
+| `--hq-profile` | `HEXAQUEUE_PROFILE` | None | Active configuration profile name (e.g., `ci`, `container`, `free-tier`) |
+| `--hq-server` | `HEXAQUEUE_SERVER_URL` | Config / `http://127.0.0.1:8000` | Hexaqueue cluster controller base URL |
+| `--hq-token` | `HEXAQUEUE_API_TOKEN` | None | Authentication bearer token |
+| `--hq-slices` | `HEXAQUEUE_SLICES` | Config / `4` | Number of parallel execution slices |
+| `--hq-container` | `HEXAQUEUE_CONTAINER` | Config / `False` | Execute slices inside isolated OCI container sandboxes |
+| `--hq-image` | `HEXAQUEUE_WORKER_IMAGE` | Config / `latest` | Container image tag for worker runtime |
+| `--hq-pool` | `HEXAQUEUE_POOL` | Config / `default` | Target compute instance pool for runner placement |
+| `--hq-free-tier` | `HEXAQUEUE_FREE_TIER` | Config / `False` | Enforce zero-cost Multi-CSP Free-Tier mesh execution ($0.00 spend) |
+| `--hq-fallback` | `HEXAQUEUE_LOCAL_FALLBACK` | Config / `True` | Fall back to local in-process execution if cluster is unreachable |
+| `--hq-slicer` | `HEXAQUEUE_SLICER` | Config / `round-robin` | Test partitioning algorithm: `round-robin` or `file` |

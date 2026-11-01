@@ -52,7 +52,10 @@ A central architectural decision when adopting `pytest-hexaqueue` is how it inte
 - **Transparent Local Fallback**: If the cluster is unreachable or offline, `--hq-fallback` (enabled by default) automatically runs the suite locally in-process without failing developer workflows.
 
 ```bash
-# Slices the suite into 6 remote partitions running on the Free-Tier mesh
+# Slices the suite into remote partitions running on the Free-Tier mesh via profile
+pytest --hexaqueue --hq-profile free-tier
+
+# Or explicit one-off override
 pytest --hexaqueue --hq-slices 6 --hq-free-tier
 ```
 
@@ -152,25 +155,58 @@ Groups tests located in the same file into the same slice as much as possible be
 
 ### 1. Developer Workstation Quickstart
 
-Enable distributed execution with 4 slices:
+Run tests distributed using project defaults configured in `pyproject.toml` or `hexaqueue.yaml`:
 
 ```bash
-pytest --hexaqueue --hq-slices 4
+pytest --hexaqueue
 ```
 
-Enforce zero-cost multi-CSP cloud execution:
+Switch execution environments instantly using named profiles:
 
 ```bash
-pytest --hexaqueue --hq-slices 6 --hq-free-tier
+# Isolated OCI container sandbox slices
+pytest --hexaqueue --hq-profile container
+
+# Federated zero-cost Multi-CSP cloud mesh ($0.00 spend ceiling)
+pytest --hexaqueue --hq-profile free-tier
+
+# Explicit CLI overrides for one-off experimentation
+pytest --hexaqueue --hq-slices 8 --hq-slicer file
 ```
 
-### 2. Configuration via `pyproject.toml`
+### 2. Configuration via `pyproject.toml` or `hexaqueue.yaml`
 
-Configure default options so team members do not need to remember CLI flags:
+Configure project defaults and named profiles in `pyproject.toml` under `[tool.hexaqueue]`. This eliminates flag clutter across developer environments and CI:
+
+```toml
+[tool.hexaqueue]
+server_url = "http://127.0.0.1:8000"
+slices = 4
+slicer = "round-robin"
+fallback = true
+mode = "subprocess"
+
+[tool.hexaqueue.profiles.container]
+mode = "container"
+slices = 4
+container = { image = "hexaqueue-worker:latest", runtime = "auto" }
+
+[tool.hexaqueue.profiles.ci]
+server_url = "https://hq-cluster.corp.internal"
+slices = 16
+fallback = false
+
+[tool.hexaqueue.profiles.free-tier]
+free_tier = true
+slices = 4
+pool = "arm64-always-free"
+```
+
+You can also set default pytest arguments in `[tool.pytest.ini_options]`:
 
 ```toml
 [tool.pytest.ini_options]
-addopts = "--hexaqueue --hq-slices 4 --hq-fallback"
+addopts = "--hexaqueue"
 markers = [
     "hexaqueue: mark test for execution on Hexaqueue distributed cluster",
 ]
@@ -178,7 +214,7 @@ markers = [
 
 ### 3. GitHub Actions CI Matrix Offloading
 
-Instead of maintaining expensive GitHub Actions matrix jobs, dispatch all test slices through a single lightweight GitHub Actions runner that communicates with Hexaqueue:
+Instead of maintaining expensive GitHub Actions matrix jobs, dispatch all test slices through a single lightweight GitHub Actions runner targeting the `ci` profile:
 
 ```yaml
 name: Test Suite
@@ -194,20 +230,28 @@ jobs:
       - name: Run Distributed Tests via Hexaqueue
         env:
           HEXAQUEUE_SERVER_URL: ${{ secrets.HEXAQUEUE_SERVER_URL }}
+          HEXAQUEUE_API_TOKEN: ${{ secrets.HEXAQUEUE_API_TOKEN }}
         run: |
-          uv run pytest --hexaqueue --hq-slices 8 --hq-free-tier
+          uv run pytest --hexaqueue --hq-profile ci
 ```
 
 ---
 
 ## 🛠️ CLI Reference
 
+Layered resolution order: **CLI flags (highest)** $\to$ **Environment variables** $\to$ **Active named profile (`--hq-profile`)** $\to$ **Config file (`pyproject.toml` / `hexaqueue.yaml`)** $\to$ **Built-in defaults (lowest)**.
+
 | Flag | Env Var | Default | Description |
 |---|---|---|---|
 | `--hexaqueue` | `HEXAQUEUE_PYTEST` | `False` | Enable Hexaqueue distributed test execution |
-| `--hq-server` | `HEXAQUEUE_SERVER_URL` | `http://127.0.0.1:8000` | Hexaqueue cluster controller base URL |
-| `--hq-slices` | `HEXAQUEUE_SLICES` | `4` | Number of parallel execution slices to partition the suite into |
-| `--hq-pool` | `HEXAQUEUE_POOL` | `default` | Target compute instance pool for runner placement |
-| `--hq-free-tier` | `HEXAQUEUE_FREE_TIER` | `False` | Enforce zero-cost Multi-CSP Free-Tier mesh execution ($0.00 spend) |
-| `--hq-fallback` | `HEXAQUEUE_LOCAL_FALLBACK` | `True` | Fall back to local in-process execution if cluster is unreachable |
-| `--hq-slicer` | `HEXAQUEUE_SLICER` | `round-robin` | Test partitioning algorithm: `round-robin` or `file` |
+| `--hq-config` | `HEXAQUEUE_CONFIG` | None | Explicit path to configuration file (`pyproject.toml` or `hexaqueue.yaml`) |
+| `--hq-profile` | `HEXAQUEUE_PROFILE` | None | Active configuration profile name (e.g., `ci`, `container`, `free-tier`) |
+| `--hq-server` | `HEXAQUEUE_SERVER_URL` | Config / `http://127.0.0.1:8000` | Hexaqueue cluster controller base URL |
+| `--hq-token` | `HEXAQUEUE_API_TOKEN` | None | Authentication bearer token for cluster access |
+| `--hq-slices` | `HEXAQUEUE_SLICES` | Config / `4` | Number of parallel execution slices to partition the suite into |
+| `--hq-container` | `HEXAQUEUE_CONTAINER` | Config / `False` | Execute slices inside isolated OCI container sandboxes |
+| `--hq-image` | `HEXAQUEUE_WORKER_IMAGE` | Config / `latest` | Container image tag for worker runtime |
+| `--hq-pool` | `HEXAQUEUE_POOL` | Config / `default` | Target compute instance pool for runner placement |
+| `--hq-free-tier` | `HEXAQUEUE_FREE_TIER` | Config / `False` | Enforce zero-cost Multi-CSP Free-Tier mesh execution ($0.00 spend) |
+| `--hq-fallback` | `HEXAQUEUE_LOCAL_FALLBACK` | Config / `True` | Fall back to local in-process execution if cluster is unreachable |
+| `--hq-slicer` | `HEXAQUEUE_SLICER` | Config / `round-robin` | Test partitioning algorithm: `round-robin` or `file` |

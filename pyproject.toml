@@ -89,6 +89,28 @@ exclude_lines = [
 [tool.inline-snapshot]
 format-command = "uv run ruff format --stdin-filename {filename} -"
 
+[tool.hexaqueue]
+server_url = "http://127.0.0.1:8000"
+slices = 4
+slicer = "round-robin"
+fallback = true
+mode = "subprocess"
+
+[tool.hexaqueue.profiles.container]
+mode = "container"
+slices = 4
+container = { image = "hexaqueue-worker:latest", runtime = "auto" }
+
+[tool.hexaqueue.profiles.ci]
+server_url = "http://127.0.0.1:8000"
+slices = 4
+fallback = true
+
+[tool.hexaqueue.profiles.free-tier]
+free_tier = true
+slices = 4
+pool = "arm64-always-free"
+
 [tool.pytest.ini_options]
 testpaths = ["packages", "tests"]
 norecursedirs = ["examples", ".venv", "dist", "build", ".hypothesis", ".mutmut-cache"]
