@@ -14,10 +14,11 @@ import shutil
 import sys
 import time
 import uuid
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from hexaqueue_server.adapters.api.auth import get_auth_context
@@ -175,6 +176,31 @@ def _create_outcome_records(
     ]
 
 
+def get_worker_semaphore(request: Request) -> asyncio.Semaphore:
+    """FastAPI dependency provider resolving the application-scoped worker semaphore.
+
+    Args:
+        request: Incoming FastAPI Request object.
+
+    Returns:
+        asyncio.Semaphore instance attached to application state.
+
+    Raises:
+        None.
+
+    Notes/Architectural Intent:
+        Enforces resource boundaries by serializing or concurrency-limiting slice executions
+        against detected CPU cores, preventing process thrashing on large batch submissions.
+    """
+    sem = getattr(request.app.state, "worker_semaphore", None)
+    if isinstance(sem, asyncio.Semaphore):
+        return sem
+    total_cores = os.cpu_count() or 4
+    new_sem = asyncio.Semaphore(max(1, total_cores))
+    request.app.state.worker_semaphore = new_sem
+    return new_sem
+
+
 async def _execute_slice(
     slice_spec: TestSliceDispatch,
     worker_index: int,
@@ -182,6 +208,7 @@ async def _execute_slice(
     is_container: bool = False,
     container_image: str | None = None,
     coverage_sources: list[str] | None = None,
+    semaphore: asyncio.Semaphore | None = None,
 ) -> SliceOutcomeResponse:
     """Execute a single test slice in a dedicated worker subprocess or container."""
     cmd, provider, worker_id = _build_slice_cmd(
@@ -211,13 +238,14 @@ async def _execute_slice(
         env["COVERAGE_FILE"] = cov_file
 
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            env=env,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout_bytes, stderr_bytes = await proc.communicate()
+        async with semaphore if semaphore is not None else nullcontext():
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                env=env,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout_bytes, stderr_bytes = await proc.communicate()
         exit_code = proc.returncode
         stdout_text = stdout_bytes.decode("utf-8", errors="replace")
         stderr_text = stderr_bytes.decode("utf-8", errors="replace")
@@ -287,6 +315,7 @@ def create_test_runs_router() -> APIRouter:
     async def dispatch_test_run(
         req: TestRunDispatchRequest,
         auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
+        semaphore: Annotated[asyncio.Semaphore, Depends(get_worker_semaphore)],
     ) -> TestRunDispatchResponse:
         """Receive test slices and execute them concurrently across worker nodes."""
         is_container = req.container or req.pool == "container"
@@ -298,6 +327,7 @@ def create_test_runs_router() -> APIRouter:
                 is_container=is_container,
                 container_image=req.container_image,
                 coverage_sources=req.coverage_sources,
+                semaphore=semaphore,
             )
             for i, s in enumerate(req.slices)
         ]
@@ -309,6 +339,7 @@ def create_test_runs_router() -> APIRouter:
 
 __all__ = [
     "create_test_runs_router",
+    "get_worker_semaphore",
     "SliceOutcomeResponse",
     "TestOutcomeRecord",
     "TestRunDispatchRequest",

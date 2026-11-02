@@ -36,7 +36,7 @@ class HexaqueueTestDispatchClient(HexaqueueTestDispatchPort):
     def __init__(
         self,
         server_url: str = "http://127.0.0.1:8000",
-        timeout_seconds: float = 30.0,
+        timeout_seconds: float = 300.0,
         api_token: str | None = None,
     ) -> None:
         self.server_url = server_url.rstrip("/")
@@ -54,7 +54,7 @@ class HexaqueueTestDispatchClient(HexaqueueTestDispatchPort):
         """Query cluster controller health status endpoint."""
         try:
             async with httpx.AsyncClient(
-                timeout=self.timeout_seconds, headers=self._headers()
+                timeout=min(10.0, self.timeout_seconds), headers=self._headers()
             ) as client:
                 resp = await client.get(f"{self.server_url}/health")
                 return resp.status_code == 200

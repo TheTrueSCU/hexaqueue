@@ -22,6 +22,7 @@ from pytest_hexaqueue.infra.plugin import (
     _get_slicer,
     _notify_session_reports,
     _resolve_plugin_config,
+    _resolve_remote_slice_concurrency,
     _resolve_slice_counts,
     pytest_addoption,
     pytest_collection_finish,
@@ -630,6 +631,60 @@ def test_resolve_slice_counts_combinations() -> None:
     assert tot == 6
     assert loc == 0
     assert rem == 6
+
+    # 'auto' remote slices with item_count
+    opts = {
+        "hexaqueue_local_slices": 0,
+        "hexaqueue_remote_slices": "auto",
+        "hexaqueue_hybrid": None,
+        "hexaqueue_slices": None,
+    }
+    tot, loc, rem = _resolve_slice_counts(config, item_count=600)
+    assert loc == 0
+    assert rem == 20
+    assert tot == 20
+
+
+def test_resolve_slice_counts_from_profile() -> None:
+    """Verify _resolve_slice_counts extracts local_slices and remote_slices from active profile."""
+    config = MagicMock()
+    prof = HexaqueueProfileConfig(
+        local_slices=2,
+        remote_slices="auto",
+    )
+    config.stash.get.return_value = prof
+    config.getoption.side_effect = lambda name, default=None: None
+
+    tot, loc, rem = _resolve_slice_counts(config, item_count=120)
+    assert loc == 2
+    assert rem == 4
+    assert tot == 6
+
+
+def test_resolve_remote_slice_concurrency_variants() -> None:
+    """Verify _resolve_remote_slice_concurrency handles all type permutations and bounds."""
+    # None and empty
+    assert _resolve_remote_slice_concurrency(None) is None
+    assert _resolve_remote_slice_concurrency(0) == 0
+    assert _resolve_remote_slice_concurrency("0") == 0
+    assert _resolve_remote_slice_concurrency(False) == 0
+
+    # Numeric integers
+    assert _resolve_remote_slice_concurrency(8) == 8
+    assert _resolve_remote_slice_concurrency("12") == 12
+
+    # Boolean True -> auto
+    assert _resolve_remote_slice_concurrency(True, item_count=90) == 4
+
+    # 'auto' with variable item counts
+    assert _resolve_remote_slice_concurrency("auto", item_count=0) == 4
+    assert _resolve_remote_slice_concurrency("auto", item_count=2) == 2
+    assert _resolve_remote_slice_concurrency("auto", item_count=120) == 4
+    assert _resolve_remote_slice_concurrency("auto", item_count=300) == 10
+    assert _resolve_remote_slice_concurrency("auto", item_count=1200) == 32
+
+    # Invalid string fallback
+    assert _resolve_remote_slice_concurrency("invalid-string") is None
 
 
 def test_pytest_runtestloop_hybrid_execution() -> None:

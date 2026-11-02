@@ -1,7 +1,8 @@
 """Unit tests for distributed test slice dispatch API endpoints."""
 
+import asyncio
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -11,6 +12,7 @@ from hexaqueue_server.adapters.api.test_runs import (
     TestSliceDispatch,
     _build_slice_cmd,
     _execute_slice,
+    get_worker_semaphore,
 )
 
 
@@ -272,3 +274,13 @@ async def test_execute_slice_with_coverage_serialization(tmp_path: Path) -> None
     finally:
         if cov_file.exists():
             cov_file.unlink()
+
+
+def test_get_worker_semaphore_dependency() -> None:
+    """Verify get_worker_semaphore resolves existing or initializes default on app.state."""
+    req = MagicMock()
+    req.app.state.worker_semaphore = None
+    sem1 = get_worker_semaphore(req)
+    assert isinstance(sem1, asyncio.Semaphore)
+    sem2 = get_worker_semaphore(req)
+    assert sem2 is sem1

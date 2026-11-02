@@ -5,6 +5,9 @@ Notes/Architectural Intent:
     wires container dependencies with the CQRS ExecutionPipeline.
 """
 
+import asyncio
+import os
+
 from fastapi import APIRouter, FastAPI
 from hexastack_core.infra.container import create_container
 from hexastack_cqrs.infra.pipeline import ExecutionPipeline
@@ -123,6 +126,10 @@ def create_server_app(
             allowed_trust_domains=set(server_cfg.security.trust_domains),
         )
         app.state.spiffe_authorizer = PolicySpiffeAuthorizerAdapter(policy)
+
+    if not hasattr(app.state, "worker_semaphore"):
+        total_cores = os.cpu_count() or 4
+        app.state.worker_semaphore = asyncio.Semaphore(max(1, total_cores))
 
     app.add_middleware(ZeroTrustBoundaryMiddleware)
     return app

@@ -140,9 +140,11 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     group.addoption(
         "--hq-remote-slices",
         action="store",
+        nargs="?",
+        const="auto",
         default=None,
         dest="hexaqueue_remote_slices",
-        help="Number of slices to dispatch remotely to Hexaqueue cluster controller (0 to disable)",
+        help="Number of slices to dispatch remotely to Hexaqueue cluster controller, or 'auto' (0 to disable)",
     )
     group.addoption(
         "--hq-hybrid",
@@ -206,6 +208,10 @@ def _resolve_plugin_config(config: pytest.Config) -> Any:
         cli_overrides["fallback"] = config.getoption("hexaqueue_fallback")
     if config.getoption("hexaqueue_slicer", default=None) is not None:
         cli_overrides["slicer"] = config.getoption("hexaqueue_slicer")
+    if config.getoption("hexaqueue_local_slices", default=None) is not None:
+        cli_overrides["local_slices"] = config.getoption("hexaqueue_local_slices")
+    if config.getoption("hexaqueue_remote_slices", default=None) is not None:
+        cli_overrides["remote_slices"] = config.getoption("hexaqueue_remote_slices")
 
     profile = config.getoption("hexaqueue_profile", default=None)
     return resolve_runner_config(
@@ -299,6 +305,48 @@ def _parse_slice_concurrency(val: Any) -> int | None:
             return max(1, total_cores - 2)
 
 
+def _resolve_remote_slice_concurrency(val: Any, item_count: int = 0) -> int | None:
+    """Resolve remote slice partition count matching distributed queue saturation semantics.
+
+    Args:
+        val: Concurrency specification ('auto', an integer, 0, or None).
+        item_count: Total collected test items for dynamic workload scaling.
+
+    Returns:
+        Effective slice partition integer (>= 0), or None if unassigned.
+
+    Raises:
+        None.
+
+    Notes/Architectural Intent:
+        When 'auto' is specified, over-partitions test slices proportional to collected
+        test items (targeting ~25-35 tests per slice, bounded between 4 and 32). This
+        ensures the remote cluster controller's work-stealing queue remains continuously
+        saturated, preventing worker vCPU cores from idling on slow-running test stragglers.
+    """
+    if val is None:
+        return None
+    if isinstance(val, bool):
+        val = "auto" if val else 0
+    if isinstance(val, (int, float)):
+        return max(0, int(val))
+
+    cleaned = str(val).strip().casefold()
+    if cleaned == "0":
+        return 0
+    if cleaned != "auto":
+        try:
+            return max(0, int(cleaned))
+        except (ValueError, TypeError):
+            return None
+
+    if item_count <= 0:
+        return 4
+    if item_count < 4:
+        return max(1, item_count)
+    return max(4, min(32, item_count // 30))
+
+
 def _get_slicer(strategy: str) -> Any:
     """Instantiate configured slicing adapter."""
     from pytest_hexaqueue.adapters.slicer import (
@@ -311,11 +359,14 @@ def _get_slicer(strategy: str) -> Any:
     return RoundRobinTestSlicer()
 
 
-def _resolve_slice_counts(config: pytest.Config) -> tuple[int, int, int]:
+def _resolve_slice_counts(
+    config: pytest.Config, item_count: int = 0
+) -> tuple[int, int, int]:
     """Calculate total, local, and remote slice allocations for hybrid or pure topologies.
 
     Args:
         config: Active pytest configuration.
+        item_count: Total collected test items for dynamic remote saturation.
 
     Returns:
         Tuple of (total_slices, local_slices, remote_slices).
@@ -329,22 +380,26 @@ def _resolve_slice_counts(config: pytest.Config) -> tuple[int, int, int]:
         Supports 'auto' via hexaqual.domain.governance.resolve_parallelism and 0 for
         pure remote dispatch.
     """
-    local_raw = config.getoption("hexaqueue_local_slices", default=None)
-    remote_raw = config.getoption("hexaqueue_remote_slices", default=None)
+    resolved = config.stash.get(_CONFIG_KEY, None)
+    profile_local = getattr(resolved, "local_slices", None) if resolved else None
+    profile_remote = getattr(resolved, "remote_slices", None) if resolved else None
+
+    local_opt = config.getoption("hexaqueue_local_slices", default=None)
+    local_raw = local_opt if local_opt is not None else profile_local
+
+    remote_opt = config.getoption("hexaqueue_remote_slices", default=None)
+    remote_raw = remote_opt if remote_opt is not None else profile_remote
+
     hybrid_arg = config.getoption("hexaqueue_hybrid", default=None)
     slices_raw = config.getoption("hexaqueue_slices", default=None)
 
     local_arg = _parse_slice_concurrency(local_raw)
-    try:
-        remote_arg = int(remote_raw) if remote_raw is not None else None
-    except (ValueError, TypeError):
-        remote_arg = None
+    remote_arg = _resolve_remote_slice_concurrency(remote_raw, item_count=item_count)
     try:
         slices_arg = int(slices_raw) if slices_raw is not None else None
     except (ValueError, TypeError):
         slices_arg = None
 
-    resolved = config.stash.get(_CONFIG_KEY, None)
     default_total = resolved.slices if resolved and hasattr(resolved, "slices") else 4
     total_requested = slices_arg if slices_arg is not None else default_total
 
@@ -368,7 +423,9 @@ def _resolve_slice_counts(config: pytest.Config) -> tuple[int, int, int]:
 
     if hybrid_arg:
         local_cnt = _parse_slice_concurrency("auto") or 2
-        remote_cnt = 4
+        remote_cnt = (
+            _resolve_remote_slice_concurrency("auto", item_count=item_count) or 4
+        )
         total_cnt = max(total_requested, local_cnt + remote_cnt)
         return total_cnt, local_cnt, total_cnt - local_cnt
 
@@ -407,7 +464,9 @@ def pytest_collection_finish(session: pytest.Session) -> None:
     )
     slicer = _get_slicer(slicer_name)
 
-    total_slices, local_slices, remote_slices = _resolve_slice_counts(session.config)
+    total_slices, local_slices, remote_slices = _resolve_slice_counts(
+        session.config, item_count=len(session.items)
+    )
     session.config.stash[_HYBRID_COUNTS_KEY] = (local_slices, remote_slices)
 
     slices = slicer.slice_items(items, total_slices)

@@ -103,6 +103,8 @@ container = { image = "hexaqueue-worker:latest", runtime = "auto" }
 
 [tool.hexaqueue.profiles.ci]
 server_url = "http://127.0.0.1:8000"
+local_slices = 2
+remote_slices = "auto"
 slices = 4
 fallback = true
 

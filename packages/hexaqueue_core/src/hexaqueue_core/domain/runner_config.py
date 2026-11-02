@@ -153,12 +153,18 @@ class HexaqueueProfileConfig(BaseModel):
         default=True,
         description="Enforce zero-cost free-tier guards ($0.00 spend ceiling)",
     )
+    local_slices: int | str | None = Field(
+        default=None, description="Local slice concurrency count or 'auto'"
+    )
     mode: str = Field(
         default="subprocess",
         description="Execution mode: subprocess, container, csp, kueue",
     )
     pool: str = Field(
         default="default", description="Compute pool for runner placement"
+    )
+    remote_slices: int | str | None = Field(
+        default=None, description="Remote slice partition count or 'auto'"
     )
     server_url: str = Field(
         default="http://127.0.0.1:8000", description="Hexaqueue server base URL"
@@ -199,9 +205,15 @@ class HexaqueueProjectConfig(BaseModel):
         default=True,
         description="Default zero-cost free-tier guards ($0.00 spend ceiling)",
     )
+    local_slices: int | str | None = Field(
+        default=None, description="Default local slice count"
+    )
     mode: str = Field(default="subprocess")
     pool: str = Field(default="default")
     profiles: dict[str, HexaqueueProfileConfig] = Field(default_factory=dict)
+    remote_slices: int | str | None = Field(
+        default=None, description="Default remote slice count"
+    )
     server_url: str = Field(default="http://127.0.0.1:8000")
     slicer: str = Field(default="round-robin")
     slices: int = Field(default=4, ge=1)
@@ -338,6 +350,10 @@ def _apply_env_overrides(values: dict[str, Any], env: dict[str, str]) -> None:
             values["slices"] = int(env["HEXAQUEUE_SLICES"])
     if "HEXAQUEUE_SLICER" in env:
         values["slicer"] = env["HEXAQUEUE_SLICER"]
+    if "HEXAQUEUE_LOCAL_SLICES" in env:
+        values["local_slices"] = env["HEXAQUEUE_LOCAL_SLICES"]
+    if "HEXAQUEUE_REMOTE_SLICES" in env:
+        values["remote_slices"] = env["HEXAQUEUE_REMOTE_SLICES"]
     if "HEXAQUEUE_POOL" in env:
         values["pool"] = env["HEXAQUEUE_POOL"]
     if "HEXAQUEUE_MODE" in env:
@@ -362,7 +378,15 @@ def _apply_env_overrides(values: dict[str, Any], env: dict[str, str]) -> None:
 
 def _apply_cli_overrides(values: dict[str, Any], overrides: dict[str, Any]) -> None:
     """Overlay explicit CLI option overrides onto values dict."""
-    for str_key in ("server_url", "api_token", "slicer", "pool", "mode"):
+    for str_key in (
+        "api_token",
+        "local_slices",
+        "mode",
+        "pool",
+        "remote_slices",
+        "server_url",
+        "slicer",
+    ):
         if str_key in overrides:
             values[str_key] = overrides[str_key]
     if "slices" in overrides:
@@ -419,8 +443,10 @@ def resolve_runner_config(
         "container": cfg.container.model_copy(),
         "fallback": cfg.fallback,
         "free_tier": cfg.free_tier,
+        "local_slices": cfg.local_slices,
         "mode": cfg.mode,
         "pool": cfg.pool,
+        "remote_slices": cfg.remote_slices,
         "server_url": cfg.server_url,
         "slicer": cfg.slicer,
         "slices": cfg.slices,

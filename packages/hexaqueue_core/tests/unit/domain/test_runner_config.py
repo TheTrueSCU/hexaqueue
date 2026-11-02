@@ -262,3 +262,37 @@ def test_resolve_runner_config_cost_env_and_cli() -> None:
             cli_overrides={"paid": True, "free_tier": True},
         )
         assert res_cli_conflict.free_tier is True
+
+
+def test_resolve_runner_config_local_and_remote_slices() -> None:
+    """Verify local_slices and remote_slices resolve across profile, env, and CLI."""
+    profile_cfg = HexaqueueProfileConfig(
+        local_slices=2,
+        remote_slices="auto",
+    )
+    base = HexaqueueProjectConfig(
+        profiles={"ci": profile_cfg},
+    )
+
+    # 1. Profile resolution
+    resolved_profile = resolve_runner_config(project_config=base, profile="ci")
+    assert resolved_profile.local_slices == 2
+    assert resolved_profile.remote_slices == "auto"
+
+    # 2. Env override
+    resolved_env = resolve_runner_config(
+        project_config=base,
+        profile="ci",
+        env={"HEXAQUEUE_LOCAL_SLICES": "4", "HEXAQUEUE_REMOTE_SLICES": "16"},
+    )
+    assert resolved_env.local_slices == "4"
+    assert resolved_env.remote_slices == "16"
+
+    # 3. CLI override takes highest precedence
+    resolved_cli = resolve_runner_config(
+        project_config=base,
+        profile="ci",
+        cli_overrides={"local_slices": 0, "remote_slices": 8},
+    )
+    assert resolved_cli.local_slices == 0
+    assert resolved_cli.remote_slices == 8
