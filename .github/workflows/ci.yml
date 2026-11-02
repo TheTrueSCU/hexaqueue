@@ -72,16 +72,39 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-packages --all-extras --all-groups
 
-      - name: Start Hexaqueue Controller Daemon (Local CI Runner)
+      - name: Connect to Hexaqueue Cluster (OCI Remote Daemon via SSH Tunnel)
+        env:
+          OCI_SSH_KEY: ${{ secrets.OCI_SSH_KEY }}
+          OCI_HOST: ${{ vars.OCI_HOST || '129.146.115.79' }}
         run: |
+          if [ -n "$OCI_SSH_KEY" ]; then
+            echo "OCI_SSH_KEY detected; establishing SSH tunnel to OCI cluster ($OCI_HOST)..."
+            mkdir -p ~/.ssh
+            chmod 700 ~/.ssh
+            echo "$OCI_SSH_KEY" > ~/.ssh/oci_ci_id
+            chmod 600 ~/.ssh/oci_ci_id
+            ssh -f -N -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ServerAliveInterval=15 -i ~/.ssh/oci_ci_id -L 8000:localhost:8000 ubuntu@$OCI_HOST || true
+            for i in {1..15}; do
+              if curl -s http://127.0.0.1:8000/health >/dev/null 2>&1; then
+                echo "Connected to OCI Hexaqueue Cluster daemon over SSH tunnel on port 8000"
+                exit 0
+              fi
+              sleep 1
+            done
+            echo "OCI tunnel health check failed; falling back to local runner daemon."
+          fi
+
+          echo "Starting local Hexaqueue Controller Daemon fallback..."
           uv run hq server start -p 8000 &
           for i in {1..30}; do
             if curl -s http://127.0.0.1:8000/health >/dev/null 2>&1; then
-              echo "Hexaqueue controller daemon healthy on port 8000"
-              break
+              echo "Local Hexaqueue controller daemon healthy on port 8000"
+              exit 0
             fi
             sleep 1
           done
+          echo "Failed to start Hexaqueue controller daemon"
+          exit 1
 
       - name: Run Unit & Integration Tests via Hexaqueue (Push to Main)
         if: github.event_name == 'push'
