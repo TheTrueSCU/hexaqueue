@@ -1,11 +1,11 @@
 """Unit tests for pytest-hexaqueue plugin hooks and execution loop."""
 
 import importlib
+import sys
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-import pytest_hexaqueue.infra.plugin as plugin_module
 from pytest_hexaqueue.adapters.client import InMemoryTestDispatchClient
 from pytest_hexaqueue.adapters.slicer import FileContiguousTestSlicer
 from pytest_hexaqueue.domain.outcome import (
@@ -514,8 +514,9 @@ def test_notify_session_reports_with_failures() -> None:
 
 def test_plugin_module_reload_coverage() -> None:
     """Ensure top-level module definitions in plugin.py are tracked under test coverage."""
-    importlib.reload(plugin_module)
-    assert hasattr(plugin_module, "pytest_addoption")
+    mod = sys.modules[pytest_addoption.__module__]
+    importlib.reload(mod)
+    assert hasattr(mod, "pytest_addoption")
 
 
 def test_resolve_plugin_config_paid_overrides_free_tier() -> None:
