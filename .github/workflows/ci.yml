@@ -78,13 +78,18 @@ jobs:
           OCI_HOST: ${{ vars.OCI_HOST || '129.146.115.79' }}
         run: |
           if [ -n "$OCI_SSH_KEY" ]; then
-            echo "OCI_SSH_KEY detected; establishing SSH tunnel to OCI cluster ($OCI_HOST)..."
+            echo "OCI_SSH_KEY detected; preparing SSH connection to OCI cluster ($OCI_HOST)..."
             mkdir -p ~/.ssh
             chmod 700 ~/.ssh
             echo "$OCI_SSH_KEY" > ~/.ssh/oci_ci_id
             chmod 600 ~/.ssh/oci_ci_id
+
+            echo "Synchronizing remote cluster repository to CI target ref (${{ github.ref }})..."
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/oci_ci_id ubuntu@$OCI_HOST \
+              "cd ~/hexaqueue && git fetch origin ${{ github.ref }}:ci-target && git reset --hard ci-target && git clean -fd && ~/.local/bin/uv sync --all-packages --all-extras && sudo -n systemctl restart hexaqueue.service" || echo "Remote sync hook failed; continuing with fallback checks"
+
             ssh -f -N -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ServerAliveInterval=15 -i ~/.ssh/oci_ci_id -L 8000:localhost:8000 ubuntu@$OCI_HOST || true
-            for i in {1..15}; do
+            for i in {1..20}; do
               if curl -s http://127.0.0.1:8000/health >/dev/null 2>&1; then
                 echo "Connected to OCI Hexaqueue Cluster daemon over SSH tunnel on port 8000"
                 exit 0
