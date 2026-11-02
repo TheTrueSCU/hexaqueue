@@ -153,6 +153,10 @@ class HexaqueueProfileConfig(BaseModel):
         default=True,
         description="Enforce zero-cost free-tier guards ($0.00 spend ceiling)",
     )
+    host: str | None = Field(
+        default=None,
+        description="Remote cluster host IP or hostname for SSH bastion/tunnel",
+    )
     local_slices: int | str | None = Field(
         default=None, description="Local slice concurrency count or 'auto'"
     )
@@ -162,6 +166,9 @@ class HexaqueueProfileConfig(BaseModel):
     )
     pool: str = Field(
         default="default", description="Compute pool for runner placement"
+    )
+    remote_port: int = Field(
+        default=8000, description="Remote daemon port for SSH port forwarding"
     )
     remote_slices: int | str | None = Field(
         default=None, description="Remote slice partition count or 'auto'"
@@ -176,6 +183,11 @@ class HexaqueueProfileConfig(BaseModel):
     slices: int = Field(
         default=4, ge=1, description="Number of parallel execution partitions"
     )
+    ssh_key: str | None = Field(
+        default=None, description="Path to SSH private key identity file"
+    )
+    ssh_port: int = Field(default=22, description="Remote SSH port")
+    ssh_user: str = Field(default="ubuntu", description="Remote SSH user identity")
 
 
 class HexaqueueProjectConfig(BaseModel):
@@ -205,18 +217,25 @@ class HexaqueueProjectConfig(BaseModel):
         default=True,
         description="Default zero-cost free-tier guards ($0.00 spend ceiling)",
     )
+    host: str | None = Field(
+        default=None, description="Default cluster host IP or hostname"
+    )
     local_slices: int | str | None = Field(
         default=None, description="Default local slice count"
     )
     mode: str = Field(default="subprocess")
     pool: str = Field(default="default")
     profiles: dict[str, HexaqueueProfileConfig] = Field(default_factory=dict)
+    remote_port: int = Field(default=8000)
     remote_slices: int | str | None = Field(
         default=None, description="Default remote slice count"
     )
     server_url: str = Field(default="http://127.0.0.1:8000")
     slicer: str = Field(default="round-robin")
     slices: int = Field(default=4, ge=1)
+    ssh_key: str | None = Field(default=None)
+    ssh_port: int = Field(default=22)
+    ssh_user: str = Field(default="ubuntu")
 
 
 def _parse_toml_config(path: Path) -> dict[str, Any]:
@@ -354,6 +373,20 @@ def _apply_env_overrides(values: dict[str, Any], env: dict[str, str]) -> None:
         values["local_slices"] = env["HEXAQUEUE_LOCAL_SLICES"]
     if "HEXAQUEUE_REMOTE_SLICES" in env:
         values["remote_slices"] = env["HEXAQUEUE_REMOTE_SLICES"]
+    if "HEXAQUEUE_CLUSTER_HOST" in env:
+        values["host"] = env["HEXAQUEUE_CLUSTER_HOST"]
+    elif "OCI_HOST" in env:
+        values["host"] = env["OCI_HOST"]
+    if "HEXAQUEUE_SSH_USER" in env:
+        values["ssh_user"] = env["HEXAQUEUE_SSH_USER"]
+    if "HEXAQUEUE_SSH_KEY" in env:
+        values["ssh_key"] = env["HEXAQUEUE_SSH_KEY"]
+    if "HEXAQUEUE_SSH_PORT" in env:
+        with contextlib.suppress(ValueError):
+            values["ssh_port"] = int(env["HEXAQUEUE_SSH_PORT"])
+    if "HEXAQUEUE_REMOTE_PORT" in env:
+        with contextlib.suppress(ValueError):
+            values["remote_port"] = int(env["HEXAQUEUE_REMOTE_PORT"])
     if "HEXAQUEUE_POOL" in env:
         values["pool"] = env["HEXAQUEUE_POOL"]
     if "HEXAQUEUE_MODE" in env:
@@ -380,17 +413,22 @@ def _apply_cli_overrides(values: dict[str, Any], overrides: dict[str, Any]) -> N
     """Overlay explicit CLI option overrides onto values dict."""
     for str_key in (
         "api_token",
+        "host",
         "local_slices",
         "mode",
         "pool",
         "remote_slices",
         "server_url",
         "slicer",
+        "ssh_key",
+        "ssh_user",
     ):
         if str_key in overrides:
             values[str_key] = overrides[str_key]
-    if "slices" in overrides:
-        values["slices"] = int(overrides["slices"])
+    for int_key in ("remote_port", "slices", "ssh_port"):
+        if int_key in overrides:
+            with contextlib.suppress(ValueError):
+                values[int_key] = int(overrides[int_key])
     if "fallback" in overrides:
         values["fallback"] = parse_bool(overrides["fallback"], default=True)
 
@@ -443,13 +481,18 @@ def resolve_runner_config(
         "container": cfg.container.model_copy(),
         "fallback": cfg.fallback,
         "free_tier": cfg.free_tier,
+        "host": cfg.host,
         "local_slices": cfg.local_slices,
         "mode": cfg.mode,
         "pool": cfg.pool,
+        "remote_port": cfg.remote_port,
         "remote_slices": cfg.remote_slices,
         "server_url": cfg.server_url,
         "slicer": cfg.slicer,
         "slices": cfg.slices,
+        "ssh_key": cfg.ssh_key,
+        "ssh_port": cfg.ssh_port,
+        "ssh_user": cfg.ssh_user,
     }
 
     # 2. Overlay active profile if matched

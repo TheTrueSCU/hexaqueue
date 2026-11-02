@@ -296,3 +296,55 @@ def test_resolve_runner_config_local_and_remote_slices() -> None:
     )
     assert resolved_cli.local_slices == 0
     assert resolved_cli.remote_slices == 8
+
+
+def test_resolve_runner_config_cluster_ssh_options() -> None:
+    """Verify cluster host and SSH connection options resolve across profile, env, and CLI."""
+    profile_cfg = HexaqueueProfileConfig(
+        host="10.0.0.1",
+        ssh_user="opc",
+        ssh_key="/id_rsa",
+        ssh_port=2222,
+        remote_port=8080,
+    )
+    base = HexaqueueProjectConfig(
+        profiles={"oci": profile_cfg},
+    )
+
+    # 1. Profile resolution
+    resolved_profile = resolve_runner_config(project_config=base, profile="oci")
+    assert resolved_profile.host == "10.0.0.1"
+    assert resolved_profile.ssh_user == "opc"
+    assert resolved_profile.ssh_key == "/id_rsa"
+    assert resolved_profile.ssh_port == 2222
+    assert resolved_profile.remote_port == 8080
+
+    # 2. Env override (OCI_HOST and HEXAQUEUE_SSH_*)
+    resolved_env = resolve_runner_config(
+        project_config=base,
+        profile="oci",
+        env={
+            "OCI_HOST": "129.146.115.79",
+            "HEXAQUEUE_SSH_USER": "ubuntu",
+            "HEXAQUEUE_SSH_KEY": "/root/.ssh/id",
+            "HEXAQUEUE_SSH_PORT": "22",
+            "HEXAQUEUE_REMOTE_PORT": "8000",
+        },
+    )
+    assert resolved_env.host == "129.146.115.79"
+    assert resolved_env.ssh_user == "ubuntu"
+    assert resolved_env.ssh_key == "/root/.ssh/id"
+    assert resolved_env.ssh_port == 22
+    assert resolved_env.remote_port == 8000
+
+    # 3. CLI overrides
+    resolved_cli = resolve_runner_config(
+        project_config=base,
+        profile="oci",
+        cli_overrides={
+            "host": "custom.cluster.internal",
+            "ssh_port": 2200,
+        },
+    )
+    assert resolved_cli.host == "custom.cluster.internal"
+    assert resolved_cli.ssh_port == 2200

@@ -103,8 +103,20 @@ container = { image = "hexaqueue-worker:latest", runtime = "auto" }
 
 [tool.hexaqueue.profiles.ci]
 server_url = "http://127.0.0.1:8000"
+host = "129.146.115.79"
+ssh_user = "ubuntu"
+ssh_key = "~/.ssh/hexaqueue_ci"
 local_slices = 2
 remote_slices = "auto"
+slices = 4
+fallback = true
+
+[tool.hexaqueue.profiles.oci]
+server_url = "http://127.0.0.1:8000"
+host = "129.146.115.79"
+ssh_user = "ubuntu"
+ssh_key = "~/.ssh/hexaqueue_ci"
+remote_slices = 4
 slices = 4
 fallback = true
 

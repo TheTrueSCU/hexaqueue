@@ -61,6 +61,8 @@ Usage: hq [OPTIONS] COMMAND [ARGS]...
 │ fairshare   Inspect hierarchical fair-share tree, historical usage, and      │
 │             decay factors.                                                   │
 │ admin       Administrative operations and zero-trust session governance      │
+│ cluster     Manage and monitor remote cluster nodes, SSH tunnels, and CSP    │
+│             controllers                                                      │
 │ run         Pipeline run management commands.                                │
 │ workflow    Hexaflow distributed workflow orchestration and cluster          │
 │             scheduling commands.                                             │
@@ -166,6 +168,170 @@ Usage: hq cancel [OPTIONS] {target_id}
 │                         cross-user cancellation                              │
 │ --user   -u      <str>  Requesting user identity [default: default]          │
 │ --help                  Show this message and exit.                          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq cluster`
+
+```text
+Usage: hq cluster [OPTIONS] COMMAND [ARGS]...
+
+ Manage and monitor remote cluster nodes, SSH tunnels, and CSP controllers
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ status  Inspect operational health and latency of the Hexaqueue cluster      │
+│         controller.                                                          │
+│ ping    Perform a rapid latency probe against the cluster controller.        │
+│ tunnel  Establish or terminate a secure SSH port-forwarding tunnel to the    │
+│         remote cluster.                                                      │
+│ sync    Trigger remote repository synchronization and dependency resolution  │
+│         over SSH.                                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq cluster over`
+
+```text
+Usage: hq cluster [OPTIONS] COMMAND [ARGS]...
+Try 'hq cluster --help' for help.
+╭─ Error ──────────────────────────────────────────────────────────────────────╮
+│ No such command 'over'.                                                      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq cluster ping`
+
+```text
+Usage: hq cluster ping [OPTIONS]
+
+ Perform a rapid latency probe against the cluster controller.
+
+ Args:
+     profile: Profile name to target.
+     url: Explicit Hexaqueue controller URL override.
+
+ Raises:
+     typer.Exit: With code 1 if ping probe fails.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --profile  -p      <str>  Profile name to target                             │
+│ --url      -u      <str>  Explicit Hexaqueue controller URL override         │
+│ --help                    Show this message and exit.                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq cluster remote`
+
+```text
+Usage: hq cluster [OPTIONS] COMMAND [ARGS]...
+Try 'hq cluster --help' for help.
+╭─ Error ──────────────────────────────────────────────────────────────────────╮
+│ No such command 'remote'.                                                    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq cluster status`
+
+```text
+Usage: hq cluster status [OPTIONS]
+
+ Inspect operational health and latency of the Hexaqueue cluster controller.
+
+ Args:
+     profile: Active runner profile name to inspect.
+     url: Explicit Hexaqueue controller URL override.
+     format_type: Chosen serialization output format.
+
+ Raises:
+     typer.Exit: With code 1 if controller is unreachable.
+
+ Notes/Architectural Intent:
+     Probes the cluster controller `/health` endpoint and inspects active CSP
+ provider
+     guards to give operators immediate visibility into cluster readiness.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --profile  -p      <str>  Active runner profile name to inspect              │
+│ --url      -u      <str>  Explicit Hexaqueue controller URL override         │
+│ --format   -f      <str>  Output presentation format (table, json, markdown, │
+│                           rich, plain, auto).                                │
+│                           [default: table]                                   │
+│ --help                    Show this message and exit.                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq cluster sync`
+
+```text
+Usage: hq cluster sync [OPTIONS]
+
+ Trigger remote repository synchronization and dependency resolution over SSH.
+
+ Args:
+     profile: Runner profile specifying target host and keys.
+     host: Target remote cluster host IP or hostname.
+     user: SSH login user.
+     key: Path to SSH private key identity file.
+     ssh_port: Remote SSH server port.
+     repo_dir: Remote workspace repository directory.
+     branch: Git branch to fetch and reset to.
+
+ Raises:
+     typer.Exit: With code 1 if synchronization fails.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --profile   -p      <str>  Runner profile specifying target host and keys    │
+│ --host      -h      <str>  Target remote cluster host IP or hostname         │
+│ --user      -u      <str>  SSH login user [default: ubuntu]                  │
+│ --key       -i      <str>  Path to SSH private key identity file             │
+│ --ssh-port          <int>  Remote SSH server port [default: 22]              │
+│ --repo-dir          <str>  Remote workspace repository directory             │
+│                            [default: ~/hexaqueue]                            │
+│ --branch    -b      <str>  Git branch to fetch and reset to [default: main]  │
+│ --help                     Show this message and exit.                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq cluster tunnel`
+
+```text
+Usage: hq cluster tunnel [OPTIONS]
+
+ Establish or terminate a secure SSH port-forwarding tunnel to the remote
+ cluster.
+
+ Args:
+     profile: Runner profile specifying target host and keys.
+     host: Target remote cluster host IP or hostname.
+     port: Local forwarding listen port.
+     remote_port: Remote daemon port.
+     user: SSH login user.
+     key: Path to SSH private key identity file.
+     ssh_port: Remote SSH server port.
+     stop: Terminate active SSH tunnel on local port.
+
+ Raises:
+     typer.Exit: With code 1 if tunnel establishment or teardown fails.
+
+ Notes/Architectural Intent:
+     Enforces zero-trust isolation: rather than exposing port 8000 to the
+ public internet,
+     this command establishes an encrypted SSH tunnel directly to the
+ controller daemon.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --profile      -p      <str>  Runner profile specifying target host and keys │
+│ --host         -h      <str>  Target remote cluster host IP or hostname      │
+│ --port                 <int>  Local forwarding listen port [default: 8000]   │
+│ --remote-port          <int>  Remote daemon port [default: 8000]             │
+│ --user         -u      <str>  SSH login user [default: ubuntu]               │
+│ --key          -i      <str>  Path to SSH private key identity file          │
+│ --ssh-port             <int>  Remote SSH server port [default: 22]           │
+│ --stop                        Terminate active SSH tunnel on local port      │
+│ --help                        Show this message and exit.                    │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
