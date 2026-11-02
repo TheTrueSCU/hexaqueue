@@ -118,3 +118,24 @@ Documentation and quality gates frequently drift over time as packages evolve, r
 ### Rejected Alternatives
 - *Manual gate verification*: Prone to human error and silent gate attrition.
 - *Mutable action tags (`@main`, `@v0`) in CI*: Vulnerable to supply-chain attacks and breaking upstream changes.
+
+---
+
+## ADR-006: Monorepo PEP 420 Namespace Package Traversal & Single-Pass Distributed CI Slicing
+
+### Context
+In Python monorepos containing multiple independent subpackages that share standardized internal directory conventions (e.g. `packages/<pkg>/tests/unit/domain/test_models.py`), Pytest's default module resolution stops directory traversal at the first parent folder lacking an `__init__.py`. Because `packages/<pkg>/` is a standalone distribution package rather than an importable sub-package, Pytest defaults to treating `tests` as the top-level package root, assigning all subpackages the identical module path `tests.unit.domain.test_models`. When collecting the entire repository at once, Python caches the first imported module in `sys.modules`, causing Pytest to attribute tests to the wrong subpackage and crash with `(no match in any of [<Module test_models.py>])`.
+
+Additionally, running a separate "distributed test slicing" job in CI alongside standard in-process test runs duplicated test execution cycles without replacing in-process test scheduling.
+
+### Decision
+1. **PEP 420 Namespace Package Traversal**:
+   - Enforce `consider_namespace_packages = true` in root `pyproject.toml` (`[tool.pytest.ini_options]`). This instructs Pytest to traverse namespace packages through `packages/` to the workspace root, assigning globally unique module names (`packages.<pkg>.tests.unit.domain.test_models`) and eliminating cross-package shadowing.
+2. **Worker Command Hardening**:
+   - Explicitly pass `"--import-mode=importlib"` and `"-o", "consider_namespace_packages=true"` in `_build_slice_cmd` across all worker providers (local subprocess and container).
+3. **Single-Pass CI Dogfooding**:
+   - Consolidate CI pipeline execution: `test-suite` cold-boots the local Hexaqueue controller daemon and schedules the entire workspace test suite natively via `uv run hexaqual test run -U --profile ci`, completely replacing duplicate in-process xdist jobs.
+
+### Rejected Alternatives
+- *Subpackage-specific test file naming prefixes (e.g. `test_server_models.py`)*: Burdensome and breaks 1:1 test symmetry parity rules enforced by `hexaqual parity test`.
+- *Retaining duplicate CI pipeline stages*: Inefficient duplicate resource consumption; running tests exclusively via Hexaqueue guarantees true production dogfooding.

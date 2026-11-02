@@ -1,5 +1,23 @@
 # CHANGELOG
 
+## v0.6.0 (2026-11-01)
+
+### Features & Infrastructure Dogfooding
+* **Native CI Dogfooding & Single-Pass Test Execution (`.github/workflows/ci.yml`)**:
+  * Consolidated CI pipeline to natively schedule the entire unit and integration test suite (1,075 tests) via Hexaqueue (`--profile ci`), eliminating duplicate pipeline stages.
+  * Verified 33% faster wall-clock execution (21.01s vs. 31.44s) compared to default `pytest-xdist -n 2` on standard 2-vCPU GitHub Actions runners due to reduced IPC scheduler lock contention.
+* **Monorepo PEP 420 Namespace Package Traversal (`pyproject.toml`, `hexaqueue-server`)**:
+  * Added `consider_namespace_packages = true` in `[tool.pytest.ini_options]` to prevent cross-package module shadowing across identical domain test filenames (`test_models.py`).
+  * Hardened `_build_slice_cmd` across local subprocess and container workers to explicitly pass `"--import-mode=importlib"` and `"-o", "consider_namespace_packages=true"`.
+* **Runner Profile Parity & Auto-Activation (`pytest-hexaqueue`)**:
+  * Added `--profile` as a first-class alias for `--hq-profile` matching `hexaqual test run --profile <name>` conventions.
+  * Supported implicit Hexaqueue activation whenever a named profile is supplied (`--profile` or `--hq-profile`).
+* **Security & Vulnerability Remediation**:
+  * Upgraded `opentelemetry-api` to `1.45.2` in `examples/monte-carlo`, remediating CVE-2026-114603 / Dependabot Alert #35.
+  * Resolved CodeQL note Alert #79 in `pytest-hexaqueue` test infrastructure.
+* **Ecosystem Upgrade**:
+  * Upgraded workspace dev dependencies to official `hexaqual[all]>=0.10.0` from PyPI.
+
 ## v0.5.0 (2026-10-08)
 
 ### Security Audit Remediation & Hardening

@@ -49,6 +49,7 @@ graph TD
         GL["hexaqueue-gitlab-runner (GitLab Custom Executor)"]
         KUEUE["hexaqueue-kueue (Kubernetes Batch v1 Bridge)"]
         WORKFLOW["hexaqueue-workflow (Temporal Activity / Argo Task Driver)"]
+        PYTEST["pytest-hexaqueue (Distributed Slicing & Free-Tier Plugin)"]
     end
 
     subgraph S5["Foundation Core"]
@@ -66,6 +67,7 @@ graph TD
     GL --> CORE
     KUEUE --> CORE
     WORKFLOW --> CORE
+    PYTEST --> CORE
 
     CLI -.->|gRPC / REST| SERVER
     DASH -.->|gRPC / REST| SERVER

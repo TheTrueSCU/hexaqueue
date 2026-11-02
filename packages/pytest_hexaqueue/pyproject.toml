@@ -1,6 +1,6 @@
 [project]
 name = "pytest-hexaqueue"
-version = "0.5.0"
+version = "0.6.0"
 description = "pytest-hexaqueue - Distributed Test Slicing, Remote Execution, and Multi-CSP Free-Tier Runner Plugin"
 readme = "README.md"
 license = "Apache-2.0"

@@ -125,10 +125,13 @@ pip install pytest-hexaqueue
 # Uses project config in pyproject.toml / hexaqueue.yaml
 pytest --hexaqueue
 
-# Activate a named profile (e.g. CI, container, free-tier)
-pytest --hexaqueue --hq-profile ci
-pytest --hexaqueue --hq-profile container
-pytest --hexaqueue --hq-profile free-tier
+# Activate a named profile (automatically enables Hexaqueue execution)
+pytest --profile ci
+pytest --profile container
+pytest --profile free-tier
+
+# Or using the canonical --hq-profile alias:
+pytest --hq-profile ci
 
 # Explicit one-off overrides
 pytest --hexaqueue --hq-slices 8
