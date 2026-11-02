@@ -124,15 +124,16 @@ def _build_slice_cmd(
             "addopts=",
             "-o",
             "consider_namespace_packages=true",
-            "--import-mode=importlib",
+            "-p",
+            "no:cacheprovider",
             "--tb=short",
             "-q",
             *cov_flags,
         ]
         return cmd, provider, worker_id
 
-    provider = "LOCAL"
-    worker_id = f"worker-local-{worker_index}"
+    provider = os.getenv("HEXAQUEUE_CSP_PROVIDER", "LOCAL")
+    worker_id = f"worker-{provider.lower()}-{worker_index}"
     cmd = [
         sys.executable,
         "-m",
@@ -142,7 +143,8 @@ def _build_slice_cmd(
         "addopts=",
         "-o",
         "consider_namespace_packages=true",
-        "--import-mode=importlib",
+        "-p",
+        "no:cacheprovider",
         "--tb=short",
         "-q",
         *cov_flags,
@@ -204,6 +206,7 @@ async def _execute_slice(
 
     cov_file = f".coverage.hq.{slice_spec.slice_id}"
     env = dict(os.environ)
+    env.pop("HEXAQUEUE_CSP_PROVIDER", None)
     if coverage_sources:
         env["COVERAGE_FILE"] = cov_file
 

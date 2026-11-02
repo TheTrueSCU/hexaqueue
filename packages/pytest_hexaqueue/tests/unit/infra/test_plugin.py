@@ -2,7 +2,7 @@
 
 import importlib
 import sys
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -16,11 +16,13 @@ from pytest_hexaqueue.domain.slice import TestSliceSpec
 from pytest_hexaqueue.infra.plugin import (
     _CLIENT_KEY,
     _CONFIG_KEY,
+    _HYBRID_COUNTS_KEY,
     _REPORTS_KEY,
     _SLICES_KEY,
     _get_slicer,
     _notify_session_reports,
     _resolve_plugin_config,
+    _resolve_slice_counts,
     pytest_addoption,
     pytest_collection_finish,
     pytest_configure,
@@ -512,13 +514,6 @@ def test_notify_session_reports_with_failures() -> None:
     assert session.testsfailed == 1
 
 
-def test_plugin_module_reload_coverage() -> None:
-    """Ensure top-level module definitions in plugin.py are tracked under test coverage."""
-    mod = sys.modules[pytest_addoption.__module__]
-    importlib.reload(mod)
-    assert hasattr(mod, "pytest_addoption")
-
-
 def test_resolve_plugin_config_paid_overrides_free_tier() -> None:
     """Verify --hq-paid overrides default free-tier setting to False."""
     config = MagicMock()
@@ -544,3 +539,265 @@ def test_resolve_plugin_config_paid_and_free_conflict_defaults_to_free() -> None
     with pytest.warns(UserWarning, match="both paid and free tier requested"):
         res = _resolve_plugin_config(config)
         assert res.free_tier is True
+
+
+def test_resolve_slice_counts_combinations() -> None:
+    """Verify _resolve_slice_counts for various combinations of flags."""
+    config = MagicMock()
+    config.stash.get.return_value = None
+
+    # Both local and remote specified
+    opts: dict[str, Any] = {
+        "hexaqueue_local_slices": 2,
+        "hexaqueue_remote_slices": 4,
+        "hexaqueue_hybrid": None,
+        "hexaqueue_slices": None,
+    }
+    config.getoption.side_effect = lambda name, default=None: opts.get(name, default)
+    tot, loc, rem = _resolve_slice_counts(config)
+    assert tot == 6
+    assert loc == 2
+    assert rem == 4
+
+    # Local only specified
+    opts = {
+        "hexaqueue_local_slices": 2,
+        "hexaqueue_remote_slices": None,
+        "hexaqueue_hybrid": None,
+        "hexaqueue_slices": 4,
+    }
+    tot, loc, rem = _resolve_slice_counts(config)
+    assert tot == 4
+    assert loc == 2
+    assert rem == 2
+
+    # Remote only specified
+    opts = {
+        "hexaqueue_local_slices": None,
+        "hexaqueue_remote_slices": 4,
+        "hexaqueue_hybrid": None,
+        "hexaqueue_slices": 10,
+    }
+    tot, loc, rem = _resolve_slice_counts(config)
+    assert tot == 10
+    assert loc == 6
+    assert rem == 4
+
+    # Hybrid flag
+    opts = {
+        "hexaqueue_local_slices": None,
+        "hexaqueue_remote_slices": None,
+        "hexaqueue_hybrid": True,
+        "hexaqueue_slices": None,
+    }
+    tot, loc, rem = _resolve_slice_counts(config)
+    assert loc > 0
+    assert rem == 4
+    assert tot == loc + rem
+
+    # Default
+    opts = {
+        "hexaqueue_local_slices": None,
+        "hexaqueue_remote_slices": None,
+        "hexaqueue_hybrid": False,
+        "hexaqueue_slices": 6,
+    }
+    tot, loc, rem = _resolve_slice_counts(config)
+    assert tot == 6
+    assert loc == 0
+    assert rem == 6
+
+    # 'auto' local slices
+    opts = {
+        "hexaqueue_local_slices": "auto",
+        "hexaqueue_remote_slices": 4,
+        "hexaqueue_hybrid": None,
+        "hexaqueue_slices": None,
+    }
+    tot, loc, rem = _resolve_slice_counts(config)
+    assert loc > 0
+    assert rem == 4
+    assert tot == loc + rem
+
+    # 0 local slices (pure remote)
+    opts = {
+        "hexaqueue_local_slices": 0,
+        "hexaqueue_remote_slices": 6,
+        "hexaqueue_hybrid": None,
+        "hexaqueue_slices": None,
+    }
+    tot, loc, rem = _resolve_slice_counts(config)
+    assert tot == 6
+    assert loc == 0
+    assert rem == 6
+
+
+def test_pytest_runtestloop_hybrid_execution() -> None:
+    """Verify pytest_runtestloop executes local and remote slices concurrently in hybrid mode."""
+    session = MagicMock()
+    session.config = MagicMock()
+    session.config.getoption.side_effect = lambda name, default=None: {
+        "hexaqueue_enabled": True,
+        "hexaqueue_profile": None,
+        "hexaqueue_fallback": True,
+        "hexaqueue_paid": False,
+        "hexaqueue_server_url": "http://127.0.0.1:8000",
+        "hexaqueue_api_token": None,
+        "hexaqueue_pool": "default",
+        "hexaqueue_container": False,
+        "hexaqueue_worker_image": None,
+    }.get(name, default)
+
+    client = InMemoryTestDispatchClient(is_healthy=True)
+    prof = HexaqueueProfileConfig(
+        server_url="http://127.0.0.1:8000",
+        api_token=None,
+        pool="default",
+        free_tier=True,
+        fallback=True,
+        mode="subprocess",
+        slices=2,
+    )
+
+    s1 = TestSliceSpec(
+        slice_id="s-local",
+        slice_index=0,
+        total_slices=2,
+        test_nodeids=[],
+    )
+    s2 = TestSliceSpec(
+        slice_id="s-remote",
+        slice_index=1,
+        total_slices=2,
+        test_nodeids=[],
+    )
+
+    stash_dict: dict[Any, Any] = {
+        _CLIENT_KEY: client,
+        _CONFIG_KEY: prof,
+        _SLICES_KEY: [s1, s2],
+        _HYBRID_COUNTS_KEY: (1, 1),
+    }
+    session.config.stash = stash_dict
+    session.items = []
+    session.testsfailed = 0
+
+    res = pytest_runtestloop(session)
+    assert res is True
+    reports: list[SliceOutcomeReport] = cast(
+        "list[SliceOutcomeReport]", session.config.stash[_REPORTS_KEY]
+    )
+    assert len(reports) == 2
+    assert reports[0].provider == "LOCAL"
+    assert reports[1].slice_id == "s-remote"
+
+
+def test_pytest_runtestloop_hybrid_fallback_on_unhealthy() -> None:
+    """Verify hybrid mode falls back to executing all slices locally if remote cluster is unhealthy."""
+    session = MagicMock()
+    session.config = MagicMock()
+    session.config.getoption.side_effect = lambda name, default=None: {
+        "hexaqueue_enabled": True,
+        "hexaqueue_profile": None,
+        "hexaqueue_fallback": True,
+        "hexaqueue_paid": False,
+        "hexaqueue_server_url": "http://127.0.0.1:8000",
+        "hexaqueue_api_token": None,
+        "hexaqueue_pool": "default",
+        "hexaqueue_container": False,
+        "hexaqueue_worker_image": None,
+    }.get(name, default)
+
+    client = InMemoryTestDispatchClient(is_healthy=False)
+    prof = HexaqueueProfileConfig(
+        server_url="http://127.0.0.1:8000",
+        api_token=None,
+        pool="default",
+        free_tier=True,
+        fallback=True,
+        mode="subprocess",
+        slices=2,
+    )
+
+    s1 = TestSliceSpec(
+        slice_id="s-local",
+        slice_index=0,
+        total_slices=2,
+        test_nodeids=[],
+    )
+    s2 = TestSliceSpec(
+        slice_id="s-remote",
+        slice_index=1,
+        total_slices=2,
+        test_nodeids=[],
+    )
+
+    stash_dict_unhealthy: dict[Any, Any] = {
+        _CLIENT_KEY: client,
+        _CONFIG_KEY: prof,
+        _SLICES_KEY: [s1, s2],
+        _HYBRID_COUNTS_KEY: (1, 1),
+    }
+    session.config.stash = stash_dict_unhealthy
+    session.items = []
+    session.testsfailed = 0
+
+    res = pytest_runtestloop(session)
+    assert res is True
+    reports: list[SliceOutcomeReport] = cast(
+        "list[SliceOutcomeReport]", session.config.stash[_REPORTS_KEY]
+    )
+    assert len(reports) == 2
+    # All slices ran locally via fallback
+    assert reports[0].provider == "LOCAL"
+    assert reports[1].provider == "LOCAL"
+
+
+def test_pytest_terminal_summary_hybrid() -> None:
+    """Verify terminal summary displays hybrid topology accurately."""
+    reporter = MagicMock()
+    config = MagicMock()
+    config.getoption.side_effect = lambda name, default=None: {
+        "hexaqueue_enabled": True,
+        "hexaqueue_profile": None,
+        "hexaqueue_paid": False,
+        "hexaqueue_container": False,
+    }.get(name, default)
+
+    rep1 = SliceOutcomeReport(
+        slice_id="s-loc",
+        slice_index=0,
+        worker_id="worker-local-0",
+        provider="LOCAL",
+        is_free_tier=True,
+        outcomes=[],
+        duration_seconds=0.1,
+    )
+    rep2 = SliceOutcomeReport(
+        slice_id="s-rem",
+        slice_index=1,
+        worker_id="worker-oci-1",
+        provider="OCI",
+        is_free_tier=True,
+        outcomes=[],
+        duration_seconds=0.2,
+    )
+
+    config.stash = {
+        _CONFIG_KEY: None,
+        _REPORTS_KEY: [rep1, rep2],
+    }
+
+    pytest_terminal_summary(reporter, 0, config)
+    written_lines = [call.args[0] for call in reporter.write_line.call_args_list]
+    assert any(
+        "Hybrid Slices (1 Local Workstation + 1 Remote Cluster)" in line
+        for line in written_lines
+    )
+
+
+def test_plugin_module_reload_coverage() -> None:
+    """Ensure top-level module definitions in plugin.py are tracked under test coverage."""
+    mod = sys.modules[pytest_addoption.__module__]
+    importlib.reload(mod)
+    assert hasattr(mod, "pytest_addoption")

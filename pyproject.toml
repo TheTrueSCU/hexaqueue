@@ -119,7 +119,7 @@ mode = "csp"
 [tool.pytest.ini_options]
 testpaths = ["packages", "tests"]
 norecursedirs = ["examples", ".venv", "dist", "build", ".hypothesis", ".mutmut-cache"]
-addopts = "-n auto --import-mode=importlib --cov-report=term-missing:skip-covered"
+addopts = "-n auto --cov-report=term-missing:skip-covered"
 consider_namespace_packages = true
 markers = [
     "demo: mark a test as a CLI demo recording walk-through",

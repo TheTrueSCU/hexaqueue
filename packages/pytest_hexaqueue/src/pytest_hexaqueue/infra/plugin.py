@@ -22,6 +22,7 @@ _SLICES_KEY: pytest.StashKey[list[Any]] = pytest.StashKey()
 _REPORTS_KEY: pytest.StashKey[list[Any]] = pytest.StashKey()
 _CLIENT_KEY: pytest.StashKey[Any] = pytest.StashKey()
 _CONFIG_KEY: pytest.StashKey[Any] = pytest.StashKey()
+_HYBRID_COUNTS_KEY: pytest.StashKey[tuple[int, int]] = pytest.StashKey()
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -127,6 +128,29 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         dest="hexaqueue_worker_image",
         help="Container image tag used for containerized worker execution",
     )
+    group.addoption(
+        "--hq-local-slices",
+        action="store",
+        nargs="?",
+        const="auto",
+        default=None,
+        dest="hexaqueue_local_slices",
+        help="Number of slices to execute locally in parallel across workstation vCPUs, or 'auto' (0 to disable)",
+    )
+    group.addoption(
+        "--hq-remote-slices",
+        action="store",
+        default=None,
+        dest="hexaqueue_remote_slices",
+        help="Number of slices to dispatch remotely to Hexaqueue cluster controller (0 to disable)",
+    )
+    group.addoption(
+        "--hq-hybrid",
+        action="store_true",
+        default=None,
+        dest="hexaqueue_hybrid",
+        help="Enable hybrid local and remote test execution automatically partitioning slices",
+    )
 
 
 def _is_hexaqueue_enabled(config: pytest.Config) -> bool:
@@ -207,7 +231,72 @@ def pytest_configure(config: pytest.Config) -> None:
     if hasattr(config.option, "dist"):
         config.option.dist = "no"
 
+    for name in (
+        "xdist",
+        "dsession",
+        "xdist.dsession",
+        "xdist.plugin",
+        "cacheprovider",
+    ):
+        plugin = config.pluginmanager.get_plugin(name)
+        if plugin is not None:
+            config.pluginmanager.unregister(plugin)
+
     config.stash[_CONFIG_KEY] = _resolve_plugin_config(config)
+
+
+def _parse_slice_concurrency(val: Any) -> int | None:
+    """Resolve slice concurrency width matching pytest-xdist and hexaqual semantics.
+
+    Args:
+        val: Concurrency specification ('auto', an integer, 0, or None).
+
+    Returns:
+        Effective concurrency integer (>= 0), or None if unassigned.
+
+    Raises:
+        None.
+
+    Notes/Architectural Intent:
+        Delegates 'auto' and positive integer resolution to hexaqual's canonical
+        resolve_parallelism logic, reserving 2 CPU cores for OS/terminal responsiveness.
+        Explicitly supports 0 to completely disable local execution (pure remote mode).
+    """
+    if val is None:
+        return None
+    if isinstance(val, bool):
+        if val:
+            val = "auto"
+        else:
+            return 0
+    if isinstance(val, (int, float)):
+        int_val = int(val)
+        if int_val == 0:
+            return 0
+        try:
+            from hexaqual.domain.governance import resolve_parallelism
+
+            return resolve_parallelism(int_val)
+        except (ImportError, ModuleNotFoundError, ValueError):
+            total_cores = os.cpu_count() or 1
+            return max(0, min(int_val, total_cores))
+
+    cleaned = str(val).strip().casefold()
+    if cleaned == "0":
+        return 0
+
+    try:
+        from hexaqual.domain.governance import resolve_parallelism
+
+        return resolve_parallelism(cleaned)
+    except (ImportError, ModuleNotFoundError, ValueError):
+        total_cores = os.cpu_count() or 1
+        if cleaned in ("auto", ""):
+            return max(1, total_cores - 2)
+        try:
+            return max(0, min(int(cleaned), total_cores))
+        except (ValueError, TypeError):
+            return max(1, total_cores - 2)
 
 
 def _get_slicer(strategy: str) -> Any:
@@ -220,6 +309,72 @@ def _get_slicer(strategy: str) -> Any:
     if strategy == "file":
         return FileContiguousTestSlicer()
     return RoundRobinTestSlicer()
+
+
+def _resolve_slice_counts(config: pytest.Config) -> tuple[int, int, int]:
+    """Calculate total, local, and remote slice allocations for hybrid or pure topologies.
+
+    Args:
+        config: Active pytest configuration.
+
+    Returns:
+        Tuple of (total_slices, local_slices, remote_slices).
+
+    Raises:
+        None.
+
+    Notes/Architectural Intent:
+        Calculates slice partition sizes ensuring local workstation vCPUs and remote
+        cloud workers can execute concurrently without resource under-utilization.
+        Supports 'auto' via hexaqual.domain.governance.resolve_parallelism and 0 for
+        pure remote dispatch.
+    """
+    local_raw = config.getoption("hexaqueue_local_slices", default=None)
+    remote_raw = config.getoption("hexaqueue_remote_slices", default=None)
+    hybrid_arg = config.getoption("hexaqueue_hybrid", default=None)
+    slices_raw = config.getoption("hexaqueue_slices", default=None)
+
+    local_arg = _parse_slice_concurrency(local_raw)
+    try:
+        remote_arg = int(remote_raw) if remote_raw is not None else None
+    except (ValueError, TypeError):
+        remote_arg = None
+    try:
+        slices_arg = int(slices_raw) if slices_raw is not None else None
+    except (ValueError, TypeError):
+        slices_arg = None
+
+    resolved = config.stash.get(_CONFIG_KEY, None)
+    default_total = resolved.slices if resolved and hasattr(resolved, "slices") else 4
+    total_requested = slices_arg if slices_arg is not None else default_total
+
+    if local_arg is not None and remote_arg is not None:
+        local_cnt = max(0, local_arg)
+        remote_cnt = max(0, remote_arg)
+        total_cnt = max(1, local_cnt + remote_cnt)
+        return total_cnt, local_cnt, remote_cnt
+
+    if local_arg is not None:
+        local_cnt = max(0, local_arg)
+        total_cnt = max(local_cnt, total_requested)
+        remote_cnt = total_cnt - local_cnt
+        return total_cnt, local_cnt, remote_cnt
+
+    if remote_arg is not None:
+        remote_cnt = max(0, remote_arg)
+        total_cnt = max(remote_cnt, total_requested)
+        local_cnt = total_cnt - remote_cnt
+        return total_cnt, local_cnt, remote_cnt
+
+    if hybrid_arg:
+        local_cnt = _parse_slice_concurrency("auto") or 2
+        remote_cnt = 4
+        total_cnt = max(total_requested, local_cnt + remote_cnt)
+        return total_cnt, local_cnt, total_cnt - local_cnt
+
+    # Standard remote-only execution
+    total_cnt = max(1, total_requested)
+    return total_cnt, 0, total_cnt
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -242,22 +397,64 @@ def pytest_collection_finish(session: pytest.Session) -> None:
         )
 
     resolved = session.config.stash.get(_CONFIG_KEY, None)
-    if resolved is not None:
-        num_slices = max(1, resolved.slices)
-        slicer_name = resolved.slicer
-    else:
-        num_slices = max(
-            1,
-            session.config.getoption("hexaqueue_slices", default=4) or 4,
-        )
-        slicer_name = (
+    slicer_name = (
+        resolved.slicer
+        if resolved and hasattr(resolved, "slicer")
+        else (
             session.config.getoption("hexaqueue_slicer", default="round-robin")
             or "round-robin"
         )
+    )
     slicer = _get_slicer(slicer_name)
 
-    slices = slicer.slice_items(items, num_slices)
+    total_slices, local_slices, remote_slices = _resolve_slice_counts(session.config)
+    session.config.stash[_HYBRID_COUNTS_KEY] = (local_slices, remote_slices)
+
+    slices = slicer.slice_items(items, total_slices)
     session.config.stash[_SLICES_KEY] = slices
+
+
+def _build_test_report_item(
+    out: Any,
+    item: pytest.Item | None,
+) -> pytest.TestReport:
+    """Construct a pytest TestReport from a slice outcome item and session item.
+
+    Args:
+        out: TestOutcomeItem reporting execution outcome and captured streams.
+        item: Optional matched pytest Item from collection.
+
+    Returns:
+        Configured pytest.TestReport instance.
+
+    Raises:
+        None.
+
+    Notes/Architectural Intent:
+        Preserves test location and keyword tags while materializing captured
+        subprocess stdout and stderr onto longrepr on test failure.
+    """
+    location = item.location if item is not None else (out.nodeid, 0, out.nodeid)
+    keywords = dict.fromkeys(item.keywords, 1) if item is not None else {}
+    outcome_literal: Literal["passed", "failed", "skipped"] = (
+        "passed"
+        if out.outcome == "passed"
+        else ("skipped" if out.outcome == "skipped" else "failed")
+    )
+    error_msg: str | None = None
+    if outcome_literal == "failed":
+        parts = [p for p in (out.stderr, out.stdout) if p]
+        error_msg = "\n".join(parts) if parts else None
+
+    return pytest.TestReport(
+        nodeid=out.nodeid,
+        location=location,
+        keywords=keywords,
+        outcome=outcome_literal,
+        longrepr=out.longrepr or error_msg,
+        when="call",
+        duration=out.duration_seconds,
+    )
 
 
 def _notify_session_reports(
@@ -274,26 +471,7 @@ def _notify_session_reports(
     items_by_nodeid = {item.nodeid: item for item in session.items}
     for rep in reports:
         for out in rep.outcomes:
-            item = items_by_nodeid.get(out.nodeid)
-            location = (
-                item.location if item is not None else (out.nodeid, 0, out.nodeid)
-            )
-            keywords = dict.fromkeys(item.keywords, 1) if item is not None else {}
-            outcome_literal: Literal["passed", "failed", "skipped"] = (
-                "passed"
-                if out.outcome == "passed"
-                else ("skipped" if out.outcome == "skipped" else "failed")
-            )
-            tr = pytest.TestReport(
-                nodeid=out.nodeid,
-                location=location,
-                keywords=keywords,
-                outcome=outcome_literal,
-                longrepr=out.longrepr
-                or (out.stderr if outcome_literal == "failed" else None),
-                when="call",
-                duration=out.duration_seconds,
-            )
+            tr = _build_test_report_item(out, items_by_nodeid.get(out.nodeid))
             session.config.hook.pytest_runtest_logreport(report=tr)
 
 
@@ -379,6 +557,8 @@ def pytest_runtestloop(session: pytest.Session) -> bool | None:
     """Execute distributed test loop dispatching slices across cluster workers."""
     if not _is_hexaqueue_enabled(session.config):
         return None
+    if getattr(session.config.option, "collectonly", False) is True:
+        return True
 
     from pytest_hexaqueue.adapters.client import HexaqueueTestDispatchClient
     from pytest_hexaqueue.domain.outcome import SliceOutcomeReport
@@ -394,6 +574,13 @@ def pytest_runtestloop(session: pytest.Session) -> bool | None:
     if not slices_val or not isinstance(slices_val, list):
         return None
     slices: list[TestSliceSpec] = slices_val
+
+    local_count, remote_count = session.config.stash.get(
+        _HYBRID_COUNTS_KEY, (0, len(slices))
+    )
+    from pytest_hexaqueue.adapters.local_runner import LocalSliceRunner
+
+    local_runner = LocalSliceRunner(concurrency=max(1, local_count))
 
     (
         server_url,
@@ -433,13 +620,55 @@ def pytest_runtestloop(session: pytest.Session) -> bool | None:
     )
 
     async def _execute() -> list[SliceOutcomeReport] | None:
+        local_slices = slices[:local_count]
+        remote_slices = slices[local_count:]
+
+        # Case 1: Pure local execution
+        if remote_count == 0:
+            local_reports = await asyncio.gather(
+                *[local_runner.execute_slice(s, cov_sources) for s in local_slices]
+            )
+            return list(local_reports)
+
+        # Check remote cluster health
         is_healthy = await client.health_check()
         if not is_healthy:
             if allow_fallback:
+                if local_count > 0:
+                    fallback_reports = await asyncio.gather(
+                        *[local_runner.execute_slice(s, cov_sources) for s in slices]
+                    )
+                    return list(fallback_reports)
                 return None
             msg = f"Hexaqueue cluster at '{server_url}' is offline and fallback is disabled"
             raise ConnectionError(msg)
-        return await client.dispatch_run(run_session)
+
+        # Case 2: Pure remote execution
+        if local_count == 0:
+            return await client.dispatch_run(run_session)
+
+        # Case 3: Hybrid execution (concurrent local + remote)
+        remote_run_session = TestRunSession(
+            session_id=str(uuid.uuid4()),
+            total_items=sum(len(s.test_nodeids) for s in remote_slices),
+            total_slices=len(remote_slices),
+            slices=remote_slices,
+            server_url=server_url,
+            pool=pool,
+            free_tier=free_tier,
+            container=is_container,
+            container_image=worker_image,
+            coverage_sources=cov_sources,
+        )
+        local_task = asyncio.gather(
+            *[local_runner.execute_slice(s, cov_sources) for s in local_slices]
+        )
+        remote_task = client.dispatch_run(remote_run_session)
+
+        local_results, remote_results = await asyncio.gather(local_task, remote_task)
+        combined = list(local_results) + list(remote_results)
+        combined.sort(key=lambda r: r.slice_index)
+        return combined
 
     try:
         reports = asyncio.run(_execute())
@@ -495,9 +724,19 @@ def pytest_terminal_summary(
     container_label = " (Containerized)" if is_container else ""
     tier_label = " (Verified $0.00 Multi-CSP Free-Tier)" if free_tier else ""
 
-    terminalreporter.write_line(
-        f"Topology: {len(reports)} Remote Slices{profile_label}{container_label}{tier_label}"
-    )
+    local_count = sum(1 for r in reports if r.provider == "LOCAL")
+    remote_count = len(reports) - local_count
+    if local_count > 0 and remote_count > 0:
+        topology_label = (
+            f"Topology: {len(reports)} Hybrid Slices ({local_count} Local Workstation + "
+            f"{remote_count} Remote Cluster){profile_label}{container_label}{tier_label}"
+        )
+    elif local_count > 0 and remote_count == 0:
+        topology_label = f"Topology: {len(reports)} Local Slices{profile_label}{container_label}{tier_label}"
+    else:
+        topology_label = f"Topology: {len(reports)} Remote Slices{profile_label}{container_label}{tier_label}"
+
+    terminalreporter.write_line(topology_label)
     for rep in reports:
         prov_label = f" [{rep.provider}]" if rep.provider else ""
         terminalreporter.write_line(

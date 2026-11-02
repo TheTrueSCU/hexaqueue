@@ -113,7 +113,7 @@ def test_build_slice_cmd_container() -> None:
     assert "custom-worker:v1" in cmd
     assert "pytest" in cmd
     assert "tests/unit/test_demo.py::test_it" in cmd
-    assert "--import-mode=importlib" in cmd
+    assert "no:cacheprovider" in cmd
     assert "consider_namespace_packages=true" in " ".join(cmd)
 
     # Also test local command construction
@@ -127,8 +127,28 @@ def test_build_slice_cmd_container() -> None:
     assert local_worker_id == "worker-local-1"
     assert "-m" in local_cmd
     assert "pytest" in local_cmd
-    assert "--import-mode=importlib" in local_cmd
+    assert "no:cacheprovider" in local_cmd
     assert "consider_namespace_packages=true" in " ".join(local_cmd)
+
+
+def test_build_slice_cmd_custom_csp_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify provider and worker_id dynamically resolve explicit CSP environment."""
+    monkeypatch.setenv("HEXAQUEUE_CSP_PROVIDER", "OCI")
+    slice_spec = TestSliceDispatch(
+        slice_id="s-oci-1",
+        slice_index=2,
+        total_slices=4,
+        test_nodeids=["tests/unit/test_demo.py::test_it"],
+    )
+    cmd, provider, worker_id = _build_slice_cmd(
+        slice_spec,
+        worker_index=2,
+        is_container=False,
+        container_image=None,
+    )
+    assert provider == "OCI"
+    assert worker_id == "worker-oci-2"
+    assert "-m" in cmd
 
 
 @pytest.mark.asyncio

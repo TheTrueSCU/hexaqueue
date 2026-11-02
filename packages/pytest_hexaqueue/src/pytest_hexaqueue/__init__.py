@@ -11,6 +11,7 @@ __all__ = [
     "HexaqueueTestDispatchPort",
     "infra",
     "InMemoryTestDispatchClient",
+    "LocalSliceRunner",
     "ports",
     "RoundRobinTestSlicer",
     "SliceOutcomeReport",
@@ -38,6 +39,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "InMemoryTestDispatchClient": (
         "pytest_hexaqueue.adapters.client",
         "InMemoryTestDispatchClient",
+    ),
+    "LocalSliceRunner": (
+        "pytest_hexaqueue.adapters.local_runner",
+        "LocalSliceRunner",
     ),
     "RoundRobinTestSlicer": (
         "pytest_hexaqueue.adapters.slicer",

@@ -24,12 +24,14 @@ def test_root_package_exports() -> None:
     assert "TestRunSession" in exports
     assert "TestSlicerPort" in exports
     assert "HexaqueueTestDispatchPort" in exports
+    assert "LocalSliceRunner" in exports
 
     # Access lazy symbols
     assert pytest_hexaqueue.RoundRobinTestSlicer is not None
     assert pytest_hexaqueue.FileContiguousTestSlicer is not None
     assert pytest_hexaqueue.HexaqueueTestDispatchClient is not None
     assert pytest_hexaqueue.InMemoryTestDispatchClient is not None
+    assert pytest_hexaqueue.LocalSliceRunner is not None
     assert pytest_hexaqueue.TestSliceSpec is not None
     assert pytest_hexaqueue.SliceOutcomeReport is not None
     assert pytest_hexaqueue.WorkspaceDeltaBundle is not None
