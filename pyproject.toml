@@ -120,6 +120,7 @@ mode = "csp"
 testpaths = ["packages", "tests"]
 norecursedirs = ["examples", ".venv", "dist", "build", ".hypothesis", ".mutmut-cache"]
 addopts = "-n auto --import-mode=importlib --cov-report=term-missing:skip-covered"
+consider_namespace_packages = true
 markers = [
     "demo: mark a test as a CLI demo recording walk-through",
     "integration: mark a test as requiring external infrastructure",

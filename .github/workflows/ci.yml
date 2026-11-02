@@ -85,10 +85,7 @@ jobs:
 
       - name: Run Unit & Integration Tests via Hexaqueue (Push to Main)
         if: github.event_name == 'push'
-        run: |
-          uv run hexaqual test run -p pytest-hexaqueue --profile ci
-          uv run hexaqual test run -p hexaqueue-core --profile ci
-          uv run hexaqual test run -p hexaqueue-server --profile ci
+        run: uv run hexaqual test run -U --profile ci --cov-report=xml --junitxml=junit.xml -o junit_family=legacy
 
       - name: Run Affected Unit & Integration Tests via Hexaqueue (Pull Request)
         if: github.event_name == 'pull_request'
