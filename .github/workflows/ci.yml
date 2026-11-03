@@ -43,12 +43,83 @@ jobs:
         run: uv run hexaqual docs drift
 
   # =========================================================================
-  # Stage 2: Unit / Integration Tests & Architecture Verification
-  # Only executes if Stage 1 static quality checks succeed
+  # Stage 1b: Cluster Health & Discovery Probe (Fast Parallel Cloud Check)
+  # Discovers and probes multi-provider fleet using unified .env secret & CLI
+  # =========================================================================
+  cluster-probe:
+    name: Cluster Reachability & Health Probe
+    runs-on: ubuntu-latest
+    outputs:
+      cluster_ready: ${{ steps.probe.outputs.cluster_ready }}
+      cluster_host: ${{ steps.probe.outputs.cluster_host }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+
+      - name: Install Hexaqueue CLI
+        run: uv sync --package hexaqueue_cli --package hexaqueue_core
+
+      - name: Hydrate Cluster Environment (.env)
+        if: ${{ secrets.HEXAQUEUE_ENV != '' }}
+        env:
+          DOTENV_PAYLOAD: ${{ secrets.HEXAQUEUE_ENV }}
+        run: |
+          echo "$DOTENV_PAYLOAD" > .env
+          chmod 600 .env
+          if grep -q "HEXAQUEUE_SSH_KEY_B64=" .env; then
+            mkdir -p ~/.ssh && chmod 700 ~/.ssh
+            grep "HEXAQUEUE_SSH_KEY_B64=" .env | cut -d '=' -f2- | tr -d '"' | base64 -d > ~/.ssh/hexaqueue_ci_id
+            chmod 600 ~/.ssh/hexaqueue_ci_id
+            echo "HEXAQUEUE_SSH_KEY=$HOME/.ssh/hexaqueue_ci_id" >> .env
+          fi
+
+      - name: Discover and Probe Cluster Nodes via Hexaqueue CLI
+        id: probe
+        run: |
+          DISCOVERY=$(uv run hq cluster discover --format json 2>/dev/null || echo "[]")
+          echo "Discovered fleet topology: $DISCOVERY"
+
+          SELECTED_HOST=$(echo "$DISCOVERY" | python3 -c "
+          import sys, json
+          try:
+              candidates = json.load(sys.stdin)
+              ready = [c for c in candidates if c.get('status') in ('ONLINE', 'SSH_AVAILABLE')]
+              if ready:
+                  print(ready[0]['host'])
+          except Exception:
+              pass
+          ")
+
+          if [ -n "$SELECTED_HOST" ]; then
+            echo "Verifying SSH tunnel connectivity to $SELECTED_HOST..."
+            if uv run hq cluster tunnel --host "$SELECTED_HOST"; then
+              echo "Cluster connectivity verified."
+              uv run hq cluster tunnel --stop || true
+              echo "cluster_ready=true" >> "$GITHUB_OUTPUT"
+              echo "cluster_host=$SELECTED_HOST" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          echo "No reachable cloud cluster nodes available; falling back to local runner."
+          echo "cluster_ready=false" >> "$GITHUB_OUTPUT"
+          echo "cluster_host=" >> "$GITHUB_OUTPUT"
+
+  # =========================================================================
+  # Stage 2: Unit & Integration Tests & Architecture Verification
+  # Executes if Stage 1 static quality checks succeed.
+  # Dynamically offloads to Hexaqueue Cloud or falls back to local xdist.
   # =========================================================================
   test-suite:
     name: Unit & Integration Tests (Python ${{ matrix.python-version }})
-    needs: [quality-gate]
+    needs: [quality-gate, cluster-probe]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -72,49 +143,40 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-packages --all-extras --all-groups
 
-      - name: Connect to Hexaqueue Cluster (OCI Remote Daemon via SSH Tunnel)
+      - name: Hydrate Cluster Environment (.env)
+        if: needs.cluster-probe.outputs.cluster_ready == 'true' && secrets.HEXAQUEUE_ENV != ''
         env:
-          OCI_SSH_KEY: ${{ secrets.OCI_SSH_KEY }}
-          OCI_HOST: ${{ vars.OCI_HOST || '129.146.115.79' }}
+          DOTENV_PAYLOAD: ${{ secrets.HEXAQUEUE_ENV }}
         run: |
-          if [ -n "$OCI_SSH_KEY" ]; then
-            echo "OCI_SSH_KEY detected; preparing SSH connection to OCI cluster ($OCI_HOST)..."
-            mkdir -p ~/.ssh
-            chmod 700 ~/.ssh
-            echo "$OCI_SSH_KEY" > ~/.ssh/oci_ci_id
-            chmod 600 ~/.ssh/oci_ci_id
-
-            echo "Establishing SSH tunnel to remote Hexaqueue daemon ($OCI_HOST:8000)..."
-            ssh -f -N -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ServerAliveInterval=15 -i ~/.ssh/oci_ci_id -L 8000:localhost:8000 ubuntu@$OCI_HOST || true
-            for i in {1..20}; do
-              if curl -s http://127.0.0.1:8000/health >/dev/null 2>&1; then
-                echo "Connected to OCI Hexaqueue Cluster daemon over SSH tunnel on port 8000"
-                exit 0
-              fi
-              sleep 1
-            done
-            echo "OCI tunnel health check failed; falling back to local runner daemon."
+          echo "$DOTENV_PAYLOAD" > .env
+          chmod 600 .env
+          if grep -q "HEXAQUEUE_SSH_KEY_B64=" .env; then
+            mkdir -p ~/.ssh && chmod 700 ~/.ssh
+            grep "HEXAQUEUE_SSH_KEY_B64=" .env | cut -d '=' -f2- | tr -d '"' | base64 -d > ~/.ssh/hexaqueue_ci_id
+            chmod 600 ~/.ssh/hexaqueue_ci_id
+            echo "HEXAQUEUE_SSH_KEY=$HOME/.ssh/hexaqueue_ci_id" >> .env
           fi
 
-          echo "Starting local Hexaqueue Controller Daemon fallback..."
-          uv run hq server start -p 8000 &
-          for i in {1..30}; do
-            if curl -s http://127.0.0.1:8000/health >/dev/null 2>&1; then
-              echo "Local Hexaqueue controller daemon healthy on port 8000"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "Failed to start Hexaqueue controller daemon"
-          exit 1
+      - name: Connect to Hexaqueue Cluster (Cloud Execution)
+        if: needs.cluster-probe.outputs.cluster_ready == 'true'
+        run: |
+          uv run hq cluster tunnel --host "${{ needs.cluster-probe.outputs.cluster_host }}"
 
-      - name: Run Unit & Integration Tests via Hexaqueue (Push to Main)
-        if: github.event_name == 'push'
+      - name: Run Tests via Hexaqueue Cloud (Push to Main)
+        if: needs.cluster-probe.outputs.cluster_ready == 'true' && github.event_name == 'push'
         run: uv run hexaqual test run -U --profile ci --cov-report=xml --junitxml=junit.xml -o junit_family=legacy
 
-      - name: Run Affected Unit & Integration Tests via Hexaqueue (Pull Request)
-        if: github.event_name == 'pull_request'
+      - name: Run Affected Tests via Hexaqueue Cloud (Pull Request)
+        if: needs.cluster-probe.outputs.cluster_ready == 'true' && github.event_name == 'pull_request'
         run: uv run hexaqual test run -A -U --profile ci --cov-report=xml --junitxml=junit.xml -o junit_family=legacy
+
+      - name: Run Tests Locally via xdist (Push to Main - Local Fallback)
+        if: needs.cluster-probe.outputs.cluster_ready != 'true' && github.event_name == 'push'
+        run: uv run hexaqual test run -U --cov-report=xml --junitxml=junit.xml -o junit_family=legacy
+
+      - name: Run Affected Tests Locally via xdist (Pull Request - Local Fallback)
+        if: needs.cluster-probe.outputs.cluster_ready != 'true' && github.event_name == 'pull_request'
+        run: uv run hexaqual test run -A -U --cov-report=xml --junitxml=junit.xml -o junit_family=legacy
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
@@ -228,6 +290,7 @@ jobs:
     name: CI Success (All Required Checks)
     needs:
       - quality-gate
+      - cluster-probe
       - test-suite
       - architecture-diagrams
       - hypothesis-fuzzing
@@ -271,6 +334,7 @@ jobs:
         run: |
           echo "Evaluating CI pipeline status:"
           echo "  Pre-Commit Quality Gate:      ${{ needs.quality-gate.result }}"
+          echo "  Cluster Discovery Probe:      ${{ needs.cluster-probe.result }}"
           echo "  Unit & Integration Tests:     ${{ needs.test-suite.result }}"
           echo "  Architecture Diagrams:        ${{ needs.architecture-diagrams.result }}"
           echo "  Property-Based Fuzzing:       ${{ needs.hypothesis-fuzzing.result }}"
@@ -278,6 +342,7 @@ jobs:
 
           results=(
             "${{ needs.quality-gate.result }}"
+            "${{ needs.cluster-probe.result }}"
             "${{ needs.test-suite.result }}"
             "${{ needs.architecture-diagrams.result }}"
             "${{ needs.hypothesis-fuzzing.result }}"
