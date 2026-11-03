@@ -187,6 +187,7 @@ def test_build_ssh_remote_sync_cmd() -> None:
     assert "git fetch origin develop" in remote_script
     assert "git reset --hard origin/develop" in remote_script
     assert "uv sync --all-packages --all-extras" in remote_script
+    assert "hexaqueue.service" in remote_script
 
 
 def test_resolve_cluster_endpoint() -> None:

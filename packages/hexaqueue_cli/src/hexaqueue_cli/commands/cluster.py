@@ -232,8 +232,10 @@ def _build_ssh_remote_sync_cmd(
     """
     remote_script = (
         f"cd {repo_dir} && git fetch origin {branch} && "
-        f"git reset --hard origin/{branch} && git clean -fd && "
-        f"~/.local/bin/uv sync --all-packages --all-extras"
+        f"(git reset --hard origin/{branch} 2>/dev/null || git reset --hard FETCH_HEAD) && "
+        f"git clean -fd && "
+        f"~/.local/bin/uv sync --all-packages --all-extras && "
+        f"(sudo systemctl restart hexaqueue.service 2>/dev/null || true)"
     )
     cmd = [
         "ssh",
