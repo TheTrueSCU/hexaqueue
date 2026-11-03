@@ -98,3 +98,47 @@ Hexaqueue clearly separates container packaging, static infrastructure bootstrap
 | **Docker / Dockerfile** | `hexaqueue-worker` | Packaging reproducible OCI container images (Apptainer / Podman / Docker) with hermetic read-only collateral volume mounts. |
 | **Terraform / OpenTofu** | Infrastructure Bootstrap | Declarative, static provisioning of baseline VPCs, Kubernetes clusters (EKS/GKE/AKS), cloud object stores (S3/GCS), and IAM roles. |
 | **Crossplane** | `hexaqueue-kueue` & Cloud Claims | Kubernetes-native control plane managing dynamic, on-demand infrastructure claims (e.g., ephemeral Lustre/FSx storage volumes or dedicated GPU node pools). |
+
+---
+
+## 4. Zero-Trust Ephemeral Test Cloud Slicing & Execution
+
+Hexaqueue includes native, zero-trust cloud test acceleration via `pytest-hexaqueue` and `hq cluster tunnel`. Instead of running multi-thousand test suites sequentially on developer laptops or slow CI runners, tests are dynamically sliced and distributed across remote high-core compute nodes over an encrypted, port-restricted OpenSSH tunnel.
+
+![Zero-Trust Ephemeral Test Cloud Slicing & Execution](assets/topologies/ephemeral_cloud_slicing.png)
+
+### Architectural Invariants & Security Boundaries
+
+1. **Zero-Trust OpenSSH Confinement (`hexaqueue-ci`)**:
+   - Remote access operates through a dedicated, unprivileged system account (`hexaqueue-ci`) configured with a `/bin/false` shell, no sudo privileges, and zero write access to system services or repository checkouts.
+   - Remote authentication is strictly confined via OpenSSH `authorized_keys` forced directives:
+     ```ssh-config
+     command="/bin/false",no-pty,no-agent-forwarding,no-X11-forwarding,permitopen="localhost:8000",permitopen="127.0.0.1:8000" <ci_public_key>
+     ```
+   - CI runners establish a restricted local port forward (`-L 8000:localhost:8000 -N`). Shell execution and arbitrary remote commands are rejected with exit code 1.
+
+2. **Detached Git Worktree Isolation**:
+   - Each distributed test slice executes inside an ephemeral, isolated git worktree created under `/tmp/hexaqueue/runs/<session_id>/slice-<N>` branching from a read-only git object cache.
+   - Computations execute on ephemeral disks without modifying the host's primary working tree or git indices.
+
+3. **Guaranteed Teardown & Garbage Collection**:
+   - Upon session completion (success, failure, or cancellation), all slice worktrees are forcefully purged (`git worktree remove --force`), leaving zero residual state mutation on the host node.
+
+4. **Dynamic Slicing & Distributed Dispatch**:
+   - `pytest-hexaqueue` partitions test items across local cores and remote workers concurrently using the hybrid slicing engine.
+   - Slices $1..L$ execute immediately on client cores, while slices $L+1..L+R$ dispatch in parallel to the remote Hexaqueue controller daemon over `http://127.0.0.1:8000/v1/sessions`.
+   - Results (JUnit XML and coverage artifacts) stream back in real time and are seamlessly merged on the client.
+
+### Hybrid Slicing Partitioning: Local vs. Remote Concurrency
+
+`pytest-hexaqueue` provides fine-grained control over local workstation vs. remote cloud compute allocation through `--hq-local-slices` and `--hq-remote-slices`:
+
+| Execution Mode | `--hq-local-slices` | `--hq-remote-slices` | `--hq-slices` | Total Slices | Local Slices ($L$) | Remote Slices ($R$) | Description / Resource Allocation |
+|---|---|---|---|---|---|---|---|
+| **Default Remote** | `None` (0) | `None` (Config) | $N$ (default `4`) | $N$ | `0` | $N$ | Standard cluster execution. 100% of slices dispatch to remote workers; local machine remains idle. |
+| **Pure Remote (Zero Local Load)** | `0` | `auto` or $R$ | Any | $R$ | `0` | $R$ | Explicitly forces 0 local slices. Offloads 100% of execution to cloud fleet; ideal for low-resource CI runners. |
+| **Pure Local (Offline / No Cloud)** | `auto` or $L$ | `0` | Any | $L$ | $L$ | `0` | Bypasses remote cluster completely. Runs $L$ slices locally across workstation cores using subprocesses. |
+| **Explicit Hybrid Split** | $L$ (e.g. `2`) | $R$ (e.g. `16`) | Ignored | $L + R$ (18) | $L$ (2) | $R$ (16) | Exact allocation. Slices $1..L$ run locally; slices $L+1..L+R$ dispatch to the remote cluster in parallel. |
+| **Hybrid Auto-Scale (`--hq-hybrid`)** | `auto` (implied) | `auto` (implied) | $N$ (or default) | $\max(N, L + R)$ | $\max(1, \text{cores} - 2)$ | $\max(4, \min(32, \frac{\text{tests}}{30}))$ | Dynamic queue saturation. Uses local cores minus 2 for local slices, and dynamically over-partitions remote slices to saturate cluster queues. |
+| **Local Target with Auto Remote** | $L$ (e.g. `2`) | `None` | $N$ (e.g. `10`) | $\max(L, N)$ (10) | $L$ (2) | $N - L$ (8) | Dedicates $L$ slices locally, allocating the remaining $N - L$ slices to remote cloud workers. |
+| **Remote Target with Auto Local** | `None` | $R$ (e.g. `8`) | $N$ (e.g. `10`) | $\max(R, N)$ (10) | $N - R$ (2) | $R$ (8) | Caps remote execution at $R$ slices, allocating remaining $N - R$ slices to the local machine. |

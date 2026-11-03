@@ -108,20 +108,54 @@ jobs:
               print(f'JSON parse error: {exc}', file=sys.stderr)
           ")
 
+          CLUSTER_READY="false"
           if [ -n "$SELECTED_HOST" ]; then
             echo "Verifying SSH tunnel connectivity to $SELECTED_HOST..."
             if uv run hq cluster tunnel --host "$SELECTED_HOST"; then
               echo "Cluster connectivity verified."
               uv run hq cluster tunnel --stop || true
+              CLUSTER_READY="true"
               echo "cluster_ready=true" >> "$GITHUB_OUTPUT"
               echo "cluster_host=$SELECTED_HOST" >> "$GITHUB_OUTPUT"
-              exit 0
             fi
           fi
 
-          echo "No reachable cloud cluster nodes available; falling back to local runner."
-          echo "cluster_ready=false" >> "$GITHUB_OUTPUT"
-          echo "cluster_host=" >> "$GITHUB_OUTPUT"
+          if [ "$CLUSTER_READY" != "true" ]; then
+            echo "No reachable cloud cluster nodes available; falling back to local runner."
+            echo "cluster_ready=false" >> "$GITHUB_OUTPUT"
+            echo "cluster_host=" >> "$GITHUB_OUTPUT"
+          fi
+
+          python3 -c "
+          import os, json, re
+          raw = '''$DISCOVERY'''
+          clean = re.sub(r'\x1b\[[0-9;]*m', '', raw).strip()
+          try:
+              nodes = json.loads(clean, strict=False)
+          except Exception:
+              nodes = []
+
+          summary_path = os.environ.get('GITHUB_STEP_SUMMARY')
+          if summary_path:
+              with open(summary_path, 'a') as f:
+                  f.write('### 🌐 Hexaqueue Fleet Discovery & Probe Summary\n\n')
+                  if '$CLUSTER_READY' == 'true':
+                      f.write(f'✅ **Status**: Active tunnel verified to \`$SELECTED_HOST\` (\`hexaqueue-ci\`). Cloud execution active.\n\n')
+                  else:
+                      f.write('⚠️ **Status**: No cloud nodes reachable or verified. Falling back to local in-process runner.\n\n')
+                  if nodes:
+                      f.write('| Host | Provider | User | Status | Latency | Source |\n')
+                      f.write('|---|---|---|---|---|---|\n')
+                      for n in nodes:
+                          host = n.get('host', 'N/A')
+                          prov = n.get('provider', 'N/A')
+                          user = n.get('user', 'N/A')
+                          st = n.get('status', 'UNKNOWN')
+                          lat = f\"{n.get('latency_ms', 0.0):.1f}ms\" if n.get('latency_ms') is not None else 'N/A'
+                          src = n.get('source', 'N/A')
+                          f.write(f'| \`{host}\` | {prov} | \`{user}\` | **{st}** | {lat} | {src} |\n')
+                      f.write('\n')
+          " || true
 
   # =========================================================================
   # Stage 2: Unit & Integration Tests & Architecture Verification
@@ -214,6 +248,43 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           file: junit.xml
 
+      - name: Generate Test Execution Summary
+        if: always() && hashFiles('junit.xml') != ''
+        env:
+          CLUSTER_READY: ${{ needs.cluster-probe.outputs.cluster_ready }}
+          CLUSTER_HOST: ${{ needs.cluster-probe.outputs.cluster_host }}
+          PYTHON_VERSION: ${{ matrix.python-version }}
+        run: |
+          python3 -c "
+          import os, xml.etree.ElementTree as ET
+          try:
+              tree = ET.parse('junit.xml')
+              root = tree.getroot()
+              suites = list(root) if root.tag == 'testsuites' else [root]
+              tests = sum(int(s.attrib.get('tests', 0)) for s in suites)
+              failures = sum(int(s.attrib.get('failures', 0)) for s in suites)
+              errors = sum(int(s.attrib.get('errors', 0)) for s in suites)
+              skipped = sum(int(s.attrib.get('skipped', 0)) for s in suites)
+              duration = sum(float(s.attrib.get('time', 0.0)) for s in suites)
+              passed = tests - failures - errors - skipped
+
+              summary_path = os.environ.get('GITHUB_STEP_SUMMARY')
+              if summary_path:
+                  cluster_ready = os.environ.get('CLUSTER_READY') == 'true'
+                  cluster_host = os.environ.get('CLUSTER_HOST', '')
+                  py_ver = os.environ.get('PYTHON_VERSION', '')
+                  engine_str = f'⚡ Hexaqueue Cloud Fleet (\`{cluster_host}\` via Zero-Trust SSH Tunnel)' if cluster_ready else '🖥️ Local Runner (In-Process xdist)'
+
+                  with open(summary_path, 'a') as f:
+                      f.write(f'### 🧪 Test Execution Summary (Python {py_ver})\n\n')
+                      f.write(f'- **Execution Engine**: {engine_str}\n')
+                      f.write(f'- **Total Tests**: \`{tests}\`\n')
+                      f.write(f'- **Results**: ✅ \`{passed}\` passed, ❌ \`{failures}\` failed, ⚠️ \`{errors}\` errors, ⏭️ \`{skipped}\` skipped\n')
+                      f.write(f'- **Aggregated Suite Duration**: \`{duration:.2f}s\`\n\n')
+          except Exception as exc:
+              print(f'Error generating test summary: {exc}')
+          " || true
+
       - name: Disconnect Hexaqueue Cluster Tunnel
         if: always() && needs.cluster-probe.outputs.cluster_ready == 'true'
         run: uv run hq cluster tunnel --stop || true
@@ -247,6 +318,12 @@ jobs:
           uv run hexaqual deps pydeps
           git diff --exit-code docs/assets/pydeps/ || \
             (echo "::error::Architecture diagrams are stale. Run 'pydeps-generate' locally and commit the updated SVGs." && exit 1)
+
+      - name: Check topology diagrams are up to date
+        run: |
+          uv run python scripts/docs/generate_topologies.py
+          git diff --exit-code docs/assets/topologies/ || \
+            (echo "::error::Topology diagrams are stale. Run 'uv run python scripts/docs/generate_topologies.py' locally and commit the updated PNGs." && exit 1)
 
   # =========================================================================
   # Stage 3: Invariant & Security Fuzzing (Deep Verification)

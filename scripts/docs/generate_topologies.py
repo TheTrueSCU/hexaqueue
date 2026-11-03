@@ -297,6 +297,65 @@ def generate_distributed_cluster_diagram() -> None:
             worker >> Edge(label="Heartbeat / Lease / Logs") >> coord
 
 
+def generate_ephemeral_cloud_slicing_diagram() -> None:
+    """Generate architecture diagram for zero-trust ephemeral test cloud execution."""
+    out_file = str(OUTPUT_DIR / "ephemeral_cloud_slicing")
+    graph_attr = {
+        "fontsize": "14",
+        "bgcolor": "transparent",
+        "pad": "0.5",
+    }
+    with Diagram(
+        "Zero-Trust Ephemeral Test Cloud Slicing & Execution",
+        show=False,
+        filename=out_file,
+        outformat="png",
+        graph_attr=graph_attr,
+        direction="LR",
+    ):
+        with Cluster("GitHub Actions Runner (CI Client)"):
+            runner = GithubActions("Ephemeral Runner\n(ubuntu-latest)")
+            slicer = Python("pytest-hexaqueue\n(Dynamic Slicer: min(32, N//30))")
+            local_slices = LinuxGeneral("Local Slices (2 cores)\n(Immediate Execution)")
+            runner >> slicer
+            slicer >> local_slices
+
+        with Cluster("Zero-Trust Cryptographic Boundary"):
+            tunnel = Server(
+                "OpenSSH Port Forwarding\n(localhost:8000 -> remote:8000)\ncommand='/bin/false'\npermitopen='localhost:8000'"
+            )
+
+        with Cluster("Cloud Fleet Node (Immutable Control Plane)"):
+            identity = User("hexaqueue-ci User\n(No sudo / No shell / No repo write)")
+            daemon = Server(
+                "Hexaqueue Controller Daemon\n(systemd :8000)\nImmutable Release Pin"
+            )
+            identity >> daemon
+
+        with Cluster("Ephemeral Data Plane (/tmp/hexaqueue/runs/<session_id>)"):
+            git_cache = Storage("Git Object Cache\n(Read-Only fetch)")
+            slices = [
+                LinuxGeneral("Detached Worktree 1\n(pytest slice)"),
+                LinuxGeneral("Detached Worktree 2\n(pytest slice)"),
+                Rack("Detached Worktrees 3..32\n(distributed slices)"),
+            ]
+            cleanup = Storage(
+                "Teardown & GC\n(100% Worktree Purge\nZero State Mutation)"
+            )
+            for s in slices:
+                daemon >> Edge(label="Spawn Slice") >> s
+                git_cache >> Edge(style="dotted") >> s
+                s >> Edge(label="JUnit / Cov") >> cleanup
+
+        slicer >> Edge(label="Encrypted SSH Tunnel", color="darkgreen") >> tunnel
+        tunnel >> Edge(label="HTTP /sessions API", color="darkgreen") >> daemon
+        (
+            cleanup
+            >> Edge(label="Aggregate Results", color="blue", style="dashed")
+            >> slicer
+        )
+
+
 def main() -> None:
     """Render all architecture diagrams to documentation assets."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -312,6 +371,8 @@ def main() -> None:
     generate_mcp_diagram()
     logger.info("Generating distributed cluster diagram...")
     generate_distributed_cluster_diagram()
+    logger.info("Generating ephemeral cloud slicing diagram...")
+    generate_ephemeral_cloud_slicing_diagram()
     logger.info("All diagrams rendered successfully in docs/assets/topologies/!")
 
 

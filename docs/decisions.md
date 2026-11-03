@@ -11,6 +11,8 @@
 - [ADR-003: Cloud-Agnostic Elasticity & Dollar-Denominated Budget Accounting](#adr-003-cloud-agnostic-elasticity--dollar-denominated-budget-accounting)
 - [ADR-004: Anti-Fake-Pass Exercise Gates & Strict Test Symmetry](#adr-004-anti-fake-pass-exercise-gates--strict-test-symmetry)
 - [ADR-005: Hexaqual Governance, Gate Audits & Anti-Drift Documentation](#adr-005-hexaqual-governance-gate-audits--anti-drift-documentation)
+- [ADR-006: Monorepo PEP 420 Namespace Package Traversal & Single-Pass Distributed CI Slicing](#adr-006-monorepo-pep-420-namespace-package-traversal--single-pass-distributed-ci-slicing)
+- [ADR-007: Zero-Trust OpenSSH Confinement and Ephemeral Git Worktree Isolation for Distributed Test Execution](#adr-007-zero-trust-openssh-confinement-and-ephemeral-git-worktree-isolation-for-distributed-test-execution)
 
 ---
 
@@ -139,3 +141,36 @@ Additionally, running a separate "distributed test slicing" job in CI alongside 
 ### Rejected Alternatives
 - *Subpackage-specific test file naming prefixes (e.g. `test_server_models.py`)*: Burdensome and breaks 1:1 test symmetry parity rules enforced by `hexaqual parity test`.
 - *Retaining duplicate CI pipeline stages*: Inefficient duplicate resource consumption; running tests exclusively via Hexaqueue guarantees true production dogfooding.
+
+---
+
+## ADR-007: Zero-Trust OpenSSH Confinement and Ephemeral Git Worktree Isolation for Distributed Test Execution
+
+### Context
+Distributed test execution in CI/CD pipelines requires running test suites across remote worker nodes (e.g., cloud spot fleets or high-core bare-metal instances). However, allowing CI runners or external clients SSH access with shell or arbitrary command execution privileges presents severe security and stability risks:
+1. **Remote Host Mutation**: Ephemeral CI jobs or untrusted PRs could execute malicious commands, mutate system configurations, tamper with host daemons, or alter local code checkouts.
+2. **Persistent State Contamination**: Running tests in the repository working directory on a remote node pollutes git tracking, leaves behind uncommitted artifacts and dirty caches, and leads to non-reproducible test flake across runs.
+3. **Privilege Creep**: Defaulting to administrative accounts (such as `ubuntu` or root) gives CI runners unnecessary access to system facilities.
+
+### Decision
+1. **Zero-Trust OpenSSH Confinement (`hexaqueue-ci`)**:
+   - Provision a dedicated, unprivileged system account (`hexaqueue-ci`) with `/bin/false` login shell, no sudo privileges, and zero write permissions to system services or repository roots.
+   - Lock down SSH key authentication using OpenSSH `authorized_keys` forced directives:
+     ```ssh-config
+     command="/bin/false",no-pty,no-agent-forwarding,no-X11-forwarding,permitopen="localhost:8000",permitopen="127.0.0.1:8000" <ci_public_key>
+     ```
+   - Remote client connections are restricted to local port forwarding (`-L 8000:localhost:8000 -N`). Any attempt to allocate a PTY, execute shell commands, or forward to unauthorized ports fails with exit code 1.
+2. **Detached Ephemeral Git Worktree Isolation**:
+   - Every distributed test slice executes inside an isolated, ephemeral git worktree created under `/tmp/hexaqueue/runs/<session_id>/slice-<N>` branching from a read-only git object cache.
+   - Computations execute on ephemeral disk space without altering the host's primary working tree or git indices.
+3. **Guaranteed Teardown & Garbage Collection**:
+   - Upon session completion (success, failure, or cancellation), all slice worktrees are forcefully purged (`git worktree remove --force`), ensuring zero state mutation on the host node.
+4. **Immutable Controller Plane**:
+   - The central Hexaqueue controller daemon runs as a managed system service (systemd) pinned to an immutable release artifact, listening strictly on `localhost:8000`.
+5. **Provider-Agnostic Secret & User Standardization**:
+   - Standardize on `HEXAQUEUE_CLUSTER_HOST` and `HEXAQUEUE_SSH_USER` (defaulting to `hexaqueue-ci`). Deprecate and drop vendor-specific variables (`OCI_HOST`, `OCI_USER`).
+
+### Rejected Alternatives
+- *Direct SSH command execution (`ssh user@host "pytest ..."`)*: Rejected due to catastrophic security exposure and inability to throttle, track, or sandbox remote workloads.
+- *Defaulting to administrative accounts (`ubuntu`)*: Rejected under the principle of least privilege; a compromised CI token must never yield root or sudo access.
+- *Shared workspace on remote host*: Rejected because concurrent runs or dirty state mutations create non-reproducible test failures.

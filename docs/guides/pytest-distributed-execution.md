@@ -121,7 +121,35 @@ In this hybrid topology:
 
 ---
 
-### 3. Comparison Matrix
+### 3. Hybrid Slicing Partitioning: `--hq-local-slices` vs. `--hq-remote-slices`
+
+`pytest-hexaqueue` allows developers and CI orchestrators to partition test suites across local workstation CPU cores and remote cloud workers simultaneously. This enables instant local feedback for the first test slices while backgrounding bulk execution across high-core cloud instances.
+
+```
+Total Slices = Local Slices (L) + Remote Slices (R)
+Items[0 .. L-1]  ──> Local Subprocesses (Workstation vCPUs)
+Items[L .. L+R-1] ──> Hexaqueue Cluster (Cloud Fleet / OCI / AWS / GCP)
+```
+
+The table below outlines how `--hq-local-slices` and `--hq-remote-slices` interact across various operational configurations:
+
+| Execution Mode | `--hq-local-slices` | `--hq-remote-slices` | `--hq-slices` | Total Slices | Local Slices ($L$) | Remote Slices ($R$) | Description / Resource Allocation |
+|---|---|---|---|---|---|---|---|
+| **Default Remote** | `None` (0) | `None` (Config) | $N$ (default `4`) | $N$ | `0` | $N$ | Standard cluster execution. 100% of slices dispatch to remote workers; local machine remains idle. |
+| **Pure Remote (Zero Local Load)** | `0` | `auto` or $R$ | Any | $R$ | `0` | $R$ | Explicitly forces 0 local slices. Offloads 100% of execution to cloud fleet; ideal for low-resource CI runners. |
+| **Pure Local (Offline / No Cloud)** | `auto` or $L$ | `0` | Any | $L$ | $L$ | `0` | Bypasses remote cluster completely. Runs $L$ slices locally across workstation cores using subprocesses. |
+| **Explicit Hybrid Split** | $L$ (e.g. `2`) | $R$ (e.g. `16`) | Ignored | $L + R$ (18) | $L$ (2) | $R$ (16) | Exact allocation. Slices $1..L$ run locally; slices $L+1..L+R$ dispatch to the remote cluster in parallel. |
+| **Hybrid Auto-Scale (`--hq-hybrid`)** | `auto` (implied) | `auto` (implied) | $N$ (or default) | $\max(N, L + R)$ | $\max(1, \text{cores} - 2)$ | $\max(4, \min(32, \frac{\text{tests}}{30}))$ | Dynamic queue saturation. Uses local cores minus 2 for local slices, and dynamically over-partitions remote slices to saturate cluster queues. |
+| **Local Target with Auto Remote** | $L$ (e.g. `2`) | `None` | $N$ (e.g. `10`) | $\max(L, N)$ (10) | $L$ (2) | $N - L$ (8) | Dedicates $L$ slices locally, allocating the remaining $N - L$ slices to remote cloud workers. |
+| **Remote Target with Auto Local** | `None` | $R$ (e.g. `8`) | $N$ (e.g. `10`) | $\max(R, N)$ (10) | $N - R$ (2) | $R$ (8) | Caps remote execution at $R$ slices, allocating remaining $N - R$ slices to the local machine. |
+
+#### Automatic Concurrency Semantics (`auto`)
+- **Local `auto`**: Evaluates to $\max(1, \text{cpu\_count} - 2)$. Reserves 2 CPU cores for the operating system, terminal I/O, and test streaming while dedicating all remaining cores to local test execution.
+- **Remote `auto`**: Evaluates to $\max(4, \min(32, \lfloor\frac{\text{test\_items}}{30}\rfloor))$. Over-partitions test slices proportional to total test count (targeting ~25–35 tests per slice). This keeps the remote cluster controller's work-stealing queue continuously saturated, preventing idle worker vCPUs while slow tests finish.
+
+---
+
+### 4. Comparison Matrix
 
 | Dimension | `pytest-xdist` | `pytest-hexaqueue` | Combined (Hybrid) |
 |---|---|---|---|
@@ -212,10 +240,18 @@ markers = [
 ]
 ```
 
-### 3. GitHub Actions CI Matrix Offloading
+### 3. Zero-Trust GitHub Actions Cloud Slicing
 
-Instead of maintaining expensive GitHub Actions matrix jobs, dispatch all test slices through a single lightweight GitHub Actions runner targeting the `ci` profile:
+Instead of maintaining expensive GitHub Actions matrix jobs or provisioning long-lived CI runners with administrative access, test suites are sliced dynamically and dispatched across remote compute fleets over an encrypted, port-restricted OpenSSH tunnel with ephemeral worktree isolation:
 
+![Zero-Trust Ephemeral Test Cloud Slicing & Execution](../assets/topologies/ephemeral_cloud_slicing.png)
+
+#### Security & Confinement Guarantees
+- **OpenSSH Forced Directives**: The remote worker account (`hexaqueue-ci`) has a `/bin/false` shell, no sudo rights, and is restricted by OpenSSH `command="/bin/false",permitopen="localhost:8000"`. Arbitrary command execution is impossible.
+- **Ephemeral Git Worktrees**: Slices execute in isolated, detached worktrees under `/tmp/hexaqueue/runs/<session_id>/slice-<N>` branching from an immutable read-only cache.
+- **100% Teardown & GC**: Upon completion, all worktrees are forcefully purged (`git worktree remove --force`), ensuring zero host state mutation.
+
+#### GitHub Actions Workflow Example
 ```yaml
 name: Test Suite
 on: [push, pull_request]
@@ -225,14 +261,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: astral-sh/setup-uv@v3
 
-      - name: Run Distributed Tests via Hexaqueue
-        env:
-          HEXAQUEUE_SERVER_URL: ${{ secrets.HEXAQUEUE_SERVER_URL }}
-          HEXAQUEUE_API_TOKEN: ${{ secrets.HEXAQUEUE_API_TOKEN }}
+      - name: Open Zero-Trust Tunnel to Hexaqueue Cluster
+        run: |
+          uv run hq cluster tunnel --host "${{ secrets.HEXAQUEUE_CLUSTER_HOST }}" --key ~/.ssh/hexaqueue_ci_id
+
+      - name: Run Distributed Tests via Hexaqueue Cloud
         run: |
           uv run pytest --hexaqueue --hq-profile ci
+
+      - name: Disconnect Tunnel
+        if: always()
+        run: uv run hq cluster tunnel --stop || true
 ```
 
 ---
@@ -256,3 +300,6 @@ Layered resolution order: **CLI flags (highest)** $\to$ **Environment variables*
 | `--hq-free-tier` | `HEXAQUEUE_FREE_TIER` | Config / `True` | Enforce zero-cost Multi-CSP Free-Tier mesh execution ($0.00 spend ceiling) |
 | `--hq-fallback` | `HEXAQUEUE_LOCAL_FALLBACK` | Config / `True` | Fall back to local in-process execution if cluster is unreachable |
 | `--hq-slicer` | `HEXAQUEUE_SLICER` | Config / `round-robin` | Test partitioning algorithm: `round-robin` or `file` |
+| `--hq-local-slices` | `HEXAQUEUE_LOCAL_SLICES` | Config / `None` | Number of slices executed locally across workstation vCPUs, or `auto` (`0` to disable) |
+| `--hq-remote-slices` | `HEXAQUEUE_REMOTE_SLICES` | Config / `None` | Number of slices dispatched remotely across Hexaqueue cluster, or `auto` (`0` to disable) |
+| `--hq-hybrid` | `HEXAQUEUE_HYBRID` | `False` | Enable hybrid concurrent local and remote test execution with automatic slice sizing |
