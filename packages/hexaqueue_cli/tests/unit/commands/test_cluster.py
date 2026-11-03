@@ -11,9 +11,12 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+import typer
 from typer.testing import CliRunner
 
 from hexaqueue_cli.commands.cluster import (
+    _auto_select_online_host,
     _build_ssh_remote_sync_cmd,
     _build_ssh_tunnel_cmd,
     _discover_candidates,
@@ -21,7 +24,11 @@ from hexaqueue_cli.commands.cluster import (
     _parse_ssh_config_hosts,
     _poll_health,
     _probe_health,
+    _probe_host_reachability,
+    _probe_single_candidate,
     _resolve_cluster_endpoint,
+    _resolve_tunnel_target,
+    _stop_active_tunnels,
     _terminate_pids,
 )
 from hexaqueue_cli.main import app
@@ -598,6 +605,10 @@ def test_discover_cmd_table_output() -> None:
             return_value=mock_candidates,
         ),
         patch(
+            "hexaqueue_cli.commands.cluster._probe_host_reachability",
+            return_value=(True, 25.0),
+        ),
+        patch(
             "hexaqueue_cli.commands.cluster._probe_health",
             return_value=(True, {"cores": 4}, 12.0),
         ),
@@ -643,6 +654,10 @@ def test_discover_cmd_json_format() -> None:
             return_value=mock_candidates,
         ),
         patch(
+            "hexaqueue_cli.commands.cluster._probe_host_reachability",
+            return_value=(True, 30.0),
+        ),
+        patch(
             "hexaqueue_cli.commands.cluster._probe_health",
             return_value=(False, None, 0.0),
         ),
@@ -654,3 +669,218 @@ def test_discover_cmd_json_format() -> None:
         assert len(parsed) == 1
         assert parsed[0]["host"] == "10.0.0.1"
         assert parsed[0]["status"] == "SSH_AVAILABLE"
+
+
+def test_probe_host_reachability_empty() -> None:
+    """Verify _probe_host_reachability returns False for empty or whitespace hosts.
+
+    Notes/Architectural Intent:
+        Prevents invalid socket creation attempts against blank hostnames.
+    """
+    res_empty = _probe_host_reachability("")
+    assert res_empty == (False, 0.0)
+    res_ws = _probe_host_reachability("   ")
+    assert res_ws == (False, 0.0)
+
+
+def test_probe_host_reachability_success() -> None:
+    """Verify _probe_host_reachability returns True and positive latency on successful connection.
+
+    Notes/Architectural Intent:
+        Validates socket connect path and latency measurement.
+    """
+    mock_conn = MagicMock()
+    mock_conn.__enter__.return_value = mock_conn
+    with patch("socket.create_connection", return_value=mock_conn):
+        reachable, latency = _probe_host_reachability("10.0.0.1", port=22, timeout=1.0)
+        assert reachable is True
+        assert latency >= 0.0
+
+
+def test_probe_host_reachability_failure() -> None:
+    """Verify _probe_host_reachability catches socket exceptions and returns False.
+
+    Notes/Architectural Intent:
+        Guarantees network timeouts and refused connections do not raise uncaught errors.
+    """
+    with patch("socket.create_connection", side_effect=OSError("Host unreachable")):
+        reachable, latency = _probe_host_reachability("10.0.0.1", port=22, timeout=1.0)
+        assert reachable is False
+        assert latency == 0.0
+
+
+def test_auto_select_online_host() -> None:
+    """Verify _auto_select_online_host iterates candidates and returns first reachable node.
+
+    Notes/Architectural Intent:
+        Ensures automatic selection ignores candidates with missing host or failed reachability.
+    """
+    candidates = [
+        {"host": None, "provider": "invalid"},
+        {"host": "10.0.0.2", "provider": "OCI", "ssh_port": 22},
+        {"host": "10.0.0.3", "provider": "AWS", "ssh_port": 22},
+    ]
+    with (
+        patch(
+            "hexaqueue_cli.commands.cluster._discover_candidates",
+            return_value=candidates,
+        ),
+        patch("hexaqueue_cli.commands.cluster._probe_host_reachability") as mock_probe,
+    ):
+        mock_probe.side_effect = [(False, 0.0), (True, 15.0)]
+        selected = _auto_select_online_host()
+        assert selected is not None
+        assert selected["host"] == "10.0.0.3"
+
+
+def test_auto_select_online_host_none_reachable() -> None:
+    """Verify _auto_select_online_host returns None when all candidates are unreachable.
+
+    Notes/Architectural Intent:
+        Gracefully signals lack of reachable cluster instances.
+    """
+    candidates = [{"host": "10.0.0.2", "provider": "OCI"}]
+    with (
+        patch(
+            "hexaqueue_cli.commands.cluster._discover_candidates",
+            return_value=candidates,
+        ),
+        patch(
+            "hexaqueue_cli.commands.cluster._probe_host_reachability",
+            return_value=(False, 0.0),
+        ),
+    ):
+        selected = _auto_select_online_host()
+        assert selected is None
+
+
+def test_stop_active_tunnels() -> None:
+    """Verify _stop_active_tunnels handles both empty and active process scenarios.
+
+    Notes/Architectural Intent:
+        Tests both early return when no tunnel is found and termination reporting when found.
+    """
+    with patch("hexaqueue_cli.commands.cluster._find_ssh_tunnel_pids", return_value=[]):
+        # Should return cleanly without error
+        _stop_active_tunnels(8000)
+
+    with (
+        patch(
+            "hexaqueue_cli.commands.cluster._find_ssh_tunnel_pids", return_value=[1234]
+        ),
+        patch("hexaqueue_cli.commands.cluster._terminate_pids", return_value=1),
+    ):
+        _stop_active_tunnels(8000)
+
+
+def test_resolve_tunnel_target_cli_explicit() -> None:
+    """Verify _resolve_tunnel_target prioritizes explicit CLI arguments.
+
+    Notes/Architectural Intent:
+        Validates CLI flag precedence over defaults and environments.
+    """
+    res = _resolve_tunnel_target(
+        profile=None,
+        host="1.2.3.4",
+        user="custom",
+        key="/path/to/key",
+        ssh_port=2222,
+        remote_port=9000,
+    )
+    assert res == ("1.2.3.4", "custom", "/path/to/key", 2222, 9000)
+
+
+def test_resolve_tunnel_target_auto_discovery() -> None:
+    """Verify _resolve_tunnel_target falls back to auto-discovered online host.
+
+    Notes/Architectural Intent:
+        Verifies zero-configuration tunneling when no target host is specified.
+    """
+    mock_cand = {
+        "host": "10.1.1.1",
+        "user": "ubuntu",
+        "key": "/auto/key",
+        "ssh_port": 22,
+        "provider": "OCI",
+    }
+    with (
+        patch.dict("os.environ", {}, clear=True),
+        patch(
+            "hexaqueue_cli.commands.cluster._auto_select_online_host",
+            return_value=mock_cand,
+        ),
+    ):
+        res = _resolve_tunnel_target(
+            profile=None,
+            host=None,
+            user="ubuntu",
+            key=None,
+            ssh_port=22,
+            remote_port=8000,
+        )
+        assert res[0] == "10.1.1.1"
+        assert res[1] == "ubuntu"
+        assert res[2] == "/auto/key"
+
+
+def test_resolve_tunnel_target_error_when_unresolved() -> None:
+    """Verify _resolve_tunnel_target exits with code 1 when no host can be found.
+
+    Notes/Architectural Intent:
+        Ensures clear failure when no candidate or profile host exists.
+    """
+    with (
+        patch.dict("os.environ", {}, clear=True),
+        patch(
+            "hexaqueue_cli.commands.cluster._auto_select_online_host", return_value=None
+        ),
+        pytest.raises(typer.Exit),
+    ):
+        _resolve_tunnel_target(
+            profile=None,
+            host=None,
+            user="ubuntu",
+            key=None,
+            ssh_port=22,
+            remote_port=8000,
+        )
+
+
+def test_probe_single_candidate_offline() -> None:
+    """Verify _probe_single_candidate returns OFFLINE when host is unreachable.
+
+    Notes/Architectural Intent:
+        Ensures candidate status is marked OFFLINE without attempting API probe.
+    """
+    cand = {"host": "10.9.9.9", "provider": "OCI"}
+    with patch(
+        "hexaqueue_cli.commands.cluster._probe_host_reachability",
+        return_value=(False, 0.0),
+    ):
+        result = _probe_single_candidate(cand)
+        status = result["status"]
+        assert status == "OFFLINE"
+        assert result["latency_ms"] is None
+
+
+def test_probe_single_candidate_localhost_fallback() -> None:
+    """Verify _probe_single_candidate applies localhost fallback logic.
+
+    Notes/Architectural Intent:
+        Validates local development fallback when localhost/127.0.0.1 is probed.
+    """
+    cand = {"host": "127.0.0.1", "provider": "Local"}
+    with (
+        patch(
+            "hexaqueue_cli.commands.cluster._probe_host_reachability",
+            return_value=(False, 0.0),
+        ),
+        patch(
+            "hexaqueue_cli.commands.cluster._probe_health",
+            return_value=(True, {"cores": 8}, 5.0),
+        ),
+    ):
+        result = _probe_single_candidate(cand)
+        status = result["status"]
+        assert status == "ONLINE"
+        assert result["cores"] == 8

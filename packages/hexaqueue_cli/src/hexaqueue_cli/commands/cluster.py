@@ -12,6 +12,7 @@ import contextlib
 import json
 import os
 import signal
+import socket
 import subprocess
 import time
 import urllib.error
@@ -36,6 +37,31 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 console = Console()
+
+
+def _probe_host_reachability(
+    host: str, port: int = 22, timeout: float = 1.0
+) -> tuple[bool, float]:
+    """Execute a rapid network reachability probe (TCP socket connect) against candidate host.
+
+    Args:
+        host: Target IP address or hostname.
+        port: Destination port to probe (default 22 for SSH).
+        timeout: Socket timeout in seconds.
+
+    Returns:
+        Tuple of (is_reachable, latency_ms).
+    """
+    if not host or not host.strip():
+        return False, 0.0
+    start = time.perf_counter()
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            elapsed_ms = (time.perf_counter() - start) * 1000.0
+            return True, elapsed_ms
+    except Exception:
+        pass
+    return False, 0.0
 
 
 def _probe_health(
@@ -355,6 +381,98 @@ def ping_cmd(
     )
 
 
+def _stop_active_tunnels(port: int) -> None:
+    """Terminate active SSH tunnel processes forwarding on the specified local port.
+
+    Args:
+        port: Local port to check and terminate.
+
+    Notes/Architectural Intent:
+        Finds all background SSH port-forwarding processes bound to the local port
+        and terminates them gracefully or with SIGKILL if unresponsive.
+    """
+    pids = _find_ssh_tunnel_pids(port)
+    if not pids:
+        console.print(
+            f"[yellow]No active SSH tunnel found forwarding on port {port}.[/]"
+        )
+        return
+    terminated = _terminate_pids(pids)
+    console.print(
+        f"[bold green]✓[/] Terminated [bold cyan]{terminated}[/] SSH tunnel process(es) forwarding on port {port}."
+    )
+
+
+def _resolve_tunnel_target(
+    profile: str | None,
+    host: str | None,
+    user: str,
+    key: str | None,
+    ssh_port: int,
+    remote_port: int,
+) -> tuple[str, str, str | None, int, int]:
+    """Resolve SSH target parameters from CLI flags, runner profile, env, or auto-discovery.
+
+    Args:
+        profile: Runner profile specifying target host and keys.
+        host: Target remote cluster host IP or hostname.
+        user: SSH login user.
+        key: Path to SSH private key identity file.
+        ssh_port: Remote SSH server port.
+        remote_port: Remote daemon port.
+
+    Returns:
+        Tuple of (target_host, target_user, target_key, target_ssh_port, target_remote_port).
+
+    Raises:
+        typer.Exit: If target host cannot be resolved.
+
+    Notes/Architectural Intent:
+        Applies hierarchical configuration cascading: CLI args override profile config,
+        profile config overrides environment variables, and auto-discovery serves as fallback.
+    """
+    proj_cfg = load_project_config()
+    resolved = resolve_runner_config(project_config=proj_cfg, profile=profile)
+
+    target_host = (
+        host
+        or resolved.host
+        or os.environ.get("OCI_HOST")
+        or os.environ.get("HEXAQUEUE_CLUSTER_HOST")
+    )
+    target_user = user if user != "ubuntu" else (resolved.ssh_user or "ubuntu")
+    target_key = key or resolved.ssh_key or os.environ.get("HEXAQUEUE_SSH_KEY")
+    target_ssh_port = ssh_port if ssh_port != 22 else (resolved.ssh_port or 22)
+    target_remote_port = (
+        remote_port if remote_port != 8000 else (resolved.remote_port or 8000)
+    )
+
+    if not target_host:
+        discovered = _auto_select_online_host()
+        if discovered:
+            target_host = discovered["host"]
+            target_user = (
+                user if user != "ubuntu" else discovered.get("user", target_user)
+            )
+            target_key = key or discovered.get("key") or target_key
+            target_ssh_port = (
+                ssh_port if ssh_port != 22 else int(discovered.get("ssh_port") or 22)
+            )
+            console.print(
+                f"[dim]Auto-discovered reachable candidate:[/] [bold cyan]{target_host}[/] "
+                f"({discovered.get('provider')})"
+            )
+
+    if not target_host:
+        console.print(
+            "[bold red]Error:[/] Target host not specified. Provide --host, specify host in "
+            f"profile '{profile or 'default'}', or export OCI_HOST."
+        )
+        raise typer.Exit(code=1)
+
+    return target_host, target_user, target_key, target_ssh_port, target_remote_port
+
+
 @app.command("tunnel")
 def tunnel_cmd(
     profile: str | None = typer.Option(
@@ -394,41 +512,19 @@ def tunnel_cmd(
         this command establishes an encrypted SSH tunnel directly to the controller daemon.
     """
     if stop:
-        pids = _find_ssh_tunnel_pids(port)
-        if not pids:
-            console.print(
-                f"[yellow]No active SSH tunnel found forwarding on port {port}.[/]"
-            )
-            return
-        terminated = _terminate_pids(pids)
-        console.print(
-            f"[bold green]✓[/] Terminated [bold cyan]{terminated}[/] SSH tunnel process(es) forwarding on port {port}."
-        )
+        _stop_active_tunnels(port)
         return
 
-    # Resolve settings from profile if provided
-    proj_cfg = load_project_config()
-    resolved = resolve_runner_config(project_config=proj_cfg, profile=profile)
-
-    target_host = (
-        host
-        or resolved.host
-        or os.environ.get("OCI_HOST")
-        or os.environ.get("HEXAQUEUE_CLUSTER_HOST")
-    )
-    target_user = user if user != "ubuntu" else (resolved.ssh_user or "ubuntu")
-    target_key = key or resolved.ssh_key or os.environ.get("HEXAQUEUE_SSH_KEY")
-    target_ssh_port = ssh_port if ssh_port != 22 else (resolved.ssh_port or 22)
-    target_remote_port = (
-        remote_port if remote_port != 8000 else (resolved.remote_port or 8000)
-    )
-
-    if not target_host:
-        console.print(
-            "[bold red]Error:[/] Target host not specified. Provide --host, specify host in "
-            f"profile '{profile or 'default'}', or export OCI_HOST."
+    target_host, target_user, target_key, target_ssh_port, target_remote_port = (
+        _resolve_tunnel_target(
+            profile=profile,
+            host=host,
+            user=user,
+            key=key,
+            ssh_port=ssh_port,
+            remote_port=remote_port,
         )
-        raise typer.Exit(code=1)
+    )
 
     # Check if local port is already responding to /health
     already_healthy, _, latency = _probe_health(f"http://127.0.0.1:{port}")
@@ -708,6 +804,109 @@ def _discover_candidates(provider: str = "auto") -> list[dict[str, Any]]:
     return results
 
 
+def _auto_select_online_host() -> dict[str, Any] | None:
+    """Auto-discover candidate cluster hosts and return the first online candidate.
+
+    Returns:
+        Selected candidate dictionary or None if none are reachable.
+    """
+    candidates = _discover_candidates("auto")
+    for cand in candidates:
+        c_host = cand.get("host")
+        if not c_host:
+            continue
+        c_port = int(cand.get("ssh_port") or 22)
+        is_online, _ = _probe_host_reachability(c_host, port=c_port, timeout=1.0)
+        if is_online:
+            return cand
+    return None
+
+
+def _probe_single_candidate(cand: dict[str, Any]) -> dict[str, Any]:
+    """Execute two-tier reachability and API health probe for a single candidate host.
+
+    Args:
+        cand: Candidate dictionary containing host and metadata.
+
+    Returns:
+        Enriched candidate dictionary with health status and capacity.
+    """
+    host = cand["host"]
+    ssh_port = int(cand.get("ssh_port") or 22)
+
+    # Tier 1: Host Reachability Probe
+    is_online, ping_latency = _probe_host_reachability(host, port=ssh_port, timeout=1.0)
+    if not is_online and host in ("127.0.0.1", "localhost"):
+        is_online, ping_latency = True, 0.1
+
+    # Tier 2: Hexaqueue API Health Probe (if host is online)
+    api_ok = False
+    payload = None
+    api_latency = 0.0
+    if is_online:
+        api_ok, payload, api_latency = _probe_health(f"http://{host}:8000", timeout=1.0)
+        if not api_ok and host in ("127.0.0.1", "localhost"):
+            api_ok, payload, api_latency = _probe_health(
+                "http://127.0.0.1:8000", timeout=1.0
+            )
+
+    if api_ok:
+        status_text = "ONLINE"
+        latency_ms = round(api_latency, 2)
+    elif is_online:
+        status_text = "SSH_AVAILABLE"
+        latency_ms = round(ping_latency, 2)
+    else:
+        status_text = "OFFLINE"
+        latency_ms = None
+
+    cores = payload.get("cores") if payload else None
+    return {
+        **cand,
+        "healthy": api_ok,
+        "is_online": is_online,
+        "status": status_text,
+        "latency_ms": latency_ms,
+        "cores": cores,
+        "recommended_tunnel": f"hq cluster tunnel --host {host} --user {cand.get('user', 'ubuntu')}",
+    }
+
+
+def _render_discovered_table(probed: list[dict[str, Any]]) -> None:
+    """Render Rich table of probed candidate nodes."""
+    table = Table(title="Discovered Hexaqueue Cluster Nodes", border_style="cyan")
+    table.add_column("Host", style="bold cyan")
+    table.add_column("Provider", style="green")
+    table.add_column("Source", style="dim")
+    table.add_column("Status", style="bold")
+    table.add_column("Cores", justify="right")
+    table.add_column("Latency", justify="right")
+    table.add_column("Tunnel Command", style="yellow")
+
+    for p in probed:
+        if p.get("healthy"):
+            status_disp = "[green]● ONLINE[/]"
+        elif p.get("is_online"):
+            status_disp = "[yellow]○ SSH READY[/]"
+        else:
+            status_disp = "[red]✖ OFFLINE[/]"
+        cores_disp = str(p["cores"]) if p.get("cores") is not None else "-"
+        lat_disp = (
+            f"{p['latency_ms']:.2f} ms" if p.get("latency_ms") is not None else "-"
+        )
+        table.add_row(
+            p["host"],
+            p.get("provider", "Unknown"),
+            p.get("source", "Unknown"),
+            status_disp,
+            cores_disp,
+            lat_disp,
+            p["recommended_tunnel"],
+        )
+
+    console.print(table)
+
+
 @app.command("discover")
 def discover_cmd(
     provider: str = typer.Option(
@@ -731,24 +930,7 @@ def discover_cmd(
     candidates = _discover_candidates(provider)
     resolved_fmt = resolve_format(format_type)
 
-    probed: list[dict[str, Any]] = []
-    for cand in candidates:
-        host = cand["host"]
-        ok, payload, latency = _probe_health(f"http://{host}:8000", timeout=1.5)
-        if not ok and host in ("127.0.0.1", "localhost"):
-            ok, payload, latency = _probe_health("http://127.0.0.1:8000", timeout=1.0)
-
-        status_text = "ONLINE" if ok else "SSH_AVAILABLE"
-        cores = payload.get("cores") if payload else None
-        item = {
-            **cand,
-            "healthy": ok,
-            "status": status_text,
-            "latency_ms": round(latency, 2) if ok else None,
-            "cores": cores,
-            "recommended_tunnel": f"hq cluster tunnel --host {host} --user {cand.get('user', 'ubuntu')}",
-        }
-        probed.append(item)
+    probed = [_probe_single_candidate(cand) for cand in candidates]
 
     if resolved_fmt in ("json", "yaml"):
         if resolved_fmt == "json":
@@ -765,30 +947,7 @@ def discover_cmd(
         )
         return
 
-    table = Table(title="Discovered Hexaqueue Cluster Nodes", border_style="cyan")
-    table.add_column("Host", style="bold cyan")
-    table.add_column("Provider", style="green")
-    table.add_column("Source", style="dim")
-    table.add_column("Status", style="bold")
-    table.add_column("Cores", justify="right")
-    table.add_column("Latency", justify="right")
-    table.add_column("Tunnel Command", style="yellow")
-
-    for p in probed:
-        status_disp = "[green]● ONLINE[/]" if p["healthy"] else "[dim]○ TUNNEL REQ[/]"
-        cores_disp = str(p["cores"]) if p["cores"] is not None else "-"
-        lat_disp = f"{p['latency_ms']:.2f} ms" if p["latency_ms"] is not None else "-"
-        table.add_row(
-            p["host"],
-            p.get("provider", "Unknown"),
-            p.get("source", "Unknown"),
-            status_disp,
-            cores_disp,
-            lat_disp,
-            p["recommended_tunnel"],
-        )
-
-    console.print(table)
+    _render_discovered_table(probed)
 
 
 __all__ = [
