@@ -81,6 +81,10 @@ jobs:
               echo "HEXAQUEUE_SSH_KEY=$HOME/.ssh/hexaqueue_ci_id" >> .env
               echo "HEXAQUEUE_SSH_KEY=$HOME/.ssh/hexaqueue_ci_id" >> "$GITHUB_ENV"
             fi
+            if grep -q "HEXAQUEUE_SSH_USER=" .env; then
+              SSH_USER_VAL=$(grep "HEXAQUEUE_SSH_USER=" .env | cut -d '=' -f2- | tr -d ' \r\n"')
+              echo "HEXAQUEUE_SSH_USER=$SSH_USER_VAL" >> "$GITHUB_ENV"
+            fi
           fi
 
       - name: Discover and Probe Cluster Nodes via Hexaqueue CLI
@@ -164,6 +168,10 @@ jobs:
               chmod 600 ~/.ssh/hexaqueue_ci_id
               echo "HEXAQUEUE_SSH_KEY=$HOME/.ssh/hexaqueue_ci_id" >> .env
               echo "HEXAQUEUE_SSH_KEY=$HOME/.ssh/hexaqueue_ci_id" >> "$GITHUB_ENV"
+            fi
+            if grep -q "HEXAQUEUE_SSH_USER=" .env; then
+              SSH_USER_VAL=$(grep "HEXAQUEUE_SSH_USER=" .env | cut -d '=' -f2- | tr -d ' \r\n"')
+              echo "HEXAQUEUE_SSH_USER=$SSH_USER_VAL" >> "$GITHUB_ENV"
             fi
           fi
 

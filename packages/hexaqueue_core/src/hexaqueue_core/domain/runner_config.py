@@ -187,7 +187,9 @@ class HexaqueueProfileConfig(BaseModel):
         default=None, description="Path to SSH private key identity file"
     )
     ssh_port: int = Field(default=22, description="Remote SSH port")
-    ssh_user: str = Field(default="ubuntu", description="Remote SSH user identity")
+    ssh_user: str = Field(
+        default="hexaqueue-ci", description="Remote SSH user identity"
+    )
 
 
 class HexaqueueProjectConfig(BaseModel):
@@ -235,7 +237,7 @@ class HexaqueueProjectConfig(BaseModel):
     slices: int = Field(default=4, ge=1)
     ssh_key: str | None = Field(default=None)
     ssh_port: int = Field(default=22)
-    ssh_user: str = Field(default="ubuntu")
+    ssh_user: str = Field(default="hexaqueue-ci")
 
 
 def _parse_toml_config(path: Path) -> dict[str, Any]:
@@ -375,8 +377,6 @@ def _apply_env_overrides(values: dict[str, Any], env: dict[str, str]) -> None:
         values["remote_slices"] = env["HEXAQUEUE_REMOTE_SLICES"]
     if "HEXAQUEUE_CLUSTER_HOST" in env:
         values["host"] = env["HEXAQUEUE_CLUSTER_HOST"]
-    elif "OCI_HOST" in env:
-        values["host"] = env["OCI_HOST"]
     if "HEXAQUEUE_SSH_USER" in env:
         values["ssh_user"] = env["HEXAQUEUE_SSH_USER"]
     if "HEXAQUEUE_SSH_KEY" in env:

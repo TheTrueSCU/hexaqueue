@@ -170,7 +170,7 @@ def _build_ssh_tunnel_cmd(
     host: str,
     port: int = 8000,
     remote_port: int = 8000,
-    user: str = "ubuntu",
+    user: str = "hexaqueue-ci",
     key: str | None = None,
     ssh_port: int = 22,
 ) -> list[str]:
@@ -211,7 +211,7 @@ def _build_ssh_tunnel_cmd(
 
 def _build_ssh_remote_sync_cmd(
     host: str,
-    user: str = "ubuntu",
+    user: str = "hexaqueue-ci",
     key: str | None = None,
     ssh_port: int = 22,
     repo_dir: str = "~/hexaqueue",
@@ -439,16 +439,11 @@ def _resolve_tunnel_target(
     resolved = resolve_runner_config(project_config=proj_cfg, profile=profile)
     env = discover_and_merge_env()
 
-    target_host = (
-        host
-        or resolved.host
-        or env.get("OCI_HOST")
-        or env.get("HEXAQUEUE_CLUSTER_HOST")
-    )
+    target_host = host or resolved.host or env.get("HEXAQUEUE_CLUSTER_HOST")
     target_user = (
         user
-        if user != "ubuntu"
-        else (resolved.ssh_user or env.get("OCI_USER", "ubuntu"))
+        if user != "hexaqueue-ci"
+        else (env.get("HEXAQUEUE_SSH_USER") or resolved.ssh_user or "hexaqueue-ci")
     )
     target_key = key or resolved.ssh_key or env.get("HEXAQUEUE_SSH_KEY")
     target_ssh_port = ssh_port if ssh_port != 22 else (resolved.ssh_port or 22)
@@ -461,7 +456,7 @@ def _resolve_tunnel_target(
         if discovered:
             target_host = discovered["host"]
             target_user = (
-                user if user != "ubuntu" else discovered.get("user", target_user)
+                user if user != "hexaqueue-ci" else discovered.get("user", target_user)
             )
             target_key = key or discovered.get("key") or target_key
             target_ssh_port = (
@@ -475,7 +470,7 @@ def _resolve_tunnel_target(
     if not target_host:
         console.print(
             "[bold red]Error:[/] Target host not specified. Provide --host, specify host in "
-            f"profile '{profile or 'default'}', or export OCI_HOST."
+            f"profile '{profile or 'default'}', or export HEXAQUEUE_CLUSTER_HOST."
         )
         raise typer.Exit(code=1)
 
@@ -492,7 +487,7 @@ def tunnel_cmd(
     ),
     port: int = typer.Option(8000, "--port", help="Local forwarding listen port"),
     remote_port: int = typer.Option(8000, "--remote-port", help="Remote daemon port"),
-    user: str = typer.Option("ubuntu", "--user", "-u", help="SSH login user"),
+    user: str = typer.Option("hexaqueue-ci", "--user", "-u", help="SSH login user"),
     key: str | None = typer.Option(
         None, "--key", "-i", help="Path to SSH private key identity file"
     ),
@@ -596,7 +591,7 @@ def sync_cmd(
     host: str | None = typer.Option(
         None, "--host", "-h", help="Target remote cluster host IP or hostname"
     ),
-    user: str = typer.Option("ubuntu", "--user", "-u", help="SSH login user"),
+    user: str = typer.Option("hexaqueue-ci", "--user", "-u", help="SSH login user"),
     key: str | None = typer.Option(
         None, "--key", "-i", help="Path to SSH private key identity file"
     ),
@@ -626,16 +621,11 @@ def sync_cmd(
     resolved = resolve_runner_config(project_config=proj_cfg, profile=profile)
     env = discover_and_merge_env()
 
-    target_host = (
-        host
-        or resolved.host
-        or env.get("OCI_HOST")
-        or env.get("HEXAQUEUE_CLUSTER_HOST")
-    )
+    target_host = host or resolved.host or env.get("HEXAQUEUE_CLUSTER_HOST")
     target_user = (
         user
-        if user != "ubuntu"
-        else (resolved.ssh_user or env.get("OCI_USER", "ubuntu"))
+        if user != "hexaqueue-ci"
+        else (env.get("HEXAQUEUE_SSH_USER") or resolved.ssh_user or "hexaqueue-ci")
     )
     target_key = key or resolved.ssh_key or env.get("HEXAQUEUE_SSH_KEY")
     target_ssh_port = ssh_port if ssh_port != 22 else (resolved.ssh_port or 22)
@@ -749,7 +739,9 @@ def _discover_from_env(seen_hosts: set[str]) -> list[dict[str, Any]]:
             continue
         prefix = k[:-5]
         provider = "Custom" if prefix in ("HEXAQUEUE_CLUSTER", "CLUSTER") else prefix
-        user = env.get(f"{prefix}_USER", "ubuntu")
+        user = env.get("HEXAQUEUE_SSH_USER") or env.get(
+            f"{prefix}_USER", "hexaqueue-ci"
+        )
         key = env.get(f"{prefix}_KEY", env.get("HEXAQUEUE_SSH_KEY"))
         ssh_port_str = env.get(f"{prefix}_SSH_PORT", "22")
         try:
@@ -783,7 +775,7 @@ def _discover_from_profiles(seen_hosts: set[str]) -> list[dict[str, Any]]:
                         "host": prof_val.host,
                         "provider": prof_name.upper(),
                         "source": f"profile:{prof_name}",
-                        "user": prof_val.ssh_user or "ubuntu",
+                        "user": prof_val.ssh_user or "hexaqueue-ci",
                         "key": prof_val.ssh_key,
                         "ssh_port": prof_val.ssh_port or 22,
                     }
@@ -805,7 +797,7 @@ def _discover_from_ssh(seen_hosts: set[str]) -> list[dict[str, Any]]:
                     "host": h,
                     "provider": "SSH Config",
                     "source": f"ssh:{c.get('alias')}",
-                    "user": c.get("user", "ubuntu"),
+                    "user": c.get("user", "hexaqueue-ci"),
                     "key": c.get("key"),
                     "ssh_port": c.get("ssh_port", 22),
                 }
@@ -974,7 +966,7 @@ def discover_cmd(
 
     if not probed:
         console.print(
-            "[yellow]No candidate cluster hosts discovered. Configure a profile or export OCI_HOST.[/]"
+            "[yellow]No candidate cluster hosts discovered. Configure a profile or export HEXAQUEUE_CLUSTER_HOST.[/]"
         )
         return
 

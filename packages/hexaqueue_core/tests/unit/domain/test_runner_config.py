@@ -319,20 +319,20 @@ def test_resolve_runner_config_cluster_ssh_options() -> None:
     assert resolved_profile.ssh_port == 2222
     assert resolved_profile.remote_port == 8080
 
-    # 2. Env override (OCI_HOST and HEXAQUEUE_SSH_*)
+    # 2. Env override (HEXAQUEUE_CLUSTER_HOST and HEXAQUEUE_SSH_*)
     resolved_env = resolve_runner_config(
         project_config=base,
         profile="oci",
         env={
-            "OCI_HOST": "129.146.115.79",
-            "HEXAQUEUE_SSH_USER": "ubuntu",
+            "HEXAQUEUE_CLUSTER_HOST": "129.146.115.79",
+            "HEXAQUEUE_SSH_USER": "hexaqueue-ci",
             "HEXAQUEUE_SSH_KEY": "/root/.ssh/id",
             "HEXAQUEUE_SSH_PORT": "22",
             "HEXAQUEUE_REMOTE_PORT": "8000",
         },
     )
     assert resolved_env.host == "129.146.115.79"
-    assert resolved_env.ssh_user == "ubuntu"
+    assert resolved_env.ssh_user == "hexaqueue-ci"
     assert resolved_env.ssh_key == "/root/.ssh/id"
     assert resolved_env.ssh_port == 22
     assert resolved_env.remote_port == 8000

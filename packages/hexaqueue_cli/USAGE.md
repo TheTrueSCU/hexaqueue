@@ -326,7 +326,7 @@ Usage: hq cluster sync [OPTIONS]
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
 │ --profile   -p      <str>  Runner profile specifying target host and keys    │
 │ --host      -h      <str>  Target remote cluster host IP or hostname         │
-│ --user      -u      <str>  SSH login user [default: ubuntu]                  │
+│ --user      -u      <str>  SSH login user [default: hexaqueue-ci]            │
 │ --key       -i      <str>  Path to SSH private key identity file             │
 │ --ssh-port          <int>  Remote SSH server port [default: 22]              │
 │ --repo-dir          <str>  Remote workspace repository directory             │
@@ -368,7 +368,7 @@ Usage: hq cluster tunnel [OPTIONS]
 │ --host         -h      <str>  Target remote cluster host IP or hostname      │
 │ --port                 <int>  Local forwarding listen port [default: 8000]   │
 │ --remote-port          <int>  Remote daemon port [default: 8000]             │
-│ --user         -u      <str>  SSH login user [default: ubuntu]               │
+│ --user         -u      <str>  SSH login user [default: hexaqueue-ci]         │
 │ --key          -i      <str>  Path to SSH private key identity file          │
 │ --ssh-port             <int>  Remote SSH server port [default: 22]           │
 │ --stop                        Terminate active SSH tunnel on local port      │

@@ -597,12 +597,12 @@ def test_discover_candidates_aggregation() -> None:
     """
     dummy_project = MagicMock()
     dummy_profile = MagicMock(
-        host="10.1.1.1", ssh_user="ubuntu", ssh_key=None, ssh_port=22
+        host="10.1.1.1", ssh_user="hexaqueue-ci", ssh_key=None, ssh_port=22
     )
     dummy_project.profiles = {"ci": dummy_profile}
 
     with (
-        patch.dict("os.environ", {"OCI_HOST": "10.2.2.2"}, clear=True),
+        patch.dict("os.environ", {"HEXAQUEUE_CLUSTER_HOST": "10.2.2.2"}, clear=True),
         patch(
             "hexaqueue_cli.commands.cluster.load_project_config",
             return_value=dummy_project,
@@ -626,9 +626,9 @@ def test_discover_cmd_table_output() -> None:
     mock_candidates = [
         {
             "host": "10.0.0.1",
-            "provider": "OCI",
-            "source": "env:OCI_HOST",
-            "user": "ubuntu",
+            "provider": "Custom",
+            "source": "env:HEXAQUEUE_CLUSTER_HOST",
+            "user": "hexaqueue-ci",
         }
     ]
     with (
@@ -675,9 +675,9 @@ def test_discover_cmd_json_format() -> None:
     mock_candidates = [
         {
             "host": "10.0.0.1",
-            "provider": "OCI",
-            "source": "env:OCI_HOST",
-            "user": "ubuntu",
+            "provider": "Custom",
+            "source": "env:HEXAQUEUE_CLUSTER_HOST",
+            "user": "hexaqueue-ci",
         }
     ]
     with (
@@ -830,10 +830,10 @@ def test_resolve_tunnel_target_auto_discovery() -> None:
     """
     mock_cand = {
         "host": "10.1.1.1",
-        "user": "ubuntu",
+        "user": "hexaqueue-ci",
         "key": "/auto/key",
         "ssh_port": 22,
-        "provider": "OCI",
+        "provider": "Custom",
     }
     with (
         patch.dict("os.environ", {}, clear=True),
@@ -845,13 +845,13 @@ def test_resolve_tunnel_target_auto_discovery() -> None:
         res = _resolve_tunnel_target(
             profile=None,
             host=None,
-            user="ubuntu",
+            user="hexaqueue-ci",
             key=None,
             ssh_port=22,
             remote_port=8000,
         )
         assert res[0] == "10.1.1.1"
-        assert res[1] == "ubuntu"
+        assert res[1] == "hexaqueue-ci"
         assert res[2] == "/auto/key"
 
 
@@ -871,7 +871,7 @@ def test_resolve_tunnel_target_error_when_unresolved() -> None:
         _resolve_tunnel_target(
             profile=None,
             host=None,
-            user="ubuntu",
+            user="hexaqueue-ci",
             key=None,
             ssh_port=22,
             remote_port=8000,
