@@ -173,7 +173,6 @@ jobs:
           if [ -f "$HOME/.ssh/hexaqueue_ci_id" ]; then
             KEY_ARG="--key $HOME/.ssh/hexaqueue_ci_id"
           fi
-          uv run hq cluster sync --host "${{ needs.cluster-probe.outputs.cluster_host }}" --branch "${{ github.head_ref || github.ref_name }}" $KEY_ARG
           uv run hq cluster tunnel --host "${{ needs.cluster-probe.outputs.cluster_host }}" $KEY_ARG
 
       - name: Run Tests via Hexaqueue Cloud (Push to Main)
