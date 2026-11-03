@@ -176,16 +176,16 @@ jobs:
           fi
           uv run hq cluster tunnel --host "${{ needs.cluster-probe.outputs.cluster_host }}" $KEY_ARG
 
-      - name: Run Tests via Hexaqueue Cloud (Push to Main)
-        if: needs.cluster-probe.outputs.cluster_ready == 'true' && github.event_name == 'push'
+      - name: Run Tests via Hexaqueue Cloud (Push to Main / Manual Dispatch)
+        if: needs.cluster-probe.outputs.cluster_ready == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         run: uv run hexaqual test run -U --profile ci --cov-report=xml --junitxml=junit.xml -o junit_family=legacy
 
       - name: Run Affected Tests via Hexaqueue Cloud (Pull Request)
         if: needs.cluster-probe.outputs.cluster_ready == 'true' && github.event_name == 'pull_request'
         run: uv run hexaqual test run -A -U --profile ci --cov-report=xml --junitxml=junit.xml -o junit_family=legacy
 
-      - name: Run Tests Locally via xdist (Push to Main - Local Fallback)
-        if: needs.cluster-probe.outputs.cluster_ready != 'true' && github.event_name == 'push'
+      - name: Run Tests Locally via xdist (Push to Main / Manual Dispatch - Local Fallback)
+        if: needs.cluster-probe.outputs.cluster_ready != 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         run: uv run hexaqual test run -U --cov-report=xml --junitxml=junit.xml -o junit_family=legacy
 
       - name: Run Affected Tests Locally via xdist (Pull Request - Local Fallback)
