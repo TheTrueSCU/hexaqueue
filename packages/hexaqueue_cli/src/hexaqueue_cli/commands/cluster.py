@@ -306,11 +306,11 @@ def status_cmd(
             "payload": payload,
         }
         if resolved_fmt == "json":
-            console.print(json.dumps(result, indent=2))
+            console.print(json.dumps(result, indent=2), highlight=False)
         else:
             import yaml
 
-            console.print(yaml.safe_dump(result, sort_keys=False))
+            console.print(yaml.safe_dump(result, sort_keys=False), highlight=False)
         if not ok:
             raise typer.Exit(code=1)
         return
@@ -952,11 +952,11 @@ def discover_cmd(
 
     if resolved_fmt in ("json", "yaml"):
         if resolved_fmt == "json":
-            console.print(json.dumps(probed, indent=2))
+            console.print(json.dumps(probed, indent=2), highlight=False)
         else:
             import yaml
 
-            console.print(yaml.safe_dump(probed, sort_keys=False))
+            console.print(yaml.safe_dump(probed, sort_keys=False), highlight=False)
         return
 
     if not probed:

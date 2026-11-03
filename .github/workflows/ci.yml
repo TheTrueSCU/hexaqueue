@@ -83,19 +83,23 @@ jobs:
 
       - name: Discover and Probe Cluster Nodes via Hexaqueue CLI
         id: probe
+        env:
+          NO_COLOR: "1"
         run: |
           DISCOVERY=$(uv run hq cluster discover --format json 2>/dev/null || echo "[]")
           echo "Discovered fleet topology: $DISCOVERY"
 
           SELECTED_HOST=$(echo "$DISCOVERY" | python3 -c "
-          import sys, json
+          import sys, json, re
           try:
-              candidates = json.load(sys.stdin)
+              raw = sys.stdin.read()
+              clean = re.sub(r'\x1b\[[0-9;]*m', '', raw).strip()
+              candidates = json.loads(clean)
               ready = [c for c in candidates if c.get('status') in ('ONLINE', 'SSH_AVAILABLE')]
               if ready:
                   print(ready[0]['host'])
-          except Exception:
-              pass
+          except Exception as exc:
+              print(f'JSON parse error: {exc}', file=sys.stderr)
           ")
 
           if [ -n "$SELECTED_HOST" ]; then
@@ -194,6 +198,10 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           file: junit.xml
+
+      - name: Disconnect Hexaqueue Cluster Tunnel
+        if: always() && needs.cluster-probe.outputs.cluster_ready == 'true'
+        run: uv run hq cluster tunnel --stop || true
 
   architecture-diagrams:
     name: Architecture Diagram Verification
