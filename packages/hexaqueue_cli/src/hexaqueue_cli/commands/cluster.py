@@ -624,15 +624,20 @@ def sync_cmd(
     """
     proj_cfg = load_project_config()
     resolved = resolve_runner_config(project_config=proj_cfg, profile=profile)
+    env = discover_and_merge_env()
 
     target_host = (
         host
         or resolved.host
-        or os.environ.get("OCI_HOST")
-        or os.environ.get("HEXAQUEUE_CLUSTER_HOST")
+        or env.get("OCI_HOST")
+        or env.get("HEXAQUEUE_CLUSTER_HOST")
     )
-    target_user = user if user != "ubuntu" else (resolved.ssh_user or "ubuntu")
-    target_key = key or resolved.ssh_key or os.environ.get("HEXAQUEUE_SSH_KEY")
+    target_user = (
+        user
+        if user != "ubuntu"
+        else (resolved.ssh_user or env.get("OCI_USER", "ubuntu"))
+    )
+    target_key = key or resolved.ssh_key or env.get("HEXAQUEUE_SSH_KEY")
     target_ssh_port = ssh_port if ssh_port != 22 else (resolved.ssh_port or 22)
 
     if not target_host:
@@ -640,6 +645,11 @@ def sync_cmd(
             "[bold red]Error:[/] Target host not specified. Provide --host or configure profile host."
         )
         raise typer.Exit(code=1)
+
+    if not target_key:
+        discovered = _auto_select_online_host()
+        if discovered and discovered.get("host") == target_host:
+            target_key = discovered.get("key")
 
     cmd = _build_ssh_remote_sync_cmd(
         host=target_host,

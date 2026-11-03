@@ -78,6 +78,7 @@ jobs:
               grep "HEXAQUEUE_SSH_KEY_B64=" .env | cut -d '=' -f2- | tr -d '"' | base64 -d > ~/.ssh/hexaqueue_ci_id
               chmod 600 ~/.ssh/hexaqueue_ci_id
               echo "HEXAQUEUE_SSH_KEY=$HOME/.ssh/hexaqueue_ci_id" >> .env
+              echo "HEXAQUEUE_SSH_KEY=$HOME/.ssh/hexaqueue_ci_id" >> "$GITHUB_ENV"
             fi
           fi
 
@@ -161,14 +162,19 @@ jobs:
               grep "HEXAQUEUE_SSH_KEY_B64=" .env | cut -d '=' -f2- | tr -d '"' | base64 -d > ~/.ssh/hexaqueue_ci_id
               chmod 600 ~/.ssh/hexaqueue_ci_id
               echo "HEXAQUEUE_SSH_KEY=$HOME/.ssh/hexaqueue_ci_id" >> .env
+              echo "HEXAQUEUE_SSH_KEY=$HOME/.ssh/hexaqueue_ci_id" >> "$GITHUB_ENV"
             fi
           fi
 
       - name: Connect to Hexaqueue Cluster (Cloud Execution)
         if: needs.cluster-probe.outputs.cluster_ready == 'true'
         run: |
-          uv run hq cluster sync --host "${{ needs.cluster-probe.outputs.cluster_host }}" --branch "${{ github.head_ref || github.ref_name }}"
-          uv run hq cluster tunnel --host "${{ needs.cluster-probe.outputs.cluster_host }}"
+          KEY_ARG=""
+          if [ -f "$HOME/.ssh/hexaqueue_ci_id" ]; then
+            KEY_ARG="--key $HOME/.ssh/hexaqueue_ci_id"
+          fi
+          uv run hq cluster sync --host "${{ needs.cluster-probe.outputs.cluster_host }}" --branch "${{ github.head_ref || github.ref_name }}" $KEY_ARG
+          uv run hq cluster tunnel --host "${{ needs.cluster-probe.outputs.cluster_host }}" $KEY_ARG
 
       - name: Run Tests via Hexaqueue Cloud (Push to Main)
         if: needs.cluster-probe.outputs.cluster_ready == 'true' && github.event_name == 'push'

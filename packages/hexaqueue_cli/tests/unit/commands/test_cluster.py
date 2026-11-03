@@ -532,6 +532,37 @@ def test_cluster_sync_failure() -> None:
         assert "Remote synchronization failed" in result.output
 
 
+def test_cluster_sync_uses_env_key() -> None:
+    """Verify 'hq cluster sync' resolves key from discover_and_merge_env.
+
+    Notes/Architectural Intent:
+        Validates zero-config key resolution during CI remote cluster sync.
+    """
+    dummy_runner = HexaqueueProfileConfig(host="1.2.3.4", ssh_user="ubuntu")
+    mock_proc = MagicMock()
+    mock_proc.returncode = 0
+    mock_proc.stdout = "HEAD is now at 1234567"
+
+    with (
+        patch("hexaqueue_cli.commands.cluster.load_project_config"),
+        patch(
+            "hexaqueue_cli.commands.cluster.resolve_runner_config",
+            return_value=dummy_runner,
+        ),
+        patch(
+            "hexaqueue_cli.commands.cluster.discover_and_merge_env",
+            return_value={"HEXAQUEUE_SSH_KEY": "/path/to/ci_key"},
+        ),
+        patch("subprocess.run", return_value=mock_proc) as mock_run,
+    ):
+        result = runner.invoke(app, ["cluster", "sync"])
+        exit_code = result.exit_code
+        assert exit_code == 0
+        cmd_args = mock_run.call_args[0][0]
+        assert "-i" in cmd_args
+        assert "/path/to/ci_key" in cmd_args
+
+
 def test_parse_ssh_config_hosts(tmp_path: Path) -> None:
     """Verify _parse_ssh_config_hosts parses Host blocks matching cluster keywords.
 
