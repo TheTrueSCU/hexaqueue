@@ -94,7 +94,7 @@ jobs:
           try:
               raw = sys.stdin.read()
               clean = re.sub(r'\x1b\[[0-9;]*m', '', raw).strip()
-              candidates = json.loads(clean)
+              candidates = json.loads(clean, strict=False)
               ready = [c for c in candidates if c.get('status') in ('ONLINE', 'SSH_AVAILABLE')]
               if ready:
                   print(ready[0]['host'])

@@ -14,6 +14,7 @@ import os
 import signal
 import socket
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -306,11 +307,11 @@ def status_cmd(
             "payload": payload,
         }
         if resolved_fmt == "json":
-            console.print(json.dumps(result, indent=2), highlight=False)
+            sys.stdout.write(json.dumps(result, indent=2) + "\n")
         else:
             import yaml
 
-            console.print(yaml.safe_dump(result, sort_keys=False), highlight=False)
+            sys.stdout.write(yaml.safe_dump(result, sort_keys=False))
         if not ok:
             raise typer.Exit(code=1)
         return
@@ -952,11 +953,11 @@ def discover_cmd(
 
     if resolved_fmt in ("json", "yaml"):
         if resolved_fmt == "json":
-            console.print(json.dumps(probed, indent=2), highlight=False)
+            sys.stdout.write(json.dumps(probed, indent=2) + "\n")
         else:
             import yaml
 
-            console.print(yaml.safe_dump(probed, sort_keys=False), highlight=False)
+            sys.stdout.write(yaml.safe_dump(probed, sort_keys=False))
         return
 
     if not probed:
