@@ -67,17 +67,18 @@ jobs:
         run: uv sync --package hexaqueue_cli --package hexaqueue_core
 
       - name: Hydrate Cluster Environment (.env)
-        if: ${{ secrets.HEXAQUEUE_ENV != '' }}
         env:
           DOTENV_PAYLOAD: ${{ secrets.HEXAQUEUE_ENV }}
         run: |
-          echo "$DOTENV_PAYLOAD" > .env
-          chmod 600 .env
-          if grep -q "HEXAQUEUE_SSH_KEY_B64=" .env; then
-            mkdir -p ~/.ssh && chmod 700 ~/.ssh
-            grep "HEXAQUEUE_SSH_KEY_B64=" .env | cut -d '=' -f2- | tr -d '"' | base64 -d > ~/.ssh/hexaqueue_ci_id
-            chmod 600 ~/.ssh/hexaqueue_ci_id
-            echo "HEXAQUEUE_SSH_KEY=$HOME/.ssh/hexaqueue_ci_id" >> .env
+          if [ -n "$DOTENV_PAYLOAD" ]; then
+            echo "$DOTENV_PAYLOAD" > .env
+            chmod 600 .env
+            if grep -q "HEXAQUEUE_SSH_KEY_B64=" .env; then
+              mkdir -p ~/.ssh && chmod 700 ~/.ssh
+              grep "HEXAQUEUE_SSH_KEY_B64=" .env | cut -d '=' -f2- | tr -d '"' | base64 -d > ~/.ssh/hexaqueue_ci_id
+              chmod 600 ~/.ssh/hexaqueue_ci_id
+              echo "HEXAQUEUE_SSH_KEY=$HOME/.ssh/hexaqueue_ci_id" >> .env
+            fi
           fi
 
       - name: Discover and Probe Cluster Nodes via Hexaqueue CLI
@@ -144,17 +145,19 @@ jobs:
         run: uv sync --all-packages --all-extras --all-groups
 
       - name: Hydrate Cluster Environment (.env)
-        if: needs.cluster-probe.outputs.cluster_ready == 'true' && secrets.HEXAQUEUE_ENV != ''
+        if: needs.cluster-probe.outputs.cluster_ready == 'true'
         env:
           DOTENV_PAYLOAD: ${{ secrets.HEXAQUEUE_ENV }}
         run: |
-          echo "$DOTENV_PAYLOAD" > .env
-          chmod 600 .env
-          if grep -q "HEXAQUEUE_SSH_KEY_B64=" .env; then
-            mkdir -p ~/.ssh && chmod 700 ~/.ssh
-            grep "HEXAQUEUE_SSH_KEY_B64=" .env | cut -d '=' -f2- | tr -d '"' | base64 -d > ~/.ssh/hexaqueue_ci_id
-            chmod 600 ~/.ssh/hexaqueue_ci_id
-            echo "HEXAQUEUE_SSH_KEY=$HOME/.ssh/hexaqueue_ci_id" >> .env
+          if [ -n "$DOTENV_PAYLOAD" ]; then
+            echo "$DOTENV_PAYLOAD" > .env
+            chmod 600 .env
+            if grep -q "HEXAQUEUE_SSH_KEY_B64=" .env; then
+              mkdir -p ~/.ssh && chmod 700 ~/.ssh
+              grep "HEXAQUEUE_SSH_KEY_B64=" .env | cut -d '=' -f2- | tr -d '"' | base64 -d > ~/.ssh/hexaqueue_ci_id
+              chmod 600 ~/.ssh/hexaqueue_ci_id
+              echo "HEXAQUEUE_SSH_KEY=$HOME/.ssh/hexaqueue_ci_id" >> .env
+            fi
           fi
 
       - name: Connect to Hexaqueue Cluster (Cloud Execution)
