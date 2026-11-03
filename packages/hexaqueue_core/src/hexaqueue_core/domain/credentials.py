@@ -60,8 +60,19 @@ def _parse_env_file(path: Path) -> dict[str, str]:
     return res
 
 
-def _discover_and_merge_env(cwd: Path | None = None) -> dict[str, str]:
-    """Discover .env and .env.local files walking up directory tree, merging under os.environ."""
+def discover_and_merge_env(cwd: Path | None = None) -> dict[str, str]:
+    """Discover .env and .env.local files walking up directory tree, merging under os.environ.
+
+    Args:
+        cwd: Base directory to begin directory traversal upwards.
+
+    Returns:
+        Merged dictionary mapping environment variable names to string values.
+
+    Notes/Architectural Intent:
+        Enforces hierarchical precedence: os.environ overrides .env.local, which overrides .env.
+        Allows seamless secret discovery without external dependencies.
+    """
     root = (cwd or Path.cwd()).resolve()
     merged: dict[str, str] = {}
     candidates: list[Path] = [root, *root.parents]
@@ -295,7 +306,7 @@ class FederatedCspCredentialsConfig(BaseModel):
             Discovers local unversioned .env.local and .env files with zero external dependencies,
             preventing secret leakage while ensuring frictionless local developer ergonomics.
         """
-        e = _discover_and_merge_env(cwd=cwd) if env is None else env
+        e = discover_and_merge_env(cwd=cwd) if env is None else env
 
         # 1. OCI
         oci_key_content = e.get("HEXAQUEUE_OCI_KEY_CONTENT")
@@ -367,6 +378,7 @@ class FederatedCspCredentialsConfig(BaseModel):
 __all__ = [
     "AwsCredentialsConfig",
     "AzureCredentialsConfig",
+    "discover_and_merge_env",
     "FederatedCspCredentialsConfig",
     "GcpCredentialsConfig",
     "OciCredentialsConfig",

@@ -13,8 +13,8 @@ from hexaqueue_core.domain.credentials import (
     FederatedCspCredentialsConfig,
     GcpCredentialsConfig,
     OciCredentialsConfig,
-    _discover_and_merge_env,
     _parse_env_file,
+    discover_and_merge_env,
 )
 
 
@@ -244,7 +244,7 @@ def test_discover_and_merge_env_local_precedence(
     # os.environ overrides both
     monkeypatch.setenv("HEXAQUEUE_AWS_REGION", "eu-central-1")
 
-    merged = _discover_and_merge_env(cwd=sub_dir)
+    merged = discover_and_merge_env(cwd=sub_dir)
 
     assert merged["HEXAQUEUE_OCI_REGION"] == "us-ashburn-1"
     assert merged["HEXAQUEUE_AWS_REGION"] == "eu-central-1"

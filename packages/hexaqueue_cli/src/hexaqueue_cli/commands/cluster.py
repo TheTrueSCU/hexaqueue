@@ -26,6 +26,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from hexaqueue_cli.infra.options import format_option, resolve_format
+from hexaqueue_core.domain.credentials import discover_and_merge_env
 from hexaqueue_core.domain.runner_config import (
     load_project_config,
     resolve_runner_config,
@@ -433,15 +434,20 @@ def _resolve_tunnel_target(
     """
     proj_cfg = load_project_config()
     resolved = resolve_runner_config(project_config=proj_cfg, profile=profile)
+    env = discover_and_merge_env()
 
     target_host = (
         host
         or resolved.host
-        or os.environ.get("OCI_HOST")
-        or os.environ.get("HEXAQUEUE_CLUSTER_HOST")
+        or env.get("OCI_HOST")
+        or env.get("HEXAQUEUE_CLUSTER_HOST")
     )
-    target_user = user if user != "ubuntu" else (resolved.ssh_user or "ubuntu")
-    target_key = key or resolved.ssh_key or os.environ.get("HEXAQUEUE_SSH_KEY")
+    target_user = (
+        user
+        if user != "ubuntu"
+        else (resolved.ssh_user or env.get("OCI_USER", "ubuntu"))
+    )
+    target_key = key or resolved.ssh_key or env.get("HEXAQUEUE_SSH_KEY")
     target_ssh_port = ssh_port if ssh_port != 22 else (resolved.ssh_port or 22)
     target_remote_port = (
         remote_port if remote_port != 8000 else (resolved.remote_port or 8000)
@@ -722,20 +728,32 @@ def _parse_ssh_config_hosts() -> list[dict[str, Any]]:
 
 
 def _discover_from_env(seen_hosts: set[str]) -> list[dict[str, Any]]:
-    """Extract candidate cluster nodes from environment variables."""
+    """Extract candidate cluster nodes from environment variables and .env files."""
     results: list[dict[str, Any]] = []
-    for env_var in ("OCI_HOST", "HEXAQUEUE_CLUSTER_HOST"):
-        val = os.environ.get(env_var)
-        if val and val not in seen_hosts:
-            seen_hosts.add(val)
-            results.append(
-                {
-                    "host": val,
-                    "provider": "OCI" if "OCI" in env_var else "Custom",
-                    "source": f"env:{env_var}",
-                    "user": "ubuntu",
-                }
-            )
+    env = discover_and_merge_env()
+    for k, val in env.items():
+        if not k.endswith("_HOST") or not val or val in seen_hosts:
+            continue
+        prefix = k[:-5]
+        provider = "Custom" if prefix in ("HEXAQUEUE_CLUSTER", "CLUSTER") else prefix
+        user = env.get(f"{prefix}_USER", "ubuntu")
+        key = env.get(f"{prefix}_KEY", env.get("HEXAQUEUE_SSH_KEY"))
+        ssh_port_str = env.get(f"{prefix}_SSH_PORT", "22")
+        try:
+            ssh_port = int(ssh_port_str)
+        except ValueError:
+            ssh_port = 22
+        seen_hosts.add(val)
+        results.append(
+            {
+                "host": val,
+                "provider": provider.upper(),
+                "source": f"env:{k}",
+                "user": user,
+                "key": key,
+                "ssh_port": ssh_port,
+            }
+        )
     return results
 
 
