@@ -1,5 +1,27 @@
 # CHANGELOG
 
+## v0.7.0 (2026-11-03)
+
+### Zero-Trust Ephemeral Test Cloud Slicing & Security Hardening
+* **Zero-Trust OpenSSH Confinement & Identity Isolation (`ADR-007`, `hexaqueue-core`, `hexaqueue-cli`)**:
+  * Provisioned dedicated, unprivileged system account (`hexaqueue-ci`) with `/bin/false` login shell, no sudo privileges, and locked `authorized_keys` forced directives (`command="/bin/false",permitopen="localhost:8000"`).
+  * Completely eliminated vendor-specific `OCI_HOST` and `OCI_USER` across runner configurations, default profiles, and CLI tools, standardizing on provider-agnostic `HEXAQUEUE_CLUSTER_HOST` and `HEXAQUEUE_SSH_USER`.
+  * Removed all fallback defaults to administrative or generic accounts (`ubuntu`), enforcing least-privilege zero-trust access across CI and distributed runner profiles.
+* **Ephemeral Git Worktree Isolation & Guaranteed Teardown (`pytest-hexaqueue`)**:
+  * Isolated all distributed test slice executions inside dedicated, detached git worktrees under `/tmp/hexaqueue/runs/<session_id>/slice-<N>` branching from an immutable read-only cache.
+  * Guaranteed 100% worktree purge and garbage collection upon session completion with zero state mutation on remote host nodes.
+* **Hybrid Slicing Partitioning Engine (`pytest-hexaqueue`)**:
+  * Added `--hq-local-slices` and `--hq-remote-slices` flags (and corresponding `local_slices` and `remote_slices` configuration profile options) enabling concurrent local and cloud test execution.
+  * Supported dynamic automatic scaling via `auto` keyword: dedicating $\max(1, \text{cpu\_count} - 2)$ cores locally while over-partitioning $\max(4, \min(32, \text{tests} // 30))$ slices remotely for queue saturation.
+  * Added `--hq-hybrid` flag for turnkey dual-plane local + cloud concurrent execution.
+* **GitHub Actions CI Observability & Automated Fleet Reporting (`.github/workflows/ci.yml`)**:
+  * Added dynamic Hexaqueue Fleet Discovery summary table to `$GITHUB_STEP_SUMMARY` during cluster probing.
+  * Added automated `junit.xml` test execution analytics dashboard reporting engine type, test counts, outcomes, and aggregated duration to `$GITHUB_STEP_SUMMARY`.
+  * Added topology diagram verification gate to enforce synchronization of architecture assets.
+* **Architecture Topologies & Visual Governance (`scripts/docs/generate_topologies.py`)**:
+  * Added `generate_ephemeral_cloud_slicing_diagram()` and rendered `docs/assets/topologies/ephemeral_cloud_slicing.png`.
+  * Documented Section 4 in `docs/architecture.md` and updated `docs/guides/pytest-distributed-execution.md` with complete hybrid slicing matrix.
+
 ## v0.6.0 (2026-11-01)
 
 ### Features & Infrastructure Dogfooding
