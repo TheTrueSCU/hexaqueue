@@ -76,7 +76,7 @@ jobs:
             chmod 600 .env
             if grep -q "HEXAQUEUE_SSH_KEY_B64=" .env; then
               mkdir -p ~/.ssh && chmod 700 ~/.ssh
-              grep "HEXAQUEUE_SSH_KEY_B64=" .env | cut -d '=' -f2- | tr -d '"' | base64 -d > ~/.ssh/hexaqueue_ci_id
+              grep "HEXAQUEUE_SSH_KEY_B64=" .env | cut -d '=' -f2- | tr -d ' \r\n"' | base64 -d -i > ~/.ssh/hexaqueue_ci_id
               chmod 600 ~/.ssh/hexaqueue_ci_id
               echo "HEXAQUEUE_SSH_KEY=$HOME/.ssh/hexaqueue_ci_id" >> .env
               echo "HEXAQUEUE_SSH_KEY=$HOME/.ssh/hexaqueue_ci_id" >> "$GITHUB_ENV"
@@ -160,7 +160,7 @@ jobs:
             chmod 600 .env
             if grep -q "HEXAQUEUE_SSH_KEY_B64=" .env; then
               mkdir -p ~/.ssh && chmod 700 ~/.ssh
-              grep "HEXAQUEUE_SSH_KEY_B64=" .env | cut -d '=' -f2- | tr -d '"' | base64 -d > ~/.ssh/hexaqueue_ci_id
+              grep "HEXAQUEUE_SSH_KEY_B64=" .env | cut -d '=' -f2- | tr -d ' \r\n"' | base64 -d -i > ~/.ssh/hexaqueue_ci_id
               chmod 600 ~/.ssh/hexaqueue_ci_id
               echo "HEXAQUEUE_SSH_KEY=$HOME/.ssh/hexaqueue_ci_id" >> .env
               echo "HEXAQUEUE_SSH_KEY=$HOME/.ssh/hexaqueue_ci_id" >> "$GITHUB_ENV"
