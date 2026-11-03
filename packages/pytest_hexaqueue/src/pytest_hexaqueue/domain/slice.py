@@ -90,6 +90,8 @@ class TestRunSession(BaseModel):
     free_tier: bool = Field(
         default=False, description="Enforce zero-cost Free-Tier limits"
     )
+    git_commit: str | None = Field(default=None, description="Active Git commit hash")
+    git_ref: str | None = Field(default=None, description="Active Git ref or branch")
     pool: str = Field(default="default", description="Target instance pool")
     server_url: str = Field(
         default="http://127.0.0.1:8000", description="Hexaqueue controller URL"

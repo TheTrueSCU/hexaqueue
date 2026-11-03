@@ -76,6 +76,8 @@ class HexaqueueTestDispatchClient(HexaqueueTestDispatchPort):
             "coverage_sources": session.coverage_sources,
             "slices": [s.model_dump() for s in session.slices],
             "bundle": bundle.model_dump() if bundle else None,
+            "git_commit": session.git_commit,
+            "git_ref": session.git_ref,
         }
 
         try:

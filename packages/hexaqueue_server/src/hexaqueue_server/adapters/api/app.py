@@ -7,10 +7,14 @@ Notes/Architectural Intent:
 
 import asyncio
 import os
+from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import APIRouter, FastAPI
 from hexastack_core.infra.container import create_container
+from hexastack_core.utils.context import get_correlation_id
 from hexastack_cqrs.infra.pipeline import ExecutionPipeline
+from hexastack_fastapi.domain.config import HealthConfig, HexastackFastApiConfig
 from hexastack_fastapi.infra import create_fastapi_app
 
 from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
@@ -103,11 +107,22 @@ def create_server_app(
     container = create_container()
     container.add_instance(effective_pipeline, declared_class=ExecutionPipeline)
 
-    app = create_fastapi_app(container=container, pipeline=effective_pipeline)
+    fastapi_cfg = HexastackFastApiConfig(health=HealthConfig(enable=False))
+    app = create_fastapi_app(
+        config=fastapi_cfg, container=container, pipeline=effective_pipeline
+    )
 
     @app.get("/health", summary="Cluster health check", tags=["Health"])
-    def cluster_health() -> dict[str, str]:
-        return {"status": "ok"}
+    def cluster_health() -> dict[str, Any]:
+        total_cores = os.cpu_count() or 1
+        provider = os.environ.get("HEXAQUEUE_CSP_PROVIDER", "LOCAL")
+        return {
+            "status": "ok",
+            "cores": total_cores,
+            "provider": provider,
+            "timestamp": datetime.now(tz=UTC).isoformat(),
+            "correlation_id": get_correlation_id(),
+        }
 
     api_router = create_server_api_router(server_cfg.interfaces)
     app.include_router(api_router)

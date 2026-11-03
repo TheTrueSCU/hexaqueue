@@ -11,20 +11,26 @@ from hexaqueue_server.adapters.api.app import create_server_app
 from hexaqueue_server.adapters.api.test_runs import (
     TestSliceDispatch,
     _build_slice_cmd,
+    _cleanup_session_workspace,
     _execute_slice,
+    _fetch_git_target,
+    _prepare_session_workspace,
     get_worker_semaphore,
 )
 
 
 @pytest.mark.asyncio
 async def test_health_endpoint() -> None:
-    """Verify cluster health check endpoint returns 200 OK."""
+    """Verify cluster health check endpoint returns 200 OK and capacity metadata."""
     app = create_server_app()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/health")
         assert resp.status_code == 200
-        assert resp.json().get("status") == "ok"
+        data = resp.json()
+        assert data.get("status") == "ok"
+        assert "cores" in data
+        assert "provider" in data
 
 
 @pytest.mark.asyncio
@@ -85,13 +91,25 @@ async def test_dispatch_test_run_endpoint() -> None:
         ],
     }
 
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.post("/api/v1/test/runs", json=payload)
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "reports" in data
-        assert len(data["reports"]) == 1
-        assert data["reports"][0]["slice_id"] == "s0"
+    with (
+        patch(
+            "hexaqueue_server.adapters.api.test_runs._prepare_session_workspace",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+        patch(
+            "hexaqueue_server.adapters.api.test_runs._cleanup_session_workspace",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+    ):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post("/api/v1/test/runs", json=payload)
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "reports" in data
+            assert len(data["reports"]) == 1
+            assert data["reports"][0]["slice_id"] == "s0"
 
 
 def test_build_slice_cmd_container() -> None:
@@ -284,3 +302,40 @@ def test_get_worker_semaphore_dependency() -> None:
     assert isinstance(sem1, asyncio.Semaphore)
     sem2 = get_worker_semaphore(req)
     assert sem2 is sem1
+
+
+@pytest.mark.asyncio
+async def test_prepare_and_cleanup_session_workspace_no_git(tmp_path: Path) -> None:
+    """Verify _prepare_session_workspace returns None when not in a git repo."""
+    res = await _prepare_session_workspace("sess-1", repo_root=tmp_path)
+    assert res is None
+
+
+@pytest.mark.asyncio
+async def test_prepare_and_cleanup_session_workspace_mocked(tmp_path: Path) -> None:
+    """Verify worktree creation and teardown invoking git subprocess commands."""
+    git_dir = tmp_path / ".git"
+    git_dir.mkdir()
+
+    mock_proc = AsyncMock()
+    mock_proc.returncode = 0
+    mock_proc.communicate.return_value = (b"", b"")
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        workspace = await _prepare_session_workspace(
+            session_id="sess-mock",
+            git_commit="abc1234",
+            repo_root=tmp_path,
+        )
+        assert workspace is not None
+        assert "sess-mock" in str(workspace)
+
+        await _cleanup_session_workspace(workspace, repo_root=tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_fetch_git_target_none() -> None:
+    """Verify _fetch_git_target no-ops cleanly when commit and ref are omitted."""
+    with patch("asyncio.create_subprocess_exec") as mock_exec:
+        await _fetch_git_target(Path("/fake"), None, None)
+        assert not mock_exec.called

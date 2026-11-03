@@ -84,10 +84,7 @@ jobs:
             echo "$OCI_SSH_KEY" > ~/.ssh/oci_ci_id
             chmod 600 ~/.ssh/oci_ci_id
 
-            echo "Synchronizing remote cluster repository to CI target ref (${{ github.ref }})..."
-            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/oci_ci_id ubuntu@$OCI_HOST \
-              "cd ~/hexaqueue && git fetch origin ${{ github.ref }}:ci-target && git reset --hard ci-target && git clean -fd && ~/.local/bin/uv sync --all-packages --all-extras && sudo -n systemctl restart hexaqueue.service" || echo "Remote sync hook failed; continuing with fallback checks"
-
+            echo "Establishing SSH tunnel to remote Hexaqueue daemon ($OCI_HOST:8000)..."
             ssh -f -N -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ServerAliveInterval=15 -i ~/.ssh/oci_ci_id -L 8000:localhost:8000 ubuntu@$OCI_HOST || true
             for i in {1..20}; do
               if curl -s http://127.0.0.1:8000/health >/dev/null 2>&1; then

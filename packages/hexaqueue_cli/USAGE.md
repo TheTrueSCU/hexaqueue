@@ -182,23 +182,54 @@ Usage: hq cluster [OPTIONS] COMMAND [ARGS]...
 │ --help          Show this message and exit.                                  │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
-│ status  Inspect operational health and latency of the Hexaqueue cluster      │
-│         controller.                                                          │
-│ ping    Perform a rapid latency probe against the cluster controller.        │
-│ tunnel  Establish or terminate a secure SSH port-forwarding tunnel to the    │
-│         remote cluster.                                                      │
-│ sync    Trigger remote repository synchronization and dependency resolution  │
-│         over SSH.                                                            │
+│ status    Inspect operational health and latency of the Hexaqueue cluster    │
+│           controller.                                                        │
+│ ping      Perform a rapid latency probe against the cluster controller.      │
+│ tunnel    Establish or terminate a secure SSH port-forwarding tunnel to the  │
+│           remote cluster.                                                    │
+│ sync      Trigger remote repository synchronization and dependency           │
+│           resolution over SSH.                                               │
+│ discover  Discover available remote cluster nodes, active controllers, and   │
+│           SSH connection endpoints.                                          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
-#### `hq cluster over`
+#### `hq cluster SSH`
 
 ```text
 Usage: hq cluster [OPTIONS] COMMAND [ARGS]...
 Try 'hq cluster --help' for help.
 ╭─ Error ──────────────────────────────────────────────────────────────────────╮
-│ No such command 'over'.                                                      │
+│ No such command 'SSH'.                                                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq cluster discover`
+
+```text
+Usage: hq cluster discover [OPTIONS]
+
+ Discover available remote cluster nodes, active controllers, and SSH
+ connection endpoints.
+
+ Args:
+     provider: Provider discovery target filter.
+     format_type: Output presentation format.
+
+ Notes/Architectural Intent:
+     Discovers remote nodes across environment variables, runner profiles, and
+ SSH configuration,
+     probing for live controller readiness to eliminate hardcoded endpoint
+ references.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --provider  -p      <str>  Provider discovery target ('auto', 'oci', 'ssh',  │
+│                            'env', 'profiles')                                │
+│                            [default: auto]                                   │
+│ --format    -f      <str>  Output presentation format (table, json,          │
+│                            markdown, rich, plain, auto).                     │
+│                            [default: table]                                  │
+│ --help                     Show this message and exit.                       │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -230,6 +261,16 @@ Usage: hq cluster [OPTIONS] COMMAND [ARGS]...
 Try 'hq cluster --help' for help.
 ╭─ Error ──────────────────────────────────────────────────────────────────────╮
 │ No such command 'remote'.                                                    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq cluster resolution`
+
+```text
+Usage: hq cluster [OPTIONS] COMMAND [ARGS]...
+Try 'hq cluster --help' for help.
+╭─ Error ──────────────────────────────────────────────────────────────────────╮
+│ No such command 'resolution'.                                                │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 

@@ -8,6 +8,7 @@ Notes/Architectural Intent:
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
@@ -15,7 +16,9 @@ from typer.testing import CliRunner
 from hexaqueue_cli.commands.cluster import (
     _build_ssh_remote_sync_cmd,
     _build_ssh_tunnel_cmd,
+    _discover_candidates,
     _find_ssh_tunnel_pids,
+    _parse_ssh_config_hosts,
     _poll_health,
     _probe_health,
     _resolve_cluster_endpoint,
@@ -519,3 +522,135 @@ def test_cluster_sync_failure() -> None:
         exit_code = result.exit_code
         assert exit_code == 1
         assert "Remote synchronization failed" in result.output
+
+
+def test_parse_ssh_config_hosts(tmp_path: Path) -> None:
+    """Verify _parse_ssh_config_hosts parses Host blocks matching cluster keywords.
+
+    Notes/Architectural Intent:
+        Validates parsing of ~/.ssh/config for zero-config cluster discovery.
+    """
+    sample_config = (
+        "Host hq-prod\n"
+        "  HostName 10.0.0.1\n"
+        "  User ubuntu\n"
+        "  Port 22\n"
+        "  IdentityFile ~/.ssh/id_rsa\n\n"
+        "Host unrelated-host\n"
+        "  HostName 10.0.0.2\n"
+    )
+    fake_file = tmp_path / "ssh_config"
+    fake_file.write_text(sample_config, encoding="utf-8")
+
+    with patch("pathlib.Path.expanduser", return_value=fake_file):
+        candidates = _parse_ssh_config_hosts()
+        assert len(candidates) == 1
+        assert candidates[0]["alias"] == "hq-prod"
+        assert candidates[0]["host"] == "10.0.0.1"
+        assert candidates[0]["user"] == "ubuntu"
+
+
+def test_discover_candidates_aggregation() -> None:
+    """Verify _discover_candidates aggregates environment and profile hosts.
+
+    Notes/Architectural Intent:
+        Validates deduplication and metadata extraction across sources.
+    """
+    dummy_project = MagicMock()
+    dummy_profile = MagicMock(
+        host="10.1.1.1", ssh_user="ubuntu", ssh_key=None, ssh_port=22
+    )
+    dummy_project.profiles = {"ci": dummy_profile}
+
+    with (
+        patch.dict("os.environ", {"OCI_HOST": "10.2.2.2"}, clear=True),
+        patch(
+            "hexaqueue_cli.commands.cluster.load_project_config",
+            return_value=dummy_project,
+        ),
+        patch(
+            "hexaqueue_cli.commands.cluster._parse_ssh_config_hosts", return_value=[]
+        ),
+    ):
+        candidates = _discover_candidates("auto")
+        hosts = [c["host"] for c in candidates]
+        assert "10.2.2.2" in hosts
+        assert "10.1.1.1" in hosts
+
+
+def test_discover_cmd_table_output() -> None:
+    """Verify 'hq cluster discover' renders table of discovered nodes.
+
+    Notes/Architectural Intent:
+        Verifies rich formatting and tunnel command hints.
+    """
+    mock_candidates = [
+        {
+            "host": "10.0.0.1",
+            "provider": "OCI",
+            "source": "env:OCI_HOST",
+            "user": "ubuntu",
+        }
+    ]
+    with (
+        patch(
+            "hexaqueue_cli.commands.cluster._discover_candidates",
+            return_value=mock_candidates,
+        ),
+        patch(
+            "hexaqueue_cli.commands.cluster._probe_health",
+            return_value=(True, {"cores": 4}, 12.0),
+        ),
+    ):
+        result = runner.invoke(app, ["cluster", "discover"])
+        exit_code = result.exit_code
+        assert exit_code == 0
+        assert "Discovered Hexaqueue Cluster Nodes" in result.output
+        assert "10.0.0.1" in result.output
+        assert "ONLINE" in result.output
+
+
+def test_discover_cmd_empty() -> None:
+    """Verify 'hq cluster discover' warns when no candidate nodes are found.
+
+    Notes/Architectural Intent:
+        Verifies friendly guidance when no nodes are configured.
+    """
+    with patch("hexaqueue_cli.commands.cluster._discover_candidates", return_value=[]):
+        result = runner.invoke(app, ["cluster", "discover"])
+        exit_code = result.exit_code
+        assert exit_code == 0
+        assert "No candidate cluster hosts discovered" in result.output
+
+
+def test_discover_cmd_json_format() -> None:
+    """Verify 'hq cluster discover --format json' outputs valid JSON structure.
+
+    Notes/Architectural Intent:
+        Validates machine-readable serialization of cluster topology.
+    """
+    mock_candidates = [
+        {
+            "host": "10.0.0.1",
+            "provider": "OCI",
+            "source": "env:OCI_HOST",
+            "user": "ubuntu",
+        }
+    ]
+    with (
+        patch(
+            "hexaqueue_cli.commands.cluster._discover_candidates",
+            return_value=mock_candidates,
+        ),
+        patch(
+            "hexaqueue_cli.commands.cluster._probe_health",
+            return_value=(False, None, 0.0),
+        ),
+    ):
+        result = runner.invoke(app, ["cluster", "discover", "--format", "json"])
+        exit_code = result.exit_code
+        assert exit_code == 0
+        parsed = json.loads(result.output)
+        assert len(parsed) == 1
+        assert parsed[0]["host"] == "10.0.0.1"
+        assert parsed[0]["status"] == "SSH_AVAILABLE"

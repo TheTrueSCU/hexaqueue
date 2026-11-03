@@ -9,6 +9,7 @@ Notes/Architectural Intent:
 import asyncio
 import base64
 import os
+import subprocess
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -611,6 +612,41 @@ def _unpack_slice_coverage(reports: list["SliceOutcomeReport"]) -> None:
                 cov_path.write_bytes(cov_bytes)
 
 
+def _resolve_git_context() -> tuple[str | None, str | None]:
+    """Resolve current Git commit hash and active ref or branch.
+
+    Returns:
+        Tuple of (git_commit_sha, git_ref).
+    """
+    git_commit = os.environ.get("GITHUB_SHA")
+    git_ref = os.environ.get("GITHUB_REF")
+    if not git_commit:
+        try:
+            proc = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if proc.returncode == 0 and proc.stdout.strip():
+                git_commit = proc.stdout.strip()
+        except Exception:
+            pass
+    if not git_ref:
+        try:
+            proc = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if proc.returncode == 0 and proc.stdout.strip():
+                git_ref = proc.stdout.strip()
+        except Exception:
+            pass
+    return git_commit, git_ref
+
+
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtestloop(session: pytest.Session) -> bool | None:
     """Execute distributed test loop dispatching slices across cluster workers."""
@@ -665,6 +701,8 @@ def pytest_runtestloop(session: pytest.Session) -> bool | None:
     if opt_cov:
         cov_sources = [str(s) for s in opt_cov]
 
+    active_commit, active_ref = _resolve_git_context()
+
     run_session = TestRunSession(
         session_id=str(uuid.uuid4()),
         total_items=len(session.items),
@@ -676,6 +714,8 @@ def pytest_runtestloop(session: pytest.Session) -> bool | None:
         container=is_container,
         container_image=worker_image,
         coverage_sources=cov_sources,
+        git_commit=active_commit,
+        git_ref=active_ref,
     )
 
     async def _execute() -> list[SliceOutcomeReport] | None:
@@ -718,6 +758,8 @@ def pytest_runtestloop(session: pytest.Session) -> bool | None:
             container=is_container,
             container_image=worker_image,
             coverage_sources=cov_sources,
+            git_commit=active_commit,
+            git_ref=active_ref,
         )
         local_task = asyncio.gather(
             *[local_runner.execute_slice(s, cov_sources) for s in local_slices]

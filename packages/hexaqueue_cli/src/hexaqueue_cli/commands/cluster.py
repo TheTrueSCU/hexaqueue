@@ -8,6 +8,7 @@ Notes/Architectural Intent:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import signal
@@ -312,6 +313,10 @@ def status_cmd(
         table.add_row("Remote Host", host)
     table.add_row("Latency", f"{latency:.2f} ms")
     if payload:
+        if "cores" in payload:
+            table.add_row("Worker Cores", str(payload["cores"]))
+        if "provider" in payload:
+            table.add_row("CSP Provider", str(payload["provider"]))
         if "timestamp" in payload:
             table.add_row("Timestamp", str(payload["timestamp"]))
         if "correlation_id" in payload:
@@ -559,8 +564,236 @@ def sync_cmd(
         raise typer.Exit(code=1) from exc
 
 
+def _apply_ssh_directive(key: str, val: str, entry: dict[str, Any]) -> None:
+    """Apply an SSH config key-value directive to an entry dictionary."""
+    if key == "hostname":
+        entry["host"] = val
+    elif key == "user":
+        entry["user"] = val
+    elif key == "identityfile":
+        entry["key"] = val
+    elif key == "port":
+        with contextlib.suppress(ValueError):
+            entry["ssh_port"] = int(val)
+
+
+def _read_ssh_config_entries(ssh_cfg: Path) -> list[dict[str, Any]]:
+    """Read host blocks from an SSH config file."""
+    candidates: list[dict[str, Any]] = []
+    current_entry: dict[str, Any] = {}
+    try:
+        with ssh_cfg.open("r", encoding="utf-8") as f:
+            for raw_line in f:
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split(maxsplit=1)
+                if len(parts) < 2:
+                    continue
+                key, val = parts[0].lower(), parts[1].strip()
+                if key == "host":
+                    if "host" in current_entry:
+                        candidates.append(current_entry)
+                    current_entry = {"alias": val, "host": val, "source": "ssh_config"}
+                elif current_entry:
+                    _apply_ssh_directive(key, val, current_entry)
+        if "host" in current_entry:
+            candidates.append(current_entry)
+    except Exception:
+        pass
+    return candidates
+
+
+def _parse_ssh_config_hosts() -> list[dict[str, Any]]:
+    """Parse candidate cluster hosts from ~/.ssh/config.
+
+    Returns:
+        List of candidate host dictionaries.
+    """
+    ssh_cfg = Path("~/.ssh/config").expanduser()
+    if not ssh_cfg.exists():
+        return []
+    candidates = _read_ssh_config_entries(ssh_cfg)
+    needles = ("hq", "hexaqueue", "oci", "cluster")
+    return [
+        c
+        for c in candidates
+        if any(
+            n in c.get("alias", "").lower() or n in c.get("host", "").lower()
+            for n in needles
+        )
+    ]
+
+
+def _discover_from_env(seen_hosts: set[str]) -> list[dict[str, Any]]:
+    """Extract candidate cluster nodes from environment variables."""
+    results: list[dict[str, Any]] = []
+    for env_var in ("OCI_HOST", "HEXAQUEUE_CLUSTER_HOST"):
+        val = os.environ.get(env_var)
+        if val and val not in seen_hosts:
+            seen_hosts.add(val)
+            results.append(
+                {
+                    "host": val,
+                    "provider": "OCI" if "OCI" in env_var else "Custom",
+                    "source": f"env:{env_var}",
+                    "user": "ubuntu",
+                }
+            )
+    return results
+
+
+def _discover_from_profiles(seen_hosts: set[str]) -> list[dict[str, Any]]:
+    """Extract candidate cluster nodes from project configuration profiles."""
+    results: list[dict[str, Any]] = []
+    try:
+        proj_cfg = load_project_config()
+        for prof_name, prof_val in proj_cfg.profiles.items():
+            if prof_val.host and prof_val.host not in seen_hosts:
+                seen_hosts.add(prof_val.host)
+                results.append(
+                    {
+                        "host": prof_val.host,
+                        "provider": prof_name.upper(),
+                        "source": f"profile:{prof_name}",
+                        "user": prof_val.ssh_user or "ubuntu",
+                        "key": prof_val.ssh_key,
+                        "ssh_port": prof_val.ssh_port or 22,
+                    }
+                )
+    except Exception:
+        pass
+    return results
+
+
+def _discover_from_ssh(seen_hosts: set[str]) -> list[dict[str, Any]]:
+    """Extract candidate cluster nodes from SSH config entries."""
+    results: list[dict[str, Any]] = []
+    for c in _parse_ssh_config_hosts():
+        h = c.get("host")
+        if h and h not in seen_hosts:
+            seen_hosts.add(h)
+            results.append(
+                {
+                    "host": h,
+                    "provider": "SSH Config",
+                    "source": f"ssh:{c.get('alias')}",
+                    "user": c.get("user", "ubuntu"),
+                    "key": c.get("key"),
+                    "ssh_port": c.get("ssh_port", 22),
+                }
+            )
+    return results
+
+
+def _discover_candidates(provider: str = "auto") -> list[dict[str, Any]]:
+    """Aggregate candidate cluster hosts across environment, profiles, and SSH configuration.
+
+    Args:
+        provider: Provider filter ('auto', 'oci', 'ssh', 'env', 'profiles').
+
+    Returns:
+        List of candidate host dictionaries.
+    """
+    results: list[dict[str, Any]] = []
+    seen_hosts: set[str] = set()
+
+    if provider in ("auto", "env", "oci"):
+        results.extend(_discover_from_env(seen_hosts))
+    if provider in ("auto", "profiles", "oci"):
+        results.extend(_discover_from_profiles(seen_hosts))
+    if provider in ("auto", "ssh", "oci"):
+        results.extend(_discover_from_ssh(seen_hosts))
+
+    return results
+
+
+@app.command("discover")
+def discover_cmd(
+    provider: str = typer.Option(
+        "auto",
+        "--provider",
+        "-p",
+        help="Provider discovery target ('auto', 'oci', 'ssh', 'env', 'profiles')",
+    ),
+    format_type: str = format_option(),
+) -> None:
+    """Discover available remote cluster nodes, active controllers, and SSH connection endpoints.
+
+    Args:
+        provider: Provider discovery target filter.
+        format_type: Output presentation format.
+
+    Notes/Architectural Intent:
+        Discovers remote nodes across environment variables, runner profiles, and SSH configuration,
+        probing for live controller readiness to eliminate hardcoded endpoint references.
+    """
+    candidates = _discover_candidates(provider)
+    resolved_fmt = resolve_format(format_type)
+
+    probed: list[dict[str, Any]] = []
+    for cand in candidates:
+        host = cand["host"]
+        ok, payload, latency = _probe_health(f"http://{host}:8000", timeout=1.5)
+        if not ok and host in ("127.0.0.1", "localhost"):
+            ok, payload, latency = _probe_health("http://127.0.0.1:8000", timeout=1.0)
+
+        status_text = "ONLINE" if ok else "SSH_AVAILABLE"
+        cores = payload.get("cores") if payload else None
+        item = {
+            **cand,
+            "healthy": ok,
+            "status": status_text,
+            "latency_ms": round(latency, 2) if ok else None,
+            "cores": cores,
+            "recommended_tunnel": f"hq cluster tunnel --host {host} --user {cand.get('user', 'ubuntu')}",
+        }
+        probed.append(item)
+
+    if resolved_fmt in ("json", "yaml"):
+        if resolved_fmt == "json":
+            console.print(json.dumps(probed, indent=2))
+        else:
+            import yaml
+
+            console.print(yaml.safe_dump(probed, sort_keys=False))
+        return
+
+    if not probed:
+        console.print(
+            "[yellow]No candidate cluster hosts discovered. Configure a profile or export OCI_HOST.[/]"
+        )
+        return
+
+    table = Table(title="Discovered Hexaqueue Cluster Nodes", border_style="cyan")
+    table.add_column("Host", style="bold cyan")
+    table.add_column("Provider", style="green")
+    table.add_column("Source", style="dim")
+    table.add_column("Status", style="bold")
+    table.add_column("Cores", justify="right")
+    table.add_column("Latency", justify="right")
+    table.add_column("Tunnel Command", style="yellow")
+
+    for p in probed:
+        status_disp = "[green]● ONLINE[/]" if p["healthy"] else "[dim]○ TUNNEL REQ[/]"
+        cores_disp = str(p["cores"]) if p["cores"] is not None else "-"
+        lat_disp = f"{p['latency_ms']:.2f} ms" if p["latency_ms"] is not None else "-"
+        table.add_row(
+            p["host"],
+            p.get("provider", "Unknown"),
+            p.get("source", "Unknown"),
+            status_disp,
+            cores_disp,
+            lat_disp,
+            p["recommended_tunnel"],
+        )
+
+    console.print(table)
+
+
 __all__ = [
     "app",
+    "discover_cmd",
     "ping_cmd",
     "status_cmd",
     "sync_cmd",

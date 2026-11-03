@@ -51,6 +51,8 @@ class TestRunDispatchRequest(BaseModel):
     coverage_sources: list[str] = Field(default_factory=list)
     slices: list[TestSliceDispatch] = Field(default_factory=list)
     bundle: dict[str, Any] | None = None
+    git_commit: str | None = None
+    git_ref: str | None = None
 
 
 class TestOutcomeRecord(BaseModel):
@@ -201,6 +203,112 @@ def get_worker_semaphore(request: Request) -> asyncio.Semaphore:
     return new_sem
 
 
+async def _fetch_git_target(
+    root: Path, git_commit: str | None, git_ref: str | None
+) -> None:
+    """Fetch remote git commit or ref into local repository cache if needed."""
+    if not git_ref and not git_commit:
+        return
+    ref_spec = f"{git_ref}:ci-target" if git_ref else git_commit
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "fetch",
+            "origin",
+            str(ref_spec),
+            cwd=str(root),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
+    except Exception:
+        pass
+
+
+async def _prepare_session_workspace(
+    session_id: str,
+    git_commit: str | None = None,
+    git_ref: str | None = None,
+    repo_root: Path | None = None,
+) -> Path | None:
+    """Create an isolated, ephemeral Git worktree for session execution."""
+    root = repo_root or Path.cwd()
+    if not (root / ".git").exists():
+        return None
+
+    target_dir = Path("/tmp/hexaqueue/runs") / session_id
+    try:
+        target_dir.parent.mkdir(parents=True, exist_ok=True)
+        if target_dir.exists():
+            await _cleanup_session_workspace(target_dir, repo_root=root)
+
+        await _fetch_git_target(root, git_commit, git_ref)
+
+        target_ref = git_commit or ("ci-target" if git_ref else "HEAD")
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "worktree",
+            "add",
+            "--detach",
+            str(target_dir),
+            target_ref,
+            cwd=str(root),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
+        if proc.returncode == 0:
+            return target_dir
+
+        fallback_proc = await asyncio.create_subprocess_exec(
+            "git",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "worktree",
+            "add",
+            "--detach",
+            str(target_dir),
+            "HEAD",
+            cwd=str(root),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await fallback_proc.communicate()
+        if fallback_proc.returncode == 0:
+            return target_dir
+    except Exception:
+        pass
+    return None
+
+
+async def _cleanup_session_workspace(
+    workspace_dir: Path | None, repo_root: Path | None = None
+) -> None:
+    """Tear down and prune an ephemeral Git worktree."""
+    if not workspace_dir or not workspace_dir.exists():
+        return
+    root = repo_root or Path.cwd()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "worktree",
+            "remove",
+            "--force",
+            str(workspace_dir),
+            cwd=str(root),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
+    except Exception:
+        pass
+    shutil.rmtree(workspace_dir, ignore_errors=True)
+
+
 async def _execute_slice(
     slice_spec: TestSliceDispatch,
     worker_index: int,
@@ -209,6 +317,7 @@ async def _execute_slice(
     container_image: str | None = None,
     coverage_sources: list[str] | None = None,
     semaphore: asyncio.Semaphore | None = None,
+    workspace_dir: Path | None = None,
 ) -> SliceOutcomeResponse:
     """Execute a single test slice in a dedicated worker subprocess or container."""
     cmd, provider, worker_id = _build_slice_cmd(
@@ -241,6 +350,7 @@ async def _execute_slice(
         async with semaphore if semaphore is not None else nullcontext():
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
+                cwd=str(workspace_dir) if workspace_dir else None,
                 env=env,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -263,7 +373,7 @@ async def _execute_slice(
 
         cov_data: dict[str, Any] | None = None
         if coverage_sources:
-            cov_path = Path(cov_file)
+            cov_path = (workspace_dir / cov_file) if workspace_dir else Path(cov_file)
             if cov_path.exists():
                 file_bytes = cov_path.read_bytes()
                 cov_data = {
@@ -319,20 +429,33 @@ def create_test_runs_router() -> APIRouter:
     ) -> TestRunDispatchResponse:
         """Receive test slices and execute them concurrently across worker nodes."""
         is_container = req.container or req.pool == "container"
-        tasks = [
-            _execute_slice(
-                s,
-                i,
-                req.free_tier,
-                is_container=is_container,
-                container_image=req.container_image,
-                coverage_sources=req.coverage_sources,
-                semaphore=semaphore,
+        workspace_dir = None
+        if not is_container:
+            workspace_dir = await _prepare_session_workspace(
+                session_id=req.session_id,
+                git_commit=req.git_commit,
+                git_ref=req.git_ref,
             )
-            for i, s in enumerate(req.slices)
-        ]
-        reports = await asyncio.gather(*tasks)
-        return TestRunDispatchResponse(reports=list(reports))
+
+        try:
+            tasks = [
+                _execute_slice(
+                    s,
+                    i,
+                    req.free_tier,
+                    is_container=is_container,
+                    container_image=req.container_image,
+                    coverage_sources=req.coverage_sources,
+                    semaphore=semaphore,
+                    workspace_dir=workspace_dir,
+                )
+                for i, s in enumerate(req.slices)
+            ]
+            reports = await asyncio.gather(*tasks)
+            return TestRunDispatchResponse(reports=list(reports))
+        finally:
+            if workspace_dir is not None:
+                await _cleanup_session_workspace(workspace_dir)
 
     return router
 
