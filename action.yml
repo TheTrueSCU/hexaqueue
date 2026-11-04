@@ -55,7 +55,7 @@ runs:
           fi
         else
           echo "Installing Hexaqueue CLI (${{ inputs.version }})..."
-          uv tool install --from "hexaqueue${{ inputs.version }}" --with hypothesis hexaqueue-cli 2>/dev/null || pip install --user "hexaqueue${{ inputs.version }}" hypothesis 2>/dev/null || pip install "hexaqueue${{ inputs.version }}" hypothesis
+          uv tool install --from "hexaqueue${{ inputs.version }}" --with hypothesis --with greenlet hexaqueue-cli 2>/dev/null || pip install --user "hexaqueue${{ inputs.version }}" hypothesis greenlet 2>/dev/null || pip install "hexaqueue${{ inputs.version }}" hypothesis greenlet
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
         fi
 
