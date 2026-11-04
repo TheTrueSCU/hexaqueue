@@ -1,6 +1,6 @@
 [project]
 name = "hexaqueue-server"
-version = "0.8.0"
+version = "0.8.1"
 description = "Hexaqueue Server - High-Availability Central Controller and Scheduler Engine"
 readme = "README.md"
 license = "Apache-2.0"
@@ -9,6 +9,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "greenlet>=3.0.0",
     "hexaqueue-collateral",
     "hexaqueue-core",
     "hexaqueue-monitor",

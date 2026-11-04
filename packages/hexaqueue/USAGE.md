@@ -1,0 +1,1401 @@
+# Hexaqual Quality Suite & CLI Catalog (`hq` / `hexaqueue`)
+
+> Canonical developer command reference and CLI catalog automatically generated from the complete command hierarchy.
+
+---
+
+## 🏛️ Dogfooding Hexagonal Architecture
+
+`hexaqual` is built strictly according to Hexagonal Architecture design principles:
+- **`domain/`**: Pure data contracts (`PrSummary`, `CheckRunFinding`, `ReviewThread`, `OutputFormat`).
+- **`ports/`**: Clean interface contracts (`GitHubApiPort`, `GovernancePresenterPort`, `ToolRunnerPort`, `PyPiClientPort`).
+- **`adapters/`**: Pluggable presenters (`rich`, `json`, `plain`), subcommands, and runners.
+- **`cli/`**: Unified Typer CLI driving adapter (`hexaqual`).
+- **`infra/`**: Command dispatchers, handlers, and execution orchestration.
+- **`utils/`**: Workspace discovery, AST parsing, and package graph resolvers.
+
+---
+
+## ⚙️ Output Presentation Formats
+
+All inspection commands support `--format / -f`:
+- **`auto` (default)**: Automatically outputs interactive ANSI tables/panels when attached to a terminal TTY, and switches to clean, tab-delimited plain text (`TSV`) when standard output is piped into Unix filters (`grep`, `awk`, `cut`, `xargs`, etc.).
+- **`rich`**: Interactive Rich tables and color-coded status badges.
+- **`json`**: Structured JSON for automation, CI scripts, and AI agents.
+- **`plain`**: Machine-readable TSV stream.
+
+---
+
+## 🚀 Unified Root Entrypoint (`hq` (alias: `hexaqueue`))
+
+```text
+Usage: hq [OPTIONS] COMMAND [ARGS]...
+
+ Hexaqueue - Cloud-Agnostic HPC Batch Scheduler and Distributed Job
+ Orchestrator
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --install-completion          Install completion for the current shell.      │
+│ --show-completion             Show completion for the current shell, to copy │
+│                               it or customize the installation.              │
+│ --help                        Show this message and exit.                    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ submit      Submit a workload run or suite definition file.                  │
+│ status      Check status of a run or job.                                    │
+│ logs        View stdout and stderr logs for a job.                           │
+│ cancel      Cancel an active pipeline run or individual job.                 │
+│ hold        Place an administrative hold on a pending job.                   │
+│ release     Release an administrative hold on a job back to the queue.       │
+│ stat        Display high-level cluster state and backlog statistics.         │
+│ nodes       Display compute worker nodes telemetry and accelerator status.   │
+│ quota       Inspect hierarchical fair-share tree, historical usage, and      │
+│             quota allowances.                                                │
+│ top         Interactive live cluster and queue monitoring dashboard.         │
+│ exec        Spawn an interactive PTY session inside a running job            │
+│             environment.                                                     │
+│ attach      Attach an interactive bash shell to a running job.               │
+│ why         Explain why a job is currently waiting in the queue.             │
+│ explain     Display rich priority math and resource blocker breakdown for a  │
+│             job.                                                             │
+│ fairshare   Inspect hierarchical fair-share tree, historical usage, and      │
+│             decay factors.                                                   │
+│ admin       Administrative operations and zero-trust session governance      │
+│ cluster     Manage and monitor remote cluster nodes, SSH tunnels, and CSP    │
+│             controllers                                                      │
+│ run         Pipeline run management commands.                                │
+│ workflow    Hexaflow distributed workflow orchestration and cluster          │
+│             scheduling commands.                                             │
+│ suite       Manage and execute hierarchical suite workloads and parameter    │
+│             sweeps                                                           │
+│ collateral  Manage, stage, and inspect collateral artifacts and binaries     │
+│ node        Inspect worker nodes and establish administrative bastion        │
+│             sessions                                                         │
+│ server      Manage Hexaqueue central scheduler and HTTP/ASGI API server      │
+│ mcp         Manage and run Hexaqueue Model Context Protocol (MCP) server     │
+│ scanner     Malware inspection, antivirus verification, and quarantine       │
+│             daemon                                                           │
+│ scan        Malware inspection, antivirus verification, and quarantine       │
+│             daemon                                                           │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+---
+
+## 🛠️ Complete Subcommand Tree Reference
+
+### `hq admin`
+
+```text
+Usage: hq admin [OPTIONS] COMMAND [ARGS]...
+
+ Administrative operations and zero-trust session governance
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ session  Manage and audit zero-trust bastion operator access sessions        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq admin session`
+
+```text
+Usage: hq admin session [OPTIONS] COMMAND [ARGS]...
+
+ Manage and audit zero-trust bastion operator access sessions
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ create     Mint an ephemeral zero-trust bastion session and generate         │
+│            connection command.                                               │
+│ list       Audit and list active unexpired bastion sessions.                 │
+│ terminate  Revoke an active bastion session immediately.                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq attach`
+
+```text
+Usage: hq attach [OPTIONS] {job_id}
+
+ Attach an interactive bash shell to a running job.
+
+ Args:
+     job_id: Target running job identifier.
+     user: Requesting user identity for RBAC validation.
+     admin: Whether explicit administrative elevation is requested.
+
+ Notes/Architectural Intent:
+     Convenience alias launching an interactive bash terminal inside the target
+ job.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    job_id      <str>  Job ID to attach interactive shell to [required]     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --user   -u      <str>  Requesting username [default: default]               │
+│ --admin                 Assert explicit administrative elevation             │
+│ --help                  Show this message and exit.                          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq cancel`
+
+```text
+Usage: hq cancel [OPTIONS] {target_id}
+
+ Cancel an active pipeline run or individual job.
+
+ Args:
+     target_id: Identifier of the run or job to cancel.
+     admin: Assert explicit administrative elevation.
+     user: Requesting user identity.
+
+ Notes/Architectural Intent:
+     Attempts run cancellation first, falling back to individual job
+ cancellation.
+     Requires explicit --admin elevation for cross-user mutations.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    target_id      <str>  Run ID or Job ID to cancel [required]             │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --admin                 Assert explicit administrative elevation for         │
+│                         cross-user cancellation                              │
+│ --user   -u      <str>  Requesting user identity [default: default]          │
+│ --help                  Show this message and exit.                          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq cluster`
+
+```text
+Usage: hq cluster [OPTIONS] COMMAND [ARGS]...
+
+ Manage and monitor remote cluster nodes, SSH tunnels, and CSP controllers
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ status    Inspect operational health and latency of the Hexaqueue cluster    │
+│           controller.                                                        │
+│ ping      Perform a rapid latency probe against the cluster controller.      │
+│ tunnel    Establish or terminate a secure SSH port-forwarding tunnel to the  │
+│           remote cluster.                                                    │
+│ sync      Trigger remote repository synchronization and dependency           │
+│           resolution over SSH.                                               │
+│ discover  Discover available remote cluster nodes, active controllers, and   │
+│           SSH connection endpoints.                                          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq cluster SSH`
+
+```text
+Usage: hq cluster [OPTIONS] COMMAND [ARGS]...
+Try 'hq cluster --help' for help.
+╭─ Error ──────────────────────────────────────────────────────────────────────╮
+│ No such command 'SSH'.                                                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq cluster discover`
+
+```text
+Usage: hq cluster discover [OPTIONS]
+
+ Discover available remote cluster nodes, active controllers, and SSH
+ connection endpoints.
+
+ Args:
+     provider: Provider discovery target filter.
+     format_type: Output presentation format.
+
+ Notes/Architectural Intent:
+     Discovers remote nodes across environment variables, runner profiles, and
+ SSH configuration,
+     probing for live controller readiness to eliminate hardcoded endpoint
+ references.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --provider  -p      <str>  Provider discovery target ('auto', 'oci', 'ssh',  │
+│                            'env', 'profiles')                                │
+│                            [default: auto]                                   │
+│ --format    -f      <str>  Output presentation format (table, json,          │
+│                            markdown, rich, plain, auto).                     │
+│                            [default: table]                                  │
+│ --help                     Show this message and exit.                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq cluster ping`
+
+```text
+Usage: hq cluster ping [OPTIONS]
+
+ Perform a rapid latency probe against the cluster controller.
+
+ Args:
+     profile: Profile name to target.
+     url: Explicit Hexaqueue controller URL override.
+
+ Raises:
+     typer.Exit: With code 1 if ping probe fails.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --profile  -p      <str>  Profile name to target                             │
+│ --url      -u      <str>  Explicit Hexaqueue controller URL override         │
+│ --help                    Show this message and exit.                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq cluster remote`
+
+```text
+Usage: hq cluster [OPTIONS] COMMAND [ARGS]...
+Try 'hq cluster --help' for help.
+╭─ Error ──────────────────────────────────────────────────────────────────────╮
+│ No such command 'remote'.                                                    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq cluster resolution`
+
+```text
+Usage: hq cluster [OPTIONS] COMMAND [ARGS]...
+Try 'hq cluster --help' for help.
+╭─ Error ──────────────────────────────────────────────────────────────────────╮
+│ No such command 'resolution'.                                                │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq cluster status`
+
+```text
+Usage: hq cluster status [OPTIONS]
+
+ Inspect operational health and latency of the Hexaqueue cluster controller.
+
+ Args:
+     profile: Active runner profile name to inspect.
+     url: Explicit Hexaqueue controller URL override.
+     format_type: Chosen serialization output format.
+
+ Raises:
+     typer.Exit: With code 1 if controller is unreachable.
+
+ Notes/Architectural Intent:
+     Probes the cluster controller `/health` endpoint and inspects active CSP
+ provider
+     guards to give operators immediate visibility into cluster readiness.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --profile  -p      <str>  Active runner profile name to inspect              │
+│ --url      -u      <str>  Explicit Hexaqueue controller URL override         │
+│ --format   -f      <str>  Output presentation format (table, json, markdown, │
+│                           rich, plain, auto).                                │
+│                           [default: table]                                   │
+│ --help                    Show this message and exit.                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq cluster sync`
+
+```text
+Usage: hq cluster sync [OPTIONS]
+
+ Trigger remote repository synchronization and dependency resolution over SSH.
+
+ Args:
+     profile: Runner profile specifying target host and keys.
+     host: Target remote cluster host IP or hostname.
+     user: SSH login user.
+     key: Path to SSH private key identity file.
+     ssh_port: Remote SSH server port.
+     repo_dir: Remote workspace repository directory.
+     branch: Git branch to fetch and reset to.
+
+ Raises:
+     typer.Exit: With code 1 if synchronization fails.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --profile   -p      <str>  Runner profile specifying target host and keys    │
+│ --host      -h      <str>  Target remote cluster host IP or hostname         │
+│ --user      -u      <str>  SSH login user [default: hexaqueue-ci]            │
+│ --key       -i      <str>  Path to SSH private key identity file             │
+│ --ssh-port          <int>  Remote SSH server port [default: 22]              │
+│ --repo-dir          <str>  Remote workspace repository directory             │
+│                            [default: ~/hexaqueue]                            │
+│ --branch    -b      <str>  Git branch to fetch and reset to [default: main]  │
+│ --help                     Show this message and exit.                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq cluster tunnel`
+
+```text
+Usage: hq cluster tunnel [OPTIONS]
+
+ Establish or terminate a secure SSH port-forwarding tunnel to the remote
+ cluster.
+
+ Args:
+     profile: Runner profile specifying target host and keys.
+     host: Target remote cluster host IP or hostname.
+     port: Local forwarding listen port.
+     remote_port: Remote daemon port.
+     user: SSH login user.
+     key: Path to SSH private key identity file.
+     ssh_port: Remote SSH server port.
+     stop: Terminate active SSH tunnel on local port.
+
+ Raises:
+     typer.Exit: With code 1 if tunnel establishment or teardown fails.
+
+ Notes/Architectural Intent:
+     Enforces zero-trust isolation: rather than exposing port 8000 to the
+ public internet,
+     this command establishes an encrypted SSH tunnel directly to the
+ controller daemon.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --profile      -p      <str>  Runner profile specifying target host and keys │
+│ --host         -h      <str>  Target remote cluster host IP or hostname      │
+│ --port                 <int>  Local forwarding listen port [default: 8000]   │
+│ --remote-port          <int>  Remote daemon port [default: 8000]             │
+│ --user         -u      <str>  SSH login user [default: hexaqueue-ci]         │
+│ --key          -i      <str>  Path to SSH private key identity file          │
+│ --ssh-port             <int>  Remote SSH server port [default: 22]           │
+│ --stop                        Terminate active SSH tunnel on local port      │
+│ --help                        Show this message and exit.                    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq collateral`
+
+```text
+Usage: hq collateral [OPTIONS] COMMAND [ARGS]...
+
+ Manage, stage, and inspect collateral artifacts and binaries
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ push   Stage and register a collateral artifact for compute execution.       │
+│ stage  Stage and register a collateral artifact for compute execution.       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq collateral push`
+
+```text
+Usage: hq collateral push [OPTIONS] {file_path}
+
+ Stage and register a collateral artifact for compute execution.
+
+ Args:
+     file_path: Local file path to stage.
+     name: Logical name override.
+     tier: Retention tier string.
+     kind: Collateral classification kind.
+     user: Submitting user identity.
+     admin: Administrative elevation flag.
+
+ Notes/Architectural Intent:
+     Calculates cryptographic SHA-256 digest and stages metadata through
+     the unified execution pipeline.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    file_path      <path>  Path to local collateral file or bundle to stage │
+│                             [required]                                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --name   -n      <str>  Override logical collateral name (defaults to        │
+│                         filename)                                            │
+│ --tier           <str>  Collateral retention tier (TEMPORARY, PERMANENT)     │
+│                         [default: TEMPORARY]                                 │
+│ --kind           <str>  Collateral kind (BUNDLE, OS_IMAGE, CONTAINER_IMAGE,  │
+│                         TEST_BINARY, DATASET)                                │
+│                         [default: BUNDLE]                                    │
+│ --user   -u      <str>  Submitting user identity [default: default]          │
+│ --admin                 Assert explicit administrative elevation             │
+│ --help                  Show this message and exit.                          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq collateral stage`
+
+```text
+Usage: hq collateral stage [OPTIONS] {file_path}
+
+ Stage and register a collateral artifact for compute execution.
+
+ Args:
+     file_path: Local file path to stage.
+     name: Logical name override.
+     tier: Retention tier string.
+     kind: Collateral classification kind.
+     user: Submitting user identity.
+     admin: Administrative elevation flag.
+
+ Notes/Architectural Intent:
+     Calculates cryptographic SHA-256 digest and stages metadata through
+     the unified execution pipeline.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    file_path      <path>  Path to local collateral file or bundle to stage │
+│                             [required]                                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --name   -n      <str>  Override logical collateral name (defaults to        │
+│                         filename)                                            │
+│ --tier           <str>  Collateral retention tier (TEMPORARY, PERMANENT)     │
+│                         [default: TEMPORARY]                                 │
+│ --kind           <str>  Collateral kind (BUNDLE, OS_IMAGE, CONTAINER_IMAGE,  │
+│                         TEST_BINARY, DATASET)                                │
+│                         [default: BUNDLE]                                    │
+│ --user   -u      <str>  Submitting user identity [default: default]          │
+│ --admin                 Assert explicit administrative elevation             │
+│ --help                  Show this message and exit.                          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq decay`
+
+```text
+Usage: hq [OPTIONS] COMMAND [ARGS]...
+Try 'hq --help' for help.
+╭─ Error ──────────────────────────────────────────────────────────────────────╮
+│ No such command 'decay'.                                                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq exec`
+
+```text
+Usage: hq exec [OPTIONS] {job_id} {command}...
+
+ Spawn an interactive PTY session inside a running job environment.
+
+ Args:
+     job_id: Target running job identifier.
+     command: Command vector to execute in terminal PTY.
+     user: Requesting user identity for RBAC validation.
+     admin: Whether explicit administrative elevation is requested.
+
+ Notes/Architectural Intent:
+     Connects local terminal to remote worker PTY master bridge with RBAC
+ authorization.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    job_id       <str>  Job ID to execute command in [required]             │
+│ *    command      <str>  Command vector to run inside job environment        │
+│                          [required]                                          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --user   -u      <str>  Requesting username [default: default]               │
+│ --admin                 Assert explicit administrative elevation             │
+│ --help                  Show this message and exit.                          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq explain`
+
+```text
+Usage: hq explain [OPTIONS] {job_id}
+
+ Display rich priority math and resource blocker breakdown for a job.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    job_id      <str>  Job ID to explain [required]                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --format  -f      <str>  Output presentation format (table, json, markdown,  │
+│                          rich, plain, auto).                                 │
+│                          [default: table]                                    │
+│ --admin                  Assert explicit administrative elevation            │
+│ --user    -u      <str>  Requesting username [default: default]              │
+│ --help                   Show this message and exit.                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq fairshare`
+
+```text
+Usage: hq fairshare [OPTIONS]
+
+ Inspect hierarchical fair-share tree, historical usage, and decay factors.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --format  -f      <str>  Output presentation format (table, json, markdown,  │
+│                          rich, plain, auto).                                 │
+│                          [default: table]                                    │
+│ --admin                  Assert explicit administrative elevation            │
+│ --user    -u      <str>  Requesting username [default: default]              │
+│ --help                   Show this message and exit.                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq hold`
+
+```text
+Usage: hq hold [OPTIONS] {job_id}
+
+ Place an administrative hold on a pending job.
+
+ Args:
+     job_id: Identifier of the pending job to hold.
+     admin: Assert explicit administrative elevation.
+     user: Requesting user identity.
+
+ Notes/Architectural Intent:
+     Transitions job state to BLOCKED and removes it from the scheduling
+ candidate pool.
+     Requires explicit --admin elevation for cross-user mutations.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    job_id      <str>  Job ID to place on administrative hold [required]    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --admin                 Assert explicit administrative elevation for         │
+│                         cross-user hold                                      │
+│ --user   -u      <str>  Requesting user identity [default: default]          │
+│ --help                  Show this message and exit.                          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq logs`
+
+```text
+Usage: hq logs [OPTIONS] {job_id}
+
+ View stdout and stderr logs for a job.
+
+ Args:
+     job_id: Target job identifier.
+     follow: Stream chunks asynchronously in real time.
+     tail: Number of historical lines to tail.
+     url_only: Print preauthenticated direct storage download URL.
+
+ Notes/Architectural Intent:
+     Demuxes real-time stdout, stderr, and system log chunks with ANSI
+ fidelity.
+     Supports control-plane deference via direct presigned object storage
+ download URLs.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    job_id      <str>  Job ID to fetch logs for [required]                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --follow  -f             Follow stream output in real time                   │
+│ --tail    -n      <int>  Number of lines to show from end                    │
+│ --url                    Print presigned direct download URL instead of      │
+│                          fetching                                            │
+│ --help                   Show this message and exit.                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq mcp`
+
+```text
+Usage: hq mcp [OPTIONS] COMMAND [ARGS]...
+
+ Manage and run Hexaqueue Model Context Protocol (MCP) server
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ run  Run Hexaqueue MCP driving adapter over stdio transport.                 │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq mcp run`
+
+```text
+Usage: hq mcp run [OPTIONS]
+
+ Run Hexaqueue MCP driving adapter over stdio transport.
+
+ Notes/Architectural Intent:
+     Standard entrypoint for AI coding assistants configured with local
+     subprocesses ('hq mcp run'). Supports read-only sandboxing and granular
+     tool filters via command options or TOML configuration.
+
+ Args:
+     name: Name of the MCP server instance.
+     config_file: Optional path to TOML configuration file.
+     read_only: Restrict MCP tools to read-only queries.
+     tools: Comma-separated list of enabled tools.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --name       -n      <str>  MCP server name [default: hexaqueue-mcp]         │
+│ --config     -c      <str>  Path to TOML configuration file                  │
+│ --read-only                 Restrict MCP tools to read-only queries          │
+│                             (disables mutations)                             │
+│ --tools              <str>  Comma-separated list of enabled tools (e.g.      │
+│                             'list_jobs,get_run_status')                      │
+│ --help                      Show this message and exit.                      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq node`
+
+```text
+Usage: hq node [OPTIONS] COMMAND [ARGS]...
+
+ Inspect worker nodes and establish administrative bastion sessions
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ list  List registered compute worker nodes and their telemetry pulses.       │
+│ ssh   Open an administrative bastion terminal session on a worker node.      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq node list`
+
+```text
+Usage: hq node list [OPTIONS]
+
+ List registered compute worker nodes and their telemetry pulses.
+
+ Args:
+ format_type: Chosen serialization output format.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --format  -f      <str>  Output presentation format (table, json, markdown,  │
+│                          rich, plain, auto).                                 │
+│                          [default: table]                                    │
+│ --help                   Show this message and exit.                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq node ssh`
+
+```text
+Usage: hq node ssh [OPTIONS] {node_id}
+
+ Open an administrative bastion terminal session on a worker node.
+
+ Args:
+     node_id: Target compute node worker ID.
+     admin: Explicit administrative elevation confirmation.
+     user: Requesting user identity.
+
+ Notes/Architectural Intent:
+     Enforces least privilege: connecting to worker node underlying
+ infrastructure
+     requires explicit administrative elevation (--admin).
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    node_id      <str>  Target worker node ID to attach to [required]       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --admin                 Assert explicit administrative elevation for bastion │
+│                         shell access                                         │
+│ --user   -u      <str>  Requesting user identity [default: default]          │
+│ --help                  Show this message and exit.                          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq nodes`
+
+```text
+Usage: hq nodes [OPTIONS]
+
+ Display compute worker nodes telemetry and accelerator status.
+
+ Args:
+     format_type: Output format (table, json, markdown, plain, rich).
+
+ Notes/Architectural Intent:
+     Surfaces real-time hardware telemetry per worker compute node.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --format  -f      <str>  Output presentation format (table, json, markdown,  │
+│                          rich, plain, auto).                                 │
+│                          [default: table]                                    │
+│ --help                   Show this message and exit.                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq quota`
+
+```text
+Usage: hq quota [OPTIONS]
+
+ Inspect hierarchical fair-share tree, historical usage, and quota allowances.
+
+ Args:
+     format_type: Output format (table, json, markdown, plain, rich).
+
+ Notes/Architectural Intent:
+     Exposes fair-share tree and quota consumption under active multi-tenant
+ hierarchy.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --format  -f      <str>  Output presentation format (table, json, markdown,  │
+│                          rich, plain, auto).                                 │
+│                          [default: table]                                    │
+│ --help                   Show this message and exit.                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq release`
+
+```text
+Usage: hq release [OPTIONS] {job_id}
+
+ Release an administrative hold on a job back to the queue.
+
+ Args:
+     job_id: Identifier of the blocked job to release.
+     admin: Assert explicit administrative elevation.
+     user: Requesting user identity.
+
+ Notes/Architectural Intent:
+     Transitions job back to PENDING and re-enqueues into the priority
+ scheduler queue.
+     Requires explicit --admin elevation for cross-user mutations.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    job_id      <str>  Job ID to release from administrative hold           │
+│                         [required]                                           │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --admin                 Assert explicit administrative elevation for         │
+│                         cross-user release                                   │
+│ --user   -u      <str>  Requesting user identity [default: default]          │
+│ --help                  Show this message and exit.                          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq run`
+
+```text
+Usage: hq run [OPTIONS] COMMAND [ARGS]...
+
+ Pipeline run management commands.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ submit  Submit a DAG pipeline definition file.                               │
+│ cancel  Cancel an active pipeline run.                                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq run cancel`
+
+```text
+Usage: hq run cancel [OPTIONS] {run_id}
+
+ Cancel an active pipeline run.
+
+ Args:
+     run_id: Pipeline run identifier.
+     admin: Explicit administrative elevation.
+     user: Requesting user identity.
+
+ Notes/Architectural Intent:
+     Enforces least privilege: administrative cancellation of runs submitted by
+ other
+     users requires explicit positive elevation (--admin).
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    run_id      <str>  Run ID to cancel [required]                          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --admin                 Assert explicit administrative elevation for         │
+│                         cross-user cancellation                              │
+│ --user   -u      <str>  Requesting user identity [default: default]          │
+│ --help                  Show this message and exit.                          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq run submit`
+
+```text
+Usage: hq run submit [OPTIONS] {spec_path}
+
+ Submit a DAG pipeline definition file.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    spec_path      <path>  Path to pipeline YAML spec [required]            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --watch      -w             Watch run execution until completion             │
+│ --free-tier                 Enable Free-Tier Safety Mode ($0.00 spend guard  │
+│                             and strict resource clamping)                    │
+│ --notify     -n      <str>  Notification targets (e.g. slack://...,          │
+│                             pagerduty://...)                                 │
+│ --notify-on          <str>  Lifecycle triggers (e.g. COMPLETED, FAILED,      │
+│                             ERRORS, ALL)                                     │
+│                             [default: ERRORS]                                │
+│ --format     -f      <str>  Output presentation format (table, json,         │
+│                             markdown, rich, plain, auto).                    │
+│                             [default: table]                                 │
+│ --help                      Show this message and exit.                      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq scan`
+
+```text
+Usage: hq scan [OPTIONS] COMMAND [ARGS]...
+
+ Malware inspection, antivirus verification, and quarantine daemon
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ file    Inspect a local file for virus signatures and YARA heuristic         │
+│         matches.                                                             │
+│ daemon  Run the background security scanner worker daemon.                   │
+│ ping    Check connectivity and responsiveness of security inspection         │
+│         engines.                                                             │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq scan daemon`
+
+```text
+Usage: hq scan daemon [OPTIONS]
+
+ Run the background security scanner worker daemon.
+
+ Args:
+     poll_interval: Loop sleep interval in seconds.
+     quarantine_on_threat: Flag to quarantine or reject threats.
+
+ Notes/Architectural Intent:
+     Continuously polls for staged collateral bundles, verifies them against
+     configured antivirus engines, and promotes or quarantines them.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --poll-interval  -i              <float>  Polling interval in seconds for    │
+│                                           scan task queue                    │
+│                                           [default: 1.0]                     │
+│ --quarantine         --reject             Whether to isolate threats in      │
+│                                           quarantine vault or reject         │
+│                                           outright                           │
+│                                           [default: quarantine]              │
+│ --help                                    Show this message and exit.        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq scan file`
+
+```text
+Usage: hq scan file [OPTIONS] {file_path}
+
+ Inspect a local file for virus signatures and YARA heuristic matches.
+
+ Args:
+     file_path: Path to target file on disk.
+     clamav_socket: ClamAV socket path.
+     yara_rule: Optional list of YARA rule paths.
+
+ Notes/Architectural Intent:
+     Executes immediate multi-engine scan on local target file without
+ requiring
+     a running server or collateral registration.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    file_path      <path>  Path to local file or artifact to scan           │
+│                             [required]                                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --clamav-socket          <str>  Path to ClamAV UNIX domain socket            │
+│                                 [default: /var/run/clamav/clamd.ctl]         │
+│ --rule           -r      <str>  Path to YARA rule file (.yar)                │
+│ --help                          Show this message and exit.                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq scan ping`
+
+```text
+Usage: hq scan ping [OPTIONS]
+
+ Check connectivity and responsiveness of security inspection engines.
+
+ Args:
+ clamav_socket: UNIX domain socket path for clamd.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --clamav-socket        <str>  Path to ClamAV UNIX domain socket              │
+│                               [default: /var/run/clamav/clamd.ctl]           │
+│ --help                        Show this message and exit.                    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq scanner`
+
+```text
+Usage: hq scanner [OPTIONS] COMMAND [ARGS]...
+
+ Malware inspection, antivirus verification, and quarantine daemon
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ file    Inspect a local file for virus signatures and YARA heuristic         │
+│         matches.                                                             │
+│ daemon  Run the background security scanner worker daemon.                   │
+│ ping    Check connectivity and responsiveness of security inspection         │
+│         engines.                                                             │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq scanner daemon`
+
+```text
+Usage: hq scanner daemon [OPTIONS]
+
+ Run the background security scanner worker daemon.
+
+ Args:
+     poll_interval: Loop sleep interval in seconds.
+     quarantine_on_threat: Flag to quarantine or reject threats.
+
+ Notes/Architectural Intent:
+     Continuously polls for staged collateral bundles, verifies them against
+     configured antivirus engines, and promotes or quarantines them.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --poll-interval  -i              <float>  Polling interval in seconds for    │
+│                                           scan task queue                    │
+│                                           [default: 1.0]                     │
+│ --quarantine         --reject             Whether to isolate threats in      │
+│                                           quarantine vault or reject         │
+│                                           outright                           │
+│                                           [default: quarantine]              │
+│ --help                                    Show this message and exit.        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq scanner file`
+
+```text
+Usage: hq scanner file [OPTIONS] {file_path}
+
+ Inspect a local file for virus signatures and YARA heuristic matches.
+
+ Args:
+     file_path: Path to target file on disk.
+     clamav_socket: ClamAV socket path.
+     yara_rule: Optional list of YARA rule paths.
+
+ Notes/Architectural Intent:
+     Executes immediate multi-engine scan on local target file without
+ requiring
+     a running server or collateral registration.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    file_path      <path>  Path to local file or artifact to scan           │
+│                             [required]                                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --clamav-socket          <str>  Path to ClamAV UNIX domain socket            │
+│                                 [default: /var/run/clamav/clamd.ctl]         │
+│ --rule           -r      <str>  Path to YARA rule file (.yar)                │
+│ --help                          Show this message and exit.                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq scanner ping`
+
+```text
+Usage: hq scanner ping [OPTIONS]
+
+ Check connectivity and responsiveness of security inspection engines.
+
+ Args:
+ clamav_socket: UNIX domain socket path for clamd.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --clamav-socket        <str>  Path to ClamAV UNIX domain socket              │
+│                               [default: /var/run/clamav/clamd.ctl]           │
+│ --help                        Show this message and exit.                    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq scheduling`
+
+```text
+Usage: hq [OPTIONS] COMMAND [ARGS]...
+Try 'hq --help' for help.
+╭─ Error ──────────────────────────────────────────────────────────────────────╮
+│ No such command 'scheduling'.                                                │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq server`
+
+```text
+Usage: hq server [OPTIONS] COMMAND [ARGS]...
+
+ Manage Hexaqueue central scheduler and HTTP/ASGI API server
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ start  Start Hexaqueue central scheduler and API server.                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq server start`
+
+```text
+Usage: hq server start [OPTIONS]
+
+ Start Hexaqueue central scheduler and API server.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --config      -c              <str>  Path to TOML configuration file (e.g.   │
+│                                      hexaqueue.toml)                         │
+│ --host        -h              <str>  Bind host address [default: 0.0.0.0]    │
+│ --port        -p              <int>  Bind port number [default: 8000]        │
+│ --engine      -e              <str>  ASGI engine: 'uvicorn' or 'granian'     │
+│                                      [default: uvicorn]                      │
+│ --role        -r              <str>  Server role: 'all', 'gateway',          │
+│                                      'worker-api', 'analytics', 'mcp',       │
+│                                      'custom'                                │
+│                                      [default: all]                          │
+│ --interfaces                  <str>  Comma-separated interface list (e.g.    │
+│                                      'runs,webhooks,collateral,mcp')         │
+│ --mcp             --no-mcp           Explicitly enable or disable MCP        │
+│                                      driving adapter                         │
+│ --workers     -w              <int>  Number of worker processes              │
+│ --reload                             Enable auto-reload on code changes      │
+│ --help                               Show this message and exit.             │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq stat`
+
+```text
+Usage: hq stat [OPTIONS]
+
+ Display high-level cluster state and backlog statistics.
+
+ Args:
+     format_type: Output format (table, json, markdown, plain, rich).
+
+ Notes/Architectural Intent:
+     Provides rapid cluster health and queue backlog telemetry.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --format  -f      <str>  Output presentation format (table, json, markdown,  │
+│                          rich, plain, auto).                                 │
+│                          [default: table]                                    │
+│ --help                   Show this message and exit.                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq status`
+
+```text
+Usage: hq status [OPTIONS] {target_id}
+
+ Check status of a run or job.
+
+ Args:
+     target_id: Identifier of the run or job to inspect.
+     format_type: Chosen serialization output format.
+
+ Notes/Architectural Intent:
+     Attempts run status resolution first, falling back to individual job
+ inspection.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    target_id      <str>  Run ID or Job ID to inspect [required]            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --format  -f      <str>  Output presentation format (table, json, markdown,  │
+│                          rich, plain, auto).                                 │
+│                          [default: table]                                    │
+│ --help                   Show this message and exit.                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq submit`
+
+```text
+Usage: hq submit [OPTIONS] {spec_path}
+
+ Submit a workload run or suite definition file.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    spec_path      <path>  Path to pipeline YAML spec or suite definition   │
+│                             file                                             │
+│                             [required]                                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --watch      -w             Watch execution until completion                 │
+│ --free-tier                 Enable Free-Tier Safety Mode                     │
+│ --admin                     Assert explicit administrative elevation         │
+│ --user       -u      <str>  Submitting user identity [default: default]      │
+│ --format     -f      <str>  Output presentation format (table, json,         │
+│                             markdown, rich, plain, auto).                    │
+│                             [default: table]                                 │
+│ --help                      Show this message and exit.                      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq suite`
+
+```text
+Usage: hq suite [OPTIONS] COMMAND [ARGS]...
+
+ Manage and execute hierarchical suite workloads and parameter sweeps
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ run  Compile and submit a hierarchical suite workload.                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq suite run`
+
+```text
+Usage: hq suite run [OPTIONS] {suite_file}
+
+ Compile and submit a hierarchical suite workload.
+
+ Args:
+     suite_file: Path to YAML or JSON suite specification.
+     user: Submitting user identity.
+     admin: Administrative elevation flag.
+     format_type: Chosen serialization output format.
+
+ Notes/Architectural Intent:
+     Flattens multi-level parameter inheritance, matrix sweeps, and DAG
+     dependencies, dispatching to the underlying execution engine.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    suite_file      <path>  Path to suite specification YAML or JSON file   │
+│                              [required]                                      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --user    -u      <str>  User identity submitting the suite workload         │
+│                          [default: default]                                  │
+│ --admin                  Assert explicit administrative elevation for        │
+│                          privileged execution                                │
+│ --format  -f      <str>  Output presentation format (table, json, markdown,  │
+│                          rich, plain, auto).                                 │
+│                          [default: table]                                    │
+│ --help                   Show this message and exit.                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq top`
+
+```text
+Usage: hq top [OPTIONS]
+
+ Interactive live cluster and queue monitoring dashboard.
+
+ Args:
+     interval: Refresh period in seconds for live loop.
+     once: Print static dashboard snapshot and exit immediately.
+
+ Notes/Architectural Intent:
+     Composes cluster summary, node telemetry, and top running/queued jobs into
+ a reactive view.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --interval  -i      <float>  Refresh interval in seconds [default: 1.0]      │
+│ --once      -1               Print dashboard once and exit                   │
+│ --help                       Show this message and exit.                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq why`
+
+```text
+Usage: hq why [OPTIONS] {job_id}
+
+ Explain why a job is currently waiting in the queue.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    job_id      <str>  Job ID to explain [required]                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --admin                 Assert explicit administrative elevation             │
+│ --user   -u      <str>  Requesting username [default: default]               │
+│ --help                  Show this message and exit.                          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq workflow`
+
+```text
+Usage: hq workflow [OPTIONS] COMMAND [ARGS]...
+
+ Hexaflow distributed workflow orchestration and cluster scheduling commands.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ submit  Submit a workflow definition for distributed cluster execution.      │
+│ status  Inspect status, checkpoints, and staged artifacts for a workflow     │
+│         run.                                                                 │
+│ resume  Resume execution of a suspended workflow run from its latest         │
+│         checkpoints.                                                         │
+│ abort   Abort an active or suspended workflow, unwinding step compensations  │
+│         in reverse order.                                                    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq workflow abort`
+
+```text
+Usage: hq workflow abort [OPTIONS] {run_id} {target}
+
+ Abort an active or suspended workflow, unwinding step compensations in reverse
+ order.
+
+ Args:
+ run_id: Run identifier to abort.
+ target: Workflow file specifier containing compensations.
+ db_path: SQLite state database path.
+ format_type: Output presentation format.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    run_id      <str>  Workflow run identifier to abort [required]          │
+│ *    target      <str>  Path to workflow file [required]                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --db              <str>  Path to SQLite state database                       │
+│                          [default: .hexaflow/state.db]                       │
+│ --format  -f      <str>  Output presentation format (table, json, markdown,  │
+│                          rich, plain, auto).                                 │
+│                          [default: table]                                    │
+│ --help                   Show this message and exit.                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq workflow in`
+
+```text
+Usage: hq workflow [OPTIONS] COMMAND [ARGS]...
+Try 'hq workflow --help' for help.
+╭─ Error ──────────────────────────────────────────────────────────────────────╮
+│ No such command 'in'.                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq workflow resume`
+
+```text
+Usage: hq workflow resume [OPTIONS] {run_id} {target}
+
+ Resume execution of a suspended workflow run from its latest checkpoints.
+
+ Args:
+ run_id: Suspended run identifier.
+ target: Target workflow file specifier.
+ inputs: Optional patch inputs.
+ skip_steps: Optional step names to skip.
+ db_path: SQLite state database path.
+ format_type: Output presentation format.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    run_id      <str>  Suspended workflow run identifier [required]         │
+│ *    target      <str>  Path to workflow file, e.g. 'pipeline.py' or         │
+│                         'pipeline.py:my_flow'                                │
+│                         [required]                                           │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --inputs  -i      <str>  Patch inputs for resuming step frontier             │
+│ --skip            <str>  Step names to explicitly skip                       │
+│ --db              <str>  Path to SQLite state database                       │
+│                          [default: .hexaflow/state.db]                       │
+│ --format  -f      <str>  Output presentation format (table, json, markdown,  │
+│                          rich, plain, auto).                                 │
+│                          [default: table]                                    │
+│ --help                   Show this message and exit.                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq workflow status`
+
+```text
+Usage: hq workflow status [OPTIONS] {run_id}
+
+ Inspect status, checkpoints, and staged artifacts for a workflow run.
+
+ Args:
+ run_id: Run identifier to query.
+ db_path: SQLite state store database path.
+ format_type: Output presentation format.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    run_id      <str>  Workflow execution run identifier to inspect         │
+│                         [required]                                           │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --db              <str>  Path to SQLite state database                       │
+│                          [default: .hexaflow/state.db]                       │
+│ --format  -f      <str>  Output presentation format (table, json, markdown,  │
+│                          rich, plain, auto).                                 │
+│                          [default: table]                                    │
+│ --help                   Show this message and exit.                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq workflow submit`
+
+```text
+Usage: hq workflow submit [OPTIONS] {target}
+
+ Submit a workflow definition for distributed cluster execution.
+
+ Args:
+ target: Target file path or specifier.
+ inputs: Optional JSON inputs string.
+ notify: Optional list of notification destination URLs.
+ notify_on: Comma- or pipe-separated lifecycle triggers.
+ db_path: SQLite state store database path.
+ watch: Whether to block and watch until terminal completion.
+ format_type: Output presentation format.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    target      <str>  Path to workflow file, e.g. 'pipeline.py' or         │
+│                         'pipeline.py:my_flow'                                │
+│                         [required]                                           │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --inputs     -i      <str>  JSON dictionary of initial inputs                │
+│ --notify     -n      <str>  Notification targets (e.g. slack://...,          │
+│                             pagerduty://...)                                 │
+│ --notify-on          <str>  Lifecycle triggers (e.g. COMPLETED, FAILED,      │
+│                             ERRORS, ALL)                                     │
+│                             [default: ERRORS]                                │
+│ --db                 <str>  Path to SQLite state database                    │
+│                             [default: .hexaflow/state.db]                    │
+│ --watch      -w             Watch workflow execution until completion        │
+│ --format     -f      <str>  Output presentation format (table, json,         │
+│                             markdown, rich, plain, auto).                    │
+│                             [default: table]                                 │
+│ --help                      Show this message and exit.                      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```

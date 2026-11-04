@@ -10,7 +10,7 @@ inputs:
   version:
     description: "Hexaqueue package version requirement to install on runner"
     required: false
-    default: ">=0.8.0"
+    default: ">=0.8.1"
   probe-only:
     description: "Only probe and verify cluster connectivity; stop tunnel before step completion (for probe stages)"
     required: false
@@ -28,8 +28,14 @@ outputs:
   cluster-ready:
     description: "Whether an active cloud node was discovered and successfully tunneled"
     value: ${{ steps.tunnel.outputs.cluster_ready }}
+  cluster_ready:
+    description: "Whether an active cloud node was discovered and successfully tunneled (snake_case alias)"
+    value: ${{ steps.tunnel.outputs.cluster_ready }}
   cluster-host:
     description: "Hostname or IP address of the connected cluster controller"
+    value: ${{ steps.tunnel.outputs.cluster_host }}
+  cluster_host:
+    description: "Hostname or IP address of the connected cluster controller (snake_case alias)"
     value: ${{ steps.tunnel.outputs.cluster_host }}
 
 runs:

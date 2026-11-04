@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## v0.8.1 (2026-11-04)
+
+### Standalone CLI Packaging & Composite Action Hardening
+* **Standalone CLI Dependency & Entrypoint Completeness (`hexaqueue`, `hexaqueue-core`, `hexaqueue-server`)**:
+  * Added `[project.scripts]` (`hq` and `hexaqueue`) directly to the umbrella `hexaqueue` package so `uv tool install hexaqueue` and standalone runner installations expose the `hq` CLI entrypoint natively.
+  * Added `hypothesis>=6.100.0` to `hexaqueue-core` runtime dependencies and `greenlet>=3.0.0` to `hexaqueue-server` runtime dependencies so standalone `hq cluster discover` and `hq cluster tunnel` invocations execute cleanly in minimal non-dev runner environments.
+* **Composite GitHub Action Hardening (`action.yml`)**:
+  * Added automatic `.env` variable export to `$GITHUB_ENV` (excluding raw base64 private keys) so `HEXAQUEUE_CLUSTER_HOST` and `HEXAQUEUE_SSH_USER` propagate to subsequent workflow steps.
+  * Exported both `kebab-case` (`cluster-ready`, `cluster-host`) and `snake_case` (`cluster_ready`, `cluster_host`) composite action outputs for downstream job compatibility.
+  * Ensured `$HOME/.local/bin` and `$PWD/.venv/bin` are appended to `$GITHUB_PATH` and active step `PATH`.
+
 ## v0.8.0 (2026-11-04)
 
 ### Composite GitHub Action & CAS Collateral Workspace Transport

@@ -1,6 +1,6 @@
 [project]
 name = "hexaqueue"
-version = "0.8.0"
+version = "0.8.1"
 description = "Hexaqueue - Cloud-Agnostic HPC Batch Scheduler and Distributed Job Orchestrator"
 readme = "README.md"
 license = "Apache-2.0"
@@ -23,6 +23,10 @@ dependencies = [
     "hexaqueue-workflow",
     "pytest-hexaqueue",
 ]
+
+[project.scripts]
+hq = "hexaqueue_cli.main:app"
+hexaqueue = "hexaqueue_cli.main:app"
 
 [project.optional-dependencies]
 dotenv = [
