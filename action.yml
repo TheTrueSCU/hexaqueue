@@ -38,18 +38,25 @@ runs:
     - name: Install Hexaqueue CLI
       shell: bash
       run: |
+        if [ -d "$HOME/.local/bin" ]; then
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$PATH"
+        fi
         if command -v hq >/dev/null 2>&1; then
           echo "Hexaqueue CLI is already installed ($(hq --version 2>/dev/null || echo 'ready'))."
+        elif [ -f ".venv/bin/hq" ]; then
+          echo "Hexaqueue CLI found in local .venv/bin/hq"
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
         elif [ -f "packages/hexaqueue_cli/pyproject.toml" ]; then
           echo "Detected local workspace; syncing hexaqueue_cli..."
           uv sync --package hexaqueue_cli --package hexaqueue_core
-          # Ensure bin is in PATH
           if [ -d ".venv/bin" ]; then
             echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
           fi
         else
           echo "Installing Hexaqueue CLI (${{ inputs.version }})..."
-          uv tool install "hexaqueue${{ inputs.version }}" 2>/dev/null || pip install --user "hexaqueue${{ inputs.version }}" 2>/dev/null || pip install "hexaqueue${{ inputs.version }}"
+          uv tool install --from "hexaqueue${{ inputs.version }}" hexaqueue-cli 2>/dev/null || pip install --user "hexaqueue${{ inputs.version }}" 2>/dev/null || pip install "hexaqueue${{ inputs.version }}"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
         fi
 
     - name: Hydrate Cluster Environment & SSH Credentials
@@ -79,7 +86,8 @@ runs:
         PROBE_ONLY: ${{ inputs.probe-only }}
         EMIT_SUMMARY: ${{ inputs.step-summary }}
       run: |
-        DISCOVERY=$(hq cluster discover --format json 2>/dev/null || echo "[]")
+        export PATH="$HOME/.local/bin:$PWD/.venv/bin:$PATH"
+        DISCOVERY=$(hq cluster discover --format json || echo "[]")
         echo "Discovered fleet topology: $DISCOVERY"
 
         SELECTED_HOST=$(echo "$DISCOVERY" | python3 -c "
