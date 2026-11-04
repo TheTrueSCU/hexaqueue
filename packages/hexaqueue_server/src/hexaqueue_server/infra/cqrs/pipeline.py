@@ -349,7 +349,7 @@ def create_hexaqueue_execution_pipeline(
         lambda qry: run_coro_sync(service.handle_get_cluster_metrics(qry)),
     )
 
-    return ExecutionPipeline(
+    pipeline = ExecutionPipeline(
         command_bus=SynchronousCommandBus(handler_registry=handler_reg),
         query_bus=SynchronousQueryBus(handler_registry=handler_reg),
         event_bus=SynchronousEventBus(),
@@ -357,6 +357,8 @@ def create_hexaqueue_execution_pipeline(
         query_registry=query_reg,
         handler_registry=handler_reg,
     )
+    object.__setattr__(pipeline, "service", service)
+    return pipeline
 
 
 __all__ = [

@@ -5,17 +5,23 @@ Notes/Architectural Intent:
     dead-letter queue inspection for unrecoverable failures, and cost/budget settlement.
 """
 
+import hashlib
 from typing import Annotated, Any
 
 from fastapi import (
     APIRouter,
     Depends,
+    Header,
+    HTTPException,
     Query,
+    Request,
     Response,
+    status,
 )
 from hexastack_cqrs.infra.pipeline import ExecutionPipeline
 from hexastack_fastapi.adapters.dependencies import get_pipeline
 
+from hexaqueue_collateral.domain.models import IngestionRequest
 from hexaqueue_core.domain.collateral import CollateralBundle
 from hexaqueue_core.domain.cqrs import (
     ClusterMetricsReport,
@@ -100,6 +106,55 @@ def create_cluster_router() -> APIRouter:
             elevate=is_elevated,
         )
         return _dispatch(pipeline, effective_cmd)
+
+    @router.post(
+        "/collateral/stage",
+        response_model=CollateralBundle,
+        summary="Stream and stage raw collateral binary payload directly into CAS",
+    )
+    async def stage_collateral_stream(
+        request: Request,
+        pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
+        x_collateral_name: Annotated[str | None, Header()] = None,
+        x_collateral_sha256: Annotated[str | None, Header()] = None,
+    ) -> CollateralBundle:
+        """Receive octet-stream payload, register collateral, stage bytes, and promote to approved CAS."""
+        user_id, _ = auth
+        collateral_svc = getattr(
+            getattr(pipeline, "service", None), "collateral_service", None
+        )
+        if collateral_svc is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Collateral service adapter is not available on execution pipeline",
+            )
+
+        filename = x_collateral_name or "workspace.tar.gz"
+        body_bytes = await request.body()
+        size_bytes = len(body_bytes)
+
+        actual_sha = hashlib.sha256(body_bytes).hexdigest()
+        if x_collateral_sha256 and x_collateral_sha256.lower().strip() != actual_sha:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Checksum mismatch: header declared {x_collateral_sha256} but body evaluated to {actual_sha}",
+            )
+
+        # Check CAS cache hit
+        existing = await collateral_svc.find_by_checksum(actual_sha)
+        if existing is not None:
+            return existing
+
+        req = IngestionRequest(
+            filename=filename,
+            job_id=user_id,
+            sha256_checksum=actual_sha,
+            size_bytes=size_bytes,
+        )
+        desc = await collateral_svc.register(req)
+        await collateral_svc.stage_file(desc.bundle.id, body_bytes)
+        return await collateral_svc.process_quarantine(desc.bundle.id)
 
     @router.get(
         "/collateral/checksum/{sha256_checksum}",

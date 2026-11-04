@@ -226,3 +226,61 @@ async def test_http_dispatch_client_bearer_token(
     assert len(captured_headers) == 2
     assert captured_headers[0].get("Authorization") == "Bearer test-secret-token"
     assert captured_headers[1].get("Authorization") == "Bearer test-secret-token"
+
+
+@pytest.mark.asyncio
+async def test_http_dispatch_client_collateral_staging_and_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test HTTP client collateral cache lookup and atomic staging."""
+    import httpx
+
+    requests_made: list[tuple[str, str]] = []
+
+    class MockAsyncClientCollateral:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        async def __aenter__(self) -> "MockAsyncClientCollateral":
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            pass
+
+        async def get(self, url: str) -> httpx.Response:
+            requests_made.append(("GET", url))
+            if "found-sha" in url:
+                return httpx.Response(
+                    200, json={"id": "col-cached-1", "state": "APPROVED"}
+                )
+            return httpx.Response(404, json={"detail": "Not found"})
+
+        async def post(self, url: str, **kwargs: object) -> httpx.Response:
+            requests_made.append(("POST", url))
+            if "fail-stage" in url or "fail-upload" in str(kwargs.get("content")):
+                return httpx.Response(500, text="Staging error")
+            return httpx.Response(
+                201, json={"id": "col-staged-new", "state": "APPROVED"}
+            )
+
+    monkeypatch.setattr(httpx, "AsyncClient", MockAsyncClientCollateral)
+
+    client = HexaqueueTestDispatchClient(server_url="http://mocked-hexaqueue:8000")
+
+    # 1. CAS cache hit
+    hit_id = await client.find_collateral_by_checksum("found-sha")
+    assert hit_id == "col-cached-1"
+
+    cached_upload_id = await client.upload_collateral_bundle(b"dummy", "found-sha")
+    assert cached_upload_id == "col-cached-1"
+
+    # 2. CAS miss -> upload to /collateral/stage
+    miss_id = await client.find_collateral_by_checksum("missing-sha")
+    assert miss_id is None
+
+    new_id = await client.upload_collateral_bundle(b"new-data", "missing-sha")
+    assert new_id == "col-staged-new"
+
+    # 3. Failed staging raises ConnectionError
+    with pytest.raises(ConnectionError, match="Failed to stage collateral"):
+        await client.upload_collateral_bundle(b"fail-upload", "failing-sha")

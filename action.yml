@@ -1,0 +1,151 @@
+name: "Setup Hexaqueue Cloud Mesh"
+description: "Zero-trust tunnel, CAS collateral hydration, and distributed test mesh orchestration for pytest-hexaqueue"
+author: "TheTrueSCU"
+
+inputs:
+  cluster-env:
+    description: "Multi-line environment secret containing cluster definitions and SSH keys (e.g. secrets.HEXAQUEUE_ENV)"
+    required: false
+    default: ""
+  version:
+    description: "Hexaqueue package version requirement to install on runner"
+    required: false
+    default: ">=0.8.0"
+  probe-only:
+    description: "Only probe and verify cluster connectivity; stop tunnel before step completion (for probe stages)"
+    required: false
+    default: "false"
+  auto-tunnel:
+    description: "Automatically discover reachable fleet nodes and establish SSH background tunnel"
+    required: false
+    default: "true"
+  step-summary:
+    description: "Emit interactive discovery table and cluster status to GITHUB_STEP_SUMMARY"
+    required: false
+    default: "true"
+
+outputs:
+  cluster-ready:
+    description: "Whether an active cloud node was discovered and successfully tunneled"
+    value: ${{ steps.tunnel.outputs.cluster_ready }}
+  cluster-host:
+    description: "Hostname or IP address of the connected cluster controller"
+    value: ${{ steps.tunnel.outputs.cluster_host }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install Hexaqueue CLI
+      shell: bash
+      run: |
+        if command -v hq >/dev/null 2>&1; then
+          echo "Hexaqueue CLI is already installed ($(hq --version 2>/dev/null || echo 'ready'))."
+        else
+          echo "Installing Hexaqueue CLI (${{ inputs.version }})..."
+          uv pip install --system "hexaqueue${{ inputs.version }}" 2>/dev/null || pip install "hexaqueue${{ inputs.version }}" 2>/dev/null || uv pip install "hexaqueue${{ inputs.version }}"
+        fi
+
+    - name: Hydrate Cluster Environment & SSH Credentials
+      shell: bash
+      env:
+        DOTENV_PAYLOAD: ${{ inputs.cluster-env }}
+      run: |
+        if [ -n "$DOTENV_PAYLOAD" ]; then
+          echo "$DOTENV_PAYLOAD" > .env
+          chmod 600 .env
+          if grep -q "HEXAQUEUE_SSH_KEY_B64=" .env; then
+            mkdir -p ~/.ssh && chmod 700 ~/.ssh
+            grep "HEXAQUEUE_SSH_KEY_B64=" .env | cut -d '=' -f2- | tr -d ' \r\n"' | base64 -d -i > ~/.ssh/hexaqueue_ci_id
+            chmod 600 ~/.ssh/hexaqueue_ci_id
+            echo "HEXAQUEUE_SSH_KEY=$HOME/.ssh/hexaqueue_ci_id" >> .env
+            echo "HEXAQUEUE_SSH_KEY=$HOME/.ssh/hexaqueue_ci_id" >> "$GITHUB_ENV"
+          fi
+          if grep -q "HEXAQUEUE_SSH_USER=" .env; then
+            SSH_USER_VAL=$(grep "HEXAQUEUE_SSH_USER=" .env | cut -d '=' -f2- | tr -d ' \r\n"')
+            echo "HEXAQUEUE_SSH_USER=$SSH_USER_VAL" >> "$GITHUB_ENV"
+          fi
+        fi
+
+    - name: Discover and Tunnel Cluster Fleet
+      id: tunnel
+      shell: bash
+      env:
+        NO_COLOR: "1"
+        AUTO_TUNNEL: ${{ inputs.auto-tunnel }}
+        PROBE_ONLY: ${{ inputs.probe-only }}
+        EMIT_SUMMARY: ${{ inputs.step-summary }}
+      run: |
+        DISCOVERY=$(hq cluster discover --format json 2>/dev/null || echo "[]")
+        echo "Discovered fleet topology: $DISCOVERY"
+
+        SELECTED_HOST=$(echo "$DISCOVERY" | python3 -c "
+        import sys, json, re
+        try:
+            raw = sys.stdin.read()
+            clean = re.sub(r'\x1b\[[0-9;]*m', '', raw).strip()
+            candidates = json.loads(clean, strict=False)
+            ready = [c for c in candidates if c.get('status') in ('ONLINE', 'SSH_AVAILABLE')]
+            if ready:
+                print(ready[0]['host'])
+        except Exception as exc:
+            print(f'JSON parse error: {exc}', file=sys.stderr)
+        ")
+
+        CLUSTER_READY="false"
+        if [ "$AUTO_TUNNEL" = "true" ] && [ -n "$SELECTED_HOST" ]; then
+          echo "Establishing zero-trust SSH tunnel to $SELECTED_HOST..."
+          KEY_ARG=""
+          if [ -f "$HOME/.ssh/hexaqueue_ci_id" ]; then
+            KEY_ARG="--key $HOME/.ssh/hexaqueue_ci_id"
+          fi
+          if hq cluster tunnel --host "$SELECTED_HOST" $KEY_ARG; then
+            echo "Tunnel successfully established to Hexaqueue controller ($SELECTED_HOST)."
+            CLUSTER_READY="true"
+            echo "cluster_ready=true" >> "$GITHUB_OUTPUT"
+            echo "cluster_host=$SELECTED_HOST" >> "$GITHUB_OUTPUT"
+
+            if [ "$PROBE_ONLY" = "true" ]; then
+              echo "Probe-only mode enabled: tearing down probe tunnel..."
+              hq cluster tunnel --stop || true
+            fi
+          fi
+        fi
+
+        if [ "$CLUSTER_READY" != "true" ]; then
+          echo "No reachable cloud cluster nodes available; setting cluster_ready=false."
+          echo "cluster_ready=false" >> "$GITHUB_OUTPUT"
+          echo "cluster_host=" >> "$GITHUB_OUTPUT"
+        fi
+
+        if [ "$EMIT_SUMMARY" = "true" ]; then
+          python3 -c "
+        import os, json, re
+        raw = '''$DISCOVERY'''
+        clean = re.sub(r'\x1b\[[0-9;]*m', '', raw).strip()
+        try:
+            nodes = json.loads(clean, strict=False)
+        except Exception:
+            nodes = []
+
+        summary_path = os.environ.get('GITHUB_STEP_SUMMARY')
+        if summary_path:
+            with open(summary_path, 'a') as f:
+                f.write('### 🌐 Hexaqueue Fleet Discovery & Mesh Summary\n\n')
+                if '$CLUSTER_READY' == 'true':
+                    f.write(f'✅ **Status**: Active zero-trust tunnel connected to \`$SELECTED_HOST\`. Distributed cloud execution active.\n\n')
+                else:
+                    f.write('⚠️ **Status**: No cloud controller reachable. Falling back to local in-process runner.\n\n')
+                if nodes:
+                    f.write('| Host | Provider | User | Status | Latency | Source |\n')
+                    f.write('|---|---|---|---|---|---|\n')
+                    for n in nodes:
+                        host = n.get('host', 'N/A')
+                        prov = n.get('provider', 'N/A')
+                        user = n.get('user', 'N/A')
+                        st = n.get('status', 'UNKNOWN')
+                        lat = f\"{n.get('latency_ms', 0.0):.1f}ms\" if n.get('latency_ms') is not None else 'N/A'
+                        src = n.get('source', 'N/A')
+                        f.write(f'| \`{host}\` | {prov} | \`{user}\` | **{st}** | {lat} | {src} |\n')
+                    f.write('\n')
+        " || true
+        fi

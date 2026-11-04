@@ -12,6 +12,7 @@ import base64
 import os
 import shutil
 import sys
+import tarfile
 import time
 import uuid
 from contextlib import nullcontext
@@ -19,6 +20,8 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
+from hexastack_cqrs.infra.pipeline import ExecutionPipeline
+from hexastack_fastapi.adapters.dependencies import get_pipeline
 from pydantic import BaseModel, ConfigDict, Field
 
 from hexaqueue_server.adapters.api.auth import get_auth_context
@@ -44,6 +47,7 @@ class TestRunDispatchRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     session_id: str
+    collateral_id: str | None = None
     pool: str = "default"
     free_tier: bool = False
     container: bool = False
@@ -96,6 +100,7 @@ def _build_slice_cmd(
     is_container: bool,
     container_image: str | None,
     coverage_sources: list[str] | None = None,
+    workspace_dir: Path | None = None,
 ) -> tuple[list[str], str, str]:
     """Construct execution command line, provider name, and worker ID for a slice."""
     cov_flags: list[str] = []
@@ -110,6 +115,7 @@ def _build_slice_cmd(
         provider = "CONTAINER"
         worker_id = f"worker-container-{worker_index}"
         unique_suffix = uuid.uuid4().hex[:8]
+        host_dir = workspace_dir or Path.cwd()
         cmd = [
             container_bin,
             "run",
@@ -117,7 +123,7 @@ def _build_slice_cmd(
             "--name",
             f"hq-slice-{slice_spec.slice_id}-{unique_suffix}",
             "-v",
-            f"{Path.cwd()}:/workspace",
+            f"{host_dir}:/workspace",
             "-w",
             "/workspace",
             image,
@@ -137,10 +143,18 @@ def _build_slice_cmd(
 
     provider = os.getenv("HEXAQUEUE_CSP_PROVIDER", "LOCAL")
     worker_id = f"worker-{provider.lower()}-{worker_index}"
+
+    pytest_bin = sys.executable
+    pytest_args = ["-m", "pytest"]
+    if workspace_dir and (workspace_dir / "pyproject.toml").exists():
+        uv_path = shutil.which("uv")
+        if uv_path:
+            pytest_bin = uv_path
+            pytest_args = ["run", "--directory", str(workspace_dir), "pytest"]
+
     cmd = [
-        sys.executable,
-        "-m",
-        "pytest",
+        pytest_bin,
+        *pytest_args,
         *slice_spec.test_nodeids,
         "-o",
         "addopts=",
@@ -227,16 +241,38 @@ async def _fetch_git_target(
 
 async def _prepare_session_workspace(
     session_id: str,
+    collateral_id: str | None = None,
     git_commit: str | None = None,
     git_ref: str | None = None,
     repo_root: Path | None = None,
+    collateral_service: Any = None,
 ) -> Path | None:
-    """Create an isolated, ephemeral Git worktree for session execution."""
+    """Create an isolated, ephemeral workspace for session execution."""
+    target_dir = Path("/tmp/hexaqueue/runs") / session_id
+
+    # 1. Collateral-based workspace transport (client code under test)
+    if collateral_id and collateral_service:
+        try:
+            bundle = await collateral_service.get_bundle(collateral_id)
+            bundle_path_str = bundle.active_uri or bundle.staging_uri
+            if bundle_path_str:
+                bundle_path = Path(bundle_path_str)
+                if bundle_path.exists():
+                    target_dir.parent.mkdir(parents=True, exist_ok=True)
+                    if target_dir.exists():
+                        shutil.rmtree(target_dir, ignore_errors=True)
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                    with tarfile.open(bundle_path, "r:gz") as tar:
+                        tar.extractall(path=target_dir, filter="data")
+                    return target_dir
+        except Exception:
+            pass
+
+    # 2. Fallback to Git worktree (for server self-dogfooding)
     root = repo_root or Path.cwd()
     if not (root / ".git").exists():
         return None
 
-    target_dir = Path("/tmp/hexaqueue/runs") / session_id
     try:
         target_dir.parent.mkdir(parents=True, exist_ok=True)
         if target_dir.exists():
@@ -286,26 +322,27 @@ async def _prepare_session_workspace(
 async def _cleanup_session_workspace(
     workspace_dir: Path | None, repo_root: Path | None = None
 ) -> None:
-    """Tear down and prune an ephemeral Git worktree."""
+    """Tear down and prune an ephemeral workspace."""
     if not workspace_dir or not workspace_dir.exists():
         return
     root = repo_root or Path.cwd()
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "git",
-            "-c",
-            "core.hooksPath=/dev/null",
-            "worktree",
-            "remove",
-            "--force",
-            str(workspace_dir),
-            cwd=str(root),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        await proc.communicate()
-    except Exception:
-        pass
+    if (root / ".git").exists():
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "git",
+                "-c",
+                "core.hooksPath=/dev/null",
+                "worktree",
+                "remove",
+                "--force",
+                str(workspace_dir),
+                cwd=str(root),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await proc.communicate()
+        except Exception:
+            pass
     shutil.rmtree(workspace_dir, ignore_errors=True)
 
 
@@ -326,6 +363,7 @@ async def _execute_slice(
         is_container,
         container_image,
         coverage_sources=coverage_sources,
+        workspace_dir=workspace_dir,
     )
     start_time = time.monotonic()
 
@@ -426,15 +464,21 @@ def create_test_runs_router() -> APIRouter:
         req: TestRunDispatchRequest,
         auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
         semaphore: Annotated[asyncio.Semaphore, Depends(get_worker_semaphore)],
+        pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
     ) -> TestRunDispatchResponse:
         """Receive test slices and execute them concurrently across worker nodes."""
         is_container = req.container or req.pool == "container"
         workspace_dir = None
+        collateral_svc = getattr(
+            getattr(pipeline, "service", None), "collateral_service", None
+        )
         if not is_container:
             workspace_dir = await _prepare_session_workspace(
                 session_id=req.session_id,
+                collateral_id=req.collateral_id,
                 git_commit=req.git_commit,
                 git_ref=req.git_ref,
+                collateral_service=collateral_svc,
             )
 
         try:

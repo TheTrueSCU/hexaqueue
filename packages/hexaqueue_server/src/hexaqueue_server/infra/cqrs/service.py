@@ -9,6 +9,7 @@ from typing import Any
 
 from hexaqueue_collateral.adapters.local import LocalCollateralServiceAdapter
 from hexaqueue_collateral.ports.service import CollateralServicePort
+from hexaqueue_core.adapters.security.noop import NoOpSecurityQuarantineAdapter
 from hexaqueue_core.adapters.storage.presigned import InMemoryPresignedStorageAdapter
 from hexaqueue_core.ports.budget import BudgetAccountingPort
 from hexaqueue_core.ports.logging import LogChunk
@@ -62,7 +63,8 @@ class HexaqueueCqrsService(
         self.nodes = nodes if nodes is not None else []
         self.storage_port = storage_port or InMemoryPresignedStorageAdapter()
         self.collateral_service = collateral_service or LocalCollateralServiceAdapter(
-            storage_port=self.storage_port
+            security_port=NoOpSecurityQuarantineAdapter(),
+            storage_port=self.storage_port,
         )
         self.budget_port = budget_port or InMemoryBudgetLedgerAdapter()
         self.cluster_monitor = cluster_monitor or LocalClusterMonitorAdapter()

@@ -6,6 +6,7 @@ Notes/Architectural Intent:
     and property test verification.
 """
 
+import uuid
 from typing import Any
 
 import httpx
@@ -61,6 +62,66 @@ class HexaqueueTestDispatchClient(HexaqueueTestDispatchPort):
         except (httpx.HTTPError, OSError):
             return False
 
+    async def find_collateral_by_checksum(self, sha256_checksum: str) -> str | None:
+        """Query cluster CAS for an approved collateral bundle matching a SHA-256 digest."""
+        try:
+            async with httpx.AsyncClient(
+                timeout=min(15.0, self.timeout_seconds), headers=self._headers()
+            ) as client:
+                resp = await client.get(
+                    f"{self.server_url}/collateral/checksum/{sha256_checksum.strip().lower()}"
+                )
+                if resp.status_code == 200 and resp.text.strip():
+                    data = resp.json()
+                    if isinstance(data, dict) and data.get("id"):
+                        state = data.get("state")
+                        if state in ("APPROVED", "UPLOADED"):
+                            return str(data["id"])
+                return None
+        except (httpx.HTTPError, OSError):
+            return None
+
+    async def upload_collateral_bundle(
+        self,
+        archive_bytes: bytes,
+        sha256_checksum: str,
+        filename: str = "workspace.tar.gz",
+    ) -> str:
+        """Register and stage a compressed collateral bundle in cluster CAS."""
+        headers = self._headers()
+        clean_sha = sha256_checksum.strip().lower()
+
+        # Step 1: Check CAS cache first
+        cached_id = await self.find_collateral_by_checksum(clean_sha)
+        if cached_id is not None:
+            return cached_id
+
+        # Step 2: Stream payload to /collateral/stage atomic staging endpoint
+        try:
+            stage_headers = dict(headers)
+            stage_headers["Content-Type"] = "application/octet-stream"
+            stage_headers["X-Collateral-Name"] = filename
+            stage_headers["X-Collateral-SHA256"] = clean_sha
+
+            async with httpx.AsyncClient(
+                timeout=self.timeout_seconds, headers=stage_headers
+            ) as client:
+                resp = await client.post(
+                    f"{self.server_url}/collateral/stage",
+                    content=archive_bytes,
+                )
+                if resp.status_code in (200, 201):
+                    data = resp.json()
+                    return str(data["id"])
+
+                msg = (
+                    f"Failed to stage collateral: HTTP {resp.status_code} - {resp.text}"
+                )
+                raise ConnectionError(msg)
+        except (httpx.HTTPError, OSError) as exc:
+            msg = f"Hexaqueue cluster collateral staging failed: {exc}"
+            raise ConnectionError(msg) from exc
+
     async def dispatch_run(
         self,
         session: TestRunSession,
@@ -69,6 +130,7 @@ class HexaqueueTestDispatchClient(HexaqueueTestDispatchPort):
         """Dispatch test slices to controller via HTTP API."""
         payload: dict[str, Any] = {
             "session_id": session.session_id,
+            "collateral_id": session.collateral_id,
             "pool": session.pool,
             "free_tier": session.free_tier,
             "container": session.container,
@@ -119,10 +181,29 @@ class InMemoryTestDispatchClient(HexaqueueTestDispatchPort):
         self.fail_nodeids = fail_nodeids or set()
         self.is_healthy = is_healthy
         self.dispatched_sessions: list[TestRunSession] = []
+        self._collateral_store: dict[str, str] = {}
 
     async def health_check(self) -> bool:
         """Return configured simulated health status."""
         return self.is_healthy
+
+    async def find_collateral_by_checksum(self, sha256_checksum: str) -> str | None:
+        """Find simulated approved collateral by checksum."""
+        return self._collateral_store.get(sha256_checksum.strip().lower())
+
+    async def upload_collateral_bundle(
+        self,
+        archive_bytes: bytes,
+        sha256_checksum: str,
+        filename: str = "workspace.tar.gz",
+    ) -> str:
+        """Simulate registering and staging a collateral bundle."""
+        clean_sha = sha256_checksum.strip().lower()
+        if clean_sha in self._collateral_store:
+            return self._collateral_store[clean_sha]
+        cid = f"col-mock-{uuid.uuid4().hex[:12]}"
+        self._collateral_store[clean_sha] = cid
+        return cid
 
     async def dispatch_run(
         self,

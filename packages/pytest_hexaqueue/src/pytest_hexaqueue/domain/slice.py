@@ -77,6 +77,10 @@ class TestRunSession(BaseModel):
     __test__ = False
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    collateral_id: str | None = Field(
+        default=None,
+        description="Registered CAS collateral bundle ID transporting workspace under test",
+    )
     container: bool = Field(
         default=False, description="Execute slices inside container worker runtime"
     )
