@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## v0.8.0 (2026-11-04)
+
+### Composite GitHub Action & CAS Collateral Workspace Transport
+* **Zero-Checkout CAS Collateral Workspace Packaging (`pytest-hexaqueue`, `hexaqueue-server`)**:
+  * Decoupled test runner client environments from remote controller git worktrees: client workspaces package code-under-test into content-addressable `.tar.gz` archives and upload directly to `/collateral/stage`.
+  * Implemented pluggable workspace archivers (`GitWorkspaceArchiver` via `git ls-files` with safety exclusions and metadata normalization, and `GenericWorkspaceArchiver` supporting `.gitignore` and `.ignore` path specs).
+  * Added SHA-256 header validation, deduplication hit caching, and safe extraction with `filter="data"` on `hexaqueue-server`.
+* **Turnkey Composite GitHub Action (`action.yml`)**:
+  * Authored turnkey composite action `TheTrueSCU/hexaqueue` supporting environment secret hydration (`cluster-env`), zero-trust SSH tunneling (`auto-tunnel`), probe stages (`probe-only`), and interactive summary reporting (`step-summary`).
+  * Converted `hexaqueue`'s own CI workflows to dogfood `uses: ./` across reachability probing and distributed test runs.
+* **Security & Governance Invariants**:
+  * Defaulted `LocalCollateralServiceAdapter` quarantine adapter to `NoOpSecurityQuarantineAdapter` for zero-trust private runner CI.
+  * Preserved full test symmetry and 1:1 test parity across all newly authored port and adapter modules.
+
 ## v0.7.0 (2026-11-03)
 
 ### Zero-Trust Ephemeral Test Cloud Slicing & Security Hardening
