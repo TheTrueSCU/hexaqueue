@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## v0.8.2 (2026-11-04)
+
+### CAS Collateral API Prefix Alignment & Isolated Remote Virtualenv Sync
+* **CAS Collateral Endpoint Prefix Alignment (`pytest-hexaqueue`)**:
+  * Updated `HexaqueueTestDispatchClient.find_collateral_by_checksum` and `upload_collateral_bundle` to target `/api/v1/collateral/checksum/{sha256}` and `/api/v1/collateral/stage`, matching the mounted `/api/v1` router prefix on `hexaqueue-server`.
+* **Single-Pass Remote Workspace Environment Sync (`hexaqueue-server`)**:
+  * Added `_sync_workspace_environment` to synchronize extracted `uv.lock` workspaces once prior to parallel slice execution (`_UV_SYNC_LOCK`) and execute slices directly via `workspace_dir/.venv/bin/python -m pytest` with isolated `VIRTUAL_ENV` and `PATH`.
+
 ## v0.8.1 (2026-11-04)
 
 ### Standalone CLI Packaging & Composite Action Hardening

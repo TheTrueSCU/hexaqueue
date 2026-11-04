@@ -64,12 +64,13 @@ class HexaqueueTestDispatchClient(HexaqueueTestDispatchPort):
 
     async def find_collateral_by_checksum(self, sha256_checksum: str) -> str | None:
         """Query cluster CAS for an approved collateral bundle matching a SHA-256 digest."""
+        clean_sha = sha256_checksum.strip().lower()
         try:
             async with httpx.AsyncClient(
                 timeout=min(15.0, self.timeout_seconds), headers=self._headers()
             ) as client:
                 resp = await client.get(
-                    f"{self.server_url}/collateral/checksum/{sha256_checksum.strip().lower()}"
+                    f"{self.server_url}/api/v1/collateral/checksum/{clean_sha}"
                 )
                 if resp.status_code == 200 and resp.text.strip():
                     data = resp.json()
@@ -96,7 +97,7 @@ class HexaqueueTestDispatchClient(HexaqueueTestDispatchPort):
         if cached_id is not None:
             return cached_id
 
-        # Step 2: Stream payload to /collateral/stage atomic staging endpoint
+        # Step 2: Stream payload to /api/v1/collateral/stage atomic staging endpoint
         try:
             stage_headers = dict(headers)
             stage_headers["Content-Type"] = "application/octet-stream"
@@ -107,7 +108,7 @@ class HexaqueueTestDispatchClient(HexaqueueTestDispatchPort):
                 timeout=self.timeout_seconds, headers=stage_headers
             ) as client:
                 resp = await client.post(
-                    f"{self.server_url}/collateral/stage",
+                    f"{self.server_url}/api/v1/collateral/stage",
                     content=archive_bytes,
                 )
                 if resp.status_code in (200, 201):

@@ -94,6 +94,55 @@ class TestRunDispatchResponse(BaseModel):
     reports: list[SliceOutcomeResponse] = Field(default_factory=list)
 
 
+_UV_SYNC_LOCK = asyncio.Lock()
+
+
+def _find_uv_binary() -> str | None:
+    """Locate the uv executable on PATH or standard user installation directories."""
+    found = shutil.which("uv")
+    if found:
+        return found
+    for candidate in (
+        Path.home() / ".local" / "bin" / "uv",
+        Path.home() / ".cargo" / "bin" / "uv",
+        Path("/usr/local/bin/uv"),
+    ):
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
+async def _sync_workspace_environment(workspace_dir: Path) -> None:
+    """Synchronize a uv-managed workspace environment once prior to slice execution."""
+    if (
+        not (workspace_dir / "pyproject.toml").exists()
+        or not (workspace_dir / "uv.lock").exists()
+    ):
+        return
+    uv_bin = _find_uv_binary()
+    if not uv_bin:
+        return
+    sync_env = dict(os.environ)
+    sync_env.pop("VIRTUAL_ENV", None)
+    sync_env.pop("PYTHONPATH", None)
+    async with _UV_SYNC_LOCK:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                uv_bin,
+                "sync",
+                "--all-packages",
+                "--all-extras",
+                "--all-groups",
+                cwd=str(workspace_dir),
+                env=sync_env,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await proc.communicate()
+        except Exception:
+            pass
+
+
 def _build_slice_cmd(
     slice_spec: TestSliceDispatch,
     worker_index: int,
@@ -146,11 +195,15 @@ def _build_slice_cmd(
 
     pytest_bin = sys.executable
     pytest_args = ["-m", "pytest"]
-    if workspace_dir and (workspace_dir / "pyproject.toml").exists():
-        uv_path = shutil.which("uv")
-        if uv_path:
-            pytest_bin = uv_path
-            pytest_args = ["run", "--directory", str(workspace_dir), "pytest"]
+    if workspace_dir:
+        venv_python = workspace_dir / ".venv" / "bin" / "python"
+        if venv_python.is_file():
+            pytest_bin = str(venv_python)
+        elif (workspace_dir / "pyproject.toml").exists():
+            uv_path = _find_uv_binary()
+            if uv_path:
+                pytest_bin = uv_path
+                pytest_args = ["run", "--directory", str(workspace_dir), "pytest"]
 
     cmd = [
         pytest_bin,
@@ -264,6 +317,7 @@ async def _prepare_session_workspace(
                     target_dir.mkdir(parents=True, exist_ok=True)
                     with tarfile.open(bundle_path, "r:gz") as tar:
                         tar.extractall(path=target_dir, filter="data")
+                    await _sync_workspace_environment(target_dir)
                     return target_dir
         except Exception:
             pass
@@ -381,6 +435,11 @@ async def _execute_slice(
     cov_file = f".coverage.hq.{slice_spec.slice_id}"
     env = dict(os.environ)
     env.pop("HEXAQUEUE_CSP_PROVIDER", None)
+    if workspace_dir and (workspace_dir / ".venv" / "bin").is_dir():
+        venv_dir = workspace_dir / ".venv"
+        env["VIRTUAL_ENV"] = str(venv_dir)
+        env.pop("PYTHONPATH", None)
+        env["PATH"] = f"{venv_dir / 'bin'}:{env.get('PATH', '')}"
     if coverage_sources:
         env["COVERAGE_FILE"] = cov_file
 

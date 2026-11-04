@@ -339,3 +339,44 @@ async def test_fetch_git_target_none() -> None:
     with patch("asyncio.create_subprocess_exec") as mock_exec:
         await _fetch_git_target(Path("/fake"), None, None)
         assert not mock_exec.called
+
+
+@pytest.mark.asyncio
+async def test_sync_workspace_and_venv_slice_cmd(tmp_path: Path) -> None:
+    """Verify workspace environment sync and .venv/bin/python slice command resolution."""
+    from hexaqueue_server.adapters.api.test_runs import _sync_workspace_environment
+
+    (tmp_path / "pyproject.toml").write_text(
+        "[project]\nname = 'demo'\n", encoding="utf-8"
+    )
+    (tmp_path / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+
+    mock_proc = AsyncMock()
+    mock_proc.returncode = 0
+    mock_proc.communicate.return_value = (b"", b"")
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
+        await _sync_workspace_environment(tmp_path)
+        called = mock_exec.called
+        assert called is True
+
+    venv_bin = tmp_path / ".venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    venv_python = venv_bin / "python"
+    venv_python.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    slice_spec = TestSliceDispatch(
+        slice_id="s-venv-0",
+        slice_index=0,
+        total_slices=1,
+        test_nodeids=["tests/unit/test_demo.py::test_it"],
+    )
+    cmd, _, _ = _build_slice_cmd(
+        slice_spec,
+        worker_index=0,
+        is_container=False,
+        container_image=None,
+        workspace_dir=tmp_path,
+    )
+    first_arg = cmd[0]
+    assert first_arg == str(venv_python)

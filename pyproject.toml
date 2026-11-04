@@ -1,6 +1,6 @@
 [project]
 name = "hexaqueue-workspace"
-version = "0.8.1"
+version = "0.8.2"
 description = "Hexaqueue - Cloud-Agnostic HPC Batch Scheduler and Distributed Job Orchestrator"
 readme = "README.md"
 requires-python = ">=3.12"

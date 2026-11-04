@@ -1,6 +1,6 @@
 [project]
 name = "hexaqueue-gitlab-runner"
-version = "0.8.1"
+version = "0.8.2"
 description = "Hexaqueue GitLab Runner - Custom Executor Driver for GitLab CI/CD"
 readme = "README.md"
 license = "Apache-2.0"
