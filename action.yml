@@ -40,9 +40,16 @@ runs:
       run: |
         if command -v hq >/dev/null 2>&1; then
           echo "Hexaqueue CLI is already installed ($(hq --version 2>/dev/null || echo 'ready'))."
+        elif [ -f "packages/hexaqueue_cli/pyproject.toml" ]; then
+          echo "Detected local workspace; syncing hexaqueue_cli..."
+          uv sync --package hexaqueue_cli --package hexaqueue_core
+          # Ensure bin is in PATH
+          if [ -d ".venv/bin" ]; then
+            echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          fi
         else
           echo "Installing Hexaqueue CLI (${{ inputs.version }})..."
-          uv pip install --system "hexaqueue${{ inputs.version }}" 2>/dev/null || pip install "hexaqueue${{ inputs.version }}" 2>/dev/null || uv pip install "hexaqueue${{ inputs.version }}"
+          uv tool install "hexaqueue${{ inputs.version }}" 2>/dev/null || pip install --user "hexaqueue${{ inputs.version }}" 2>/dev/null || pip install "hexaqueue${{ inputs.version }}"
         fi
 
     - name: Hydrate Cluster Environment & SSH Credentials
