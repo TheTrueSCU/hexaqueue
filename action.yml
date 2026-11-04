@@ -67,15 +67,7 @@ runs:
             echo "HEXAQUEUE_SSH_KEY=$HOME/.ssh/hexaqueue_ci_id" >> .env
             echo "HEXAQUEUE_SSH_KEY=$HOME/.ssh/hexaqueue_ci_id" >> "$GITHUB_ENV"
           fi
-          while IFS='=' read -r key value || [ -n "$key" ]; do
-            # Trim whitespace
-            key=$(echo "$key" | tr -d ' \r\n')
-            if [ -n "$key" ] && [[ ! "$key" =~ ^# ]] && [ "$key" != "HEXAQUEUE_SSH_KEY_B64" ]; then
-              # Strip enclosing quotes if present
-              value=$(echo "$value" | tr -d '\r\n' | sed -e 's/^["'\''']//' -e 's/["'\''']$//')
-              echo "$key=$value" >> "$GITHUB_ENV"
-            fi
-          done < .env
+          grep -E '^[A-Za-z_][A-Za-z0-9_]*=' .env | grep -v '^HEXAQUEUE_SSH_KEY_B64=' | tr -d '\r' >> "$GITHUB_ENV" || true
         fi
 
     - name: Discover and Tunnel Cluster Fleet
