@@ -54,8 +54,8 @@ runs:
           echo "Hexaqueue CLI found in local .venv/bin/hq"
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
         elif [ -f "packages/hexaqueue_cli/pyproject.toml" ]; then
-          echo "Detected local workspace; syncing hexaqueue_cli..."
-          uv sync --package hexaqueue_cli --package hexaqueue_core
+          echo "Detected local workspace; syncing hexaqueue..."
+          uv sync --package hexaqueue
           if [ -d ".venv/bin" ]; then
             echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
           fi

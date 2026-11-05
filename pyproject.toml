@@ -105,10 +105,11 @@ container = { image = "hexaqueue-worker:latest", runtime = "auto" }
 server_url = "http://127.0.0.1:8000"
 host = "129.146.115.79"
 ssh_user = "hexaqueue-ci"
-ssh_key = "~/.ssh/hexaqueue_ci"
+ssh_key = "~/.ssh/hexaqueue_ci_id"
+slices = 6
 local_slices = 2
-remote_slices = "auto"
-slices = 4
+remote_slices = 4
+slicer = "file"
 fallback = true
 
 [tool.hexaqueue.profiles.oci]
