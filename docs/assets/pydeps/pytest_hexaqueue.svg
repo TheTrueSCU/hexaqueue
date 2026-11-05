@@ -103,21 +103,21 @@
 <!-- pydantic -->
 <g id="node5" class="node">
 <title>pydantic</title><style>.edge>path:hover{stroke-width:8}</style>
-<polygon fill="#0c90f3" stroke="black" points="213.89,-1016.21 210.89,-1020.21 189.89,-1020.21 186.89,-1016.21 154.89,-1016.21 154.89,-980.21 213.89,-980.21 213.89,-1016.21"/>
+<polygon fill="#0691f9" stroke="black" points="213.89,-1016.21 210.89,-1020.21 189.89,-1020.21 186.89,-1016.21 154.89,-1016.21 154.89,-980.21 213.89,-980.21 213.89,-1016.21"/>
 <text text-anchor="middle" x="184.39" y="-995.71" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#ffffff">pydantic</text>
 </g>
 <!-- pydantic&#45;&gt;hexaqual -->
 <g id="edge6" class="edge">
 <title>pydantic&#45;&gt;hexaqual</title><style>.edge>path:hover{stroke-width:8}</style>
 <path fill="none" stroke="black" d="M184.39,-906.21C196.12,-866.04 134.09,-890.33 97.39,-870.21 94.49,-868.62 91.55,-866.87 88.64,-865.03"/>
-<polygon fill="#0c90f3" stroke="black" points="90.38,-861.99 80.11,-859.39 86.52,-867.82 90.38,-861.99"/>
+<polygon fill="#0691f9" stroke="black" points="90.38,-861.99 80.11,-859.39 86.52,-867.82 90.38,-861.99"/>
 </g>
 <!-- pydantic&#45;&gt;hexaqueue_core -->
 <g id="edge7" class="edge">
 <title>pydantic&#45;&gt;hexaqueue_core</title><style>.edge>path:hover{stroke-width:8}</style>
 <path fill="none" stroke="black" d="M181.57,-979.89C179.21,-961.46 177.25,-931.66 184.39,-907.21"/>
 <path fill="none" stroke="black" d="M184.39,-906.21C209.56,-834.58 65.09,-929.29 17.39,-870.21 -21.06,-822.59 13.78,-746.37 36.83,-706.7"/>
-<polygon fill="#0c90f3" stroke="black" points="39.97,-708.27 42.1,-697.9 33.96,-704.68 39.97,-708.27"/>
+<polygon fill="#0691f9" stroke="black" points="39.97,-708.27 42.1,-697.9 33.96,-704.68 39.97,-708.27"/>
 </g>
 <!-- pytest_hexaqueue_domain_delta -->
 <g id="node15" class="node">
@@ -131,7 +131,7 @@
 <g id="edge8" class="edge">
 <title>pydantic&#45;&gt;pytest_hexaqueue_domain_delta</title><style>.edge>path:hover{stroke-width:8}</style>
 <path fill="none" stroke="black" d="M184.39,-906.21C186.05,-900.54 242.96,-880.35 291.24,-864.15"/>
-<polygon fill="#0c90f3" stroke="black" points="292.39,-867.45 300.77,-860.97 290.17,-860.82 292.39,-867.45"/>
+<polygon fill="#0691f9" stroke="black" points="292.39,-867.45 300.77,-860.97 290.17,-860.82 292.39,-867.45"/>
 </g>
 <!-- pytest_hexaqueue_domain_outcome -->
 <g id="node16" class="node">
@@ -145,7 +145,7 @@
 <g id="edge9" class="edge">
 <title>pydantic&#45;&gt;pytest_hexaqueue_domain_outcome</title><style>.edge>path:hover{stroke-width:8}</style>
 <path fill="none" stroke="black" d="M184.39,-906.21C186.76,-898.1 187.72,-889.16 187.9,-880.59"/>
-<polygon fill="#0c90f3" stroke="black" points="191.4,-880.38 187.78,-870.42 184.4,-880.46 191.4,-880.38"/>
+<polygon fill="#0691f9" stroke="black" points="191.4,-880.38 187.78,-870.42 184.4,-880.46 191.4,-880.38"/>
 </g>
 <!-- pytest_hexaqueue_domain_slice -->
 <g id="node17" class="node">
@@ -159,7 +159,7 @@
 <g id="edge10" class="edge">
 <title>pydantic&#45;&gt;pytest_hexaqueue_domain_slice</title><style>.edge>path:hover{stroke-width:8}</style>
 <path fill="none" stroke="black" d="M184.39,-906.21C200.8,-850.01 388.31,-883.23 445.39,-870.21 452.41,-868.61 459.67,-866.7 466.88,-864.63"/>
-<polygon fill="#0c90f3" stroke="black" points="468.04,-867.94 476.63,-861.74 466.05,-861.23 468.04,-867.94"/>
+<polygon fill="#0691f9" stroke="black" points="468.04,-867.94 476.63,-861.74 466.05,-861.23 468.04,-867.94"/>
 </g>
 <!-- pytest -->
 <g id="node6" class="node">

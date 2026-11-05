@@ -778,6 +778,119 @@ async def _stage_workspace_collateral(
         return None
 
 
+def _normalize_cov_sources(
+    raw_sources: list[str],
+    root: Path | None = None,
+) -> list[str]:
+    """Convert workspace-internal absolute coverage paths to relative paths."""
+    resolved_root = (root or Path.cwd()).resolve()
+    normalized: list[str] = []
+    for src in raw_sources:
+        p = Path(src)
+        if p.is_absolute():
+            resolved_p = p.resolve()
+            if resolved_p.is_relative_to(resolved_root):
+                rel = resolved_p.relative_to(resolved_root)
+                normalized.append("." if str(rel) == "." else str(rel))
+                continue
+        normalized.append(src)
+    return normalized
+
+
+def _build_tunnel_command(resolved: Any) -> list[str] | None:
+    """Build foreground SSH port-forwarding command if a remote host is configured."""
+    from urllib.parse import urlparse
+
+    from hexaqueue_core.domain.credentials import discover_and_merge_env
+
+    env = discover_and_merge_env()
+    host = getattr(resolved, "host", None) or env.get("HEXAQUEUE_CLUSTER_HOST")
+    if not host:
+        return None
+    user = (
+        getattr(resolved, "ssh_user", None)
+        or env.get("HEXAQUEUE_SSH_USER")
+        or "hexaqueue-ci"
+    )
+    key = getattr(resolved, "ssh_key", None) or env.get("HEXAQUEUE_SSH_KEY")
+    ssh_port = getattr(resolved, "ssh_port", None) or 22
+    remote_port = getattr(resolved, "remote_port", None) or 8000
+    server_url = getattr(resolved, "server_url", "http://127.0.0.1:8000")
+    local_port = urlparse(server_url).port or 8000
+
+    cmd = [
+        "ssh",
+        "-N",
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=10",
+        "-o",
+        "ExitOnForwardFailure=yes",
+        "-o",
+        "ServerAliveInterval=15",
+        "-p",
+        str(ssh_port),
+        "-L",
+        f"{local_port}:localhost:{remote_port}",
+    ]
+    if key:
+        expanded = Path(key).expanduser()
+        if expanded.is_file():
+            cmd.extend(["-i", str(expanded)])
+    cmd.append(f"{user}@{host}")
+    return cmd
+
+
+@contextlib.asynccontextmanager
+async def _managed_ssh_tunnel(
+    resolved: Any,
+    client: "HexaqueueTestDispatchPort",
+) -> Any:
+    """Ensure cluster reachability, opening an ephemeral SSH tunnel when host is configured."""
+    if await client.health_check():
+        yield True
+        return
+
+    from pytest_hexaqueue.adapters.client import HexaqueueTestDispatchClient
+
+    cmd = (
+        _build_tunnel_command(resolved)
+        if resolved is not None and isinstance(client, HexaqueueTestDispatchClient)
+        else None
+    )
+    if not cmd:
+        yield False
+        return
+
+    proc: asyncio.subprocess.Process | None = None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        healthy = False
+        for _ in range(24):
+            if proc.returncode is not None:
+                break
+            if await client.health_check():
+                healthy = True
+                break
+            await asyncio.sleep(0.25)
+        yield healthy
+    except Exception:
+        yield False
+    finally:
+        if proc is not None and proc.returncode is None:
+            with contextlib.suppress(ProcessLookupError):
+                proc.terminate()
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(proc.wait(), timeout=2.0)
+
+
 async def _dispatch_slices_loop(
     slices: list["TestSliceSpec"],
     local_count: int,
@@ -788,6 +901,7 @@ async def _dispatch_slices_loop(
     cov_sources: list[str],
     server_url: str,
     allow_fallback: bool,
+    resolved_config: Any = None,
 ) -> list["SliceOutcomeReport"] | None:
     """Execute local, remote, or hybrid slices and aggregate outcomes."""
     from pytest_hexaqueue.domain.slice import TestRunSession
@@ -802,57 +916,56 @@ async def _dispatch_slices_loop(
         )
         return list(local_reports)
 
-    # Check remote cluster health
-    is_healthy = await client.health_check()
-    if not is_healthy:
-        if allow_fallback:
-            if local_count > 0:
-                fallback_reports = await asyncio.gather(
-                    *[local_runner.execute_slice(s, cov_sources) for s in slices]
-                )
-                return list(fallback_reports)
-            return None
-        msg = f"Hexaqueue cluster at '{server_url}' is offline and fallback is disabled"
-        raise ConnectionError(msg)
+    async with _managed_ssh_tunnel(resolved_config, client) as is_healthy:
+        if not is_healthy:
+            if allow_fallback:
+                if local_count > 0:
+                    fallback_reports = await asyncio.gather(
+                        *[local_runner.execute_slice(s, cov_sources) for s in slices]
+                    )
+                    return list(fallback_reports)
+                return None
+            msg = f"Hexaqueue cluster at '{server_url}' is offline and fallback is disabled"
+            raise ConnectionError(msg)
 
-    # Stage workspace under test as CAS collateral for remote workers
-    collateral_id = await _stage_workspace_collateral(client)
+        # Stage workspace under test as CAS collateral for remote workers
+        collateral_id = await _stage_workspace_collateral(client)
 
-    effective_run_session = (
-        run_session.model_copy(update={"collateral_id": collateral_id})
-        if collateral_id is not None
-        else run_session
-    )
+        effective_run_session = (
+            run_session.model_copy(update={"collateral_id": collateral_id})
+            if collateral_id is not None
+            else run_session
+        )
 
-    # Case 2: Pure remote execution
-    if local_count == 0:
-        return await client.dispatch_run(effective_run_session)
+        # Case 2: Pure remote execution
+        if local_count == 0:
+            return await client.dispatch_run(effective_run_session)
 
-    # Case 3: Hybrid execution (concurrent local + remote)
-    remote_run_session = TestRunSession(
-        session_id=str(uuid.uuid4()),
-        collateral_id=collateral_id,
-        total_items=sum(len(s.test_nodeids) for s in remote_slices),
-        total_slices=len(remote_slices),
-        slices=remote_slices,
-        server_url=server_url,
-        pool=run_session.pool,
-        free_tier=run_session.free_tier,
-        container=run_session.container,
-        container_image=run_session.container_image,
-        coverage_sources=cov_sources,
-        git_commit=run_session.git_commit,
-        git_ref=run_session.git_ref,
-    )
-    local_task = asyncio.gather(
-        *[local_runner.execute_slice(s, cov_sources) for s in local_slices]
-    )
-    remote_task = client.dispatch_run(remote_run_session)
+        # Case 3: Hybrid execution (concurrent local + remote)
+        remote_run_session = TestRunSession(
+            session_id=str(uuid.uuid4()),
+            collateral_id=collateral_id,
+            total_items=sum(len(s.test_nodeids) for s in remote_slices),
+            total_slices=len(remote_slices),
+            slices=remote_slices,
+            server_url=server_url,
+            pool=run_session.pool,
+            free_tier=run_session.free_tier,
+            container=run_session.container,
+            container_image=run_session.container_image,
+            coverage_sources=cov_sources,
+            git_commit=run_session.git_commit,
+            git_ref=run_session.git_ref,
+        )
+        local_task = asyncio.gather(
+            *[local_runner.execute_slice(s, cov_sources) for s in local_slices]
+        )
+        remote_task = client.dispatch_run(remote_run_session)
 
-    local_results, remote_results = await asyncio.gather(local_task, remote_task)
-    combined = list(local_results) + list(remote_results)
-    combined.sort(key=lambda r: r.slice_index)
-    return combined
+        local_results, remote_results = await asyncio.gather(local_task, remote_task)
+        combined = list(local_results) + list(remote_results)
+        combined.sort(key=lambda r: r.slice_index)
+        return combined
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -906,7 +1019,7 @@ def pytest_runtestloop(session: pytest.Session) -> bool | None:
     cov_sources: list[str] = []
     opt_cov = getattr(session.config.option, "cov_source", None)
     if opt_cov:
-        cov_sources = [str(s) for s in opt_cov]
+        cov_sources = _normalize_cov_sources([str(s) for s in opt_cov])
 
     active_commit, active_ref = _resolve_git_context()
 
@@ -925,6 +1038,7 @@ def pytest_runtestloop(session: pytest.Session) -> bool | None:
         git_ref=active_ref,
     )
 
+    resolved_cfg = session.config.stash.get(_CONFIG_KEY, None)
     try:
         reports = asyncio.run(
             _dispatch_slices_loop(
@@ -937,6 +1051,7 @@ def pytest_runtestloop(session: pytest.Session) -> bool | None:
                 cov_sources=cov_sources,
                 server_url=server_url,
                 allow_fallback=allow_fallback,
+                resolved_config=resolved_cfg,
             )
         )
     except Exception as exc:

@@ -1,6 +1,6 @@
 [project]
 name = "hexaqueue"
-version = "0.8.4"
+version = "0.8.5"
 description = "Hexaqueue - Cloud-Agnostic HPC Batch Scheduler and Distributed Job Orchestrator"
 readme = "README.md"
 license = "Apache-2.0"

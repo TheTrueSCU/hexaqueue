@@ -1,5 +1,6 @@
 """Unit tests for pytest-hexaqueue plugin hooks and execution loop."""
 
+import asyncio
 import importlib
 import sqlite3
 import sys
@@ -926,6 +927,86 @@ def test_normalize_coverage_sqlite_paths_and_remapping(tmp_path: Path) -> None:
 
     assert files == [(1, str(pkg_file))]
     assert arcs == [(1, 1, 2), (1, 2, 3)]
+
+
+def test_normalize_cov_sources_and_managed_ssh_tunnel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify workspace-relative coverage source normalization and managed SSH tunnel lifecycle."""
+    from pytest_hexaqueue.adapters.client import HexaqueueTestDispatchClient
+    from pytest_hexaqueue.infra.plugin import (
+        _build_tunnel_command,
+        _managed_ssh_tunnel,
+        _normalize_cov_sources,
+    )
+
+    pkg_src = tmp_path / "packages" / "demo_pkg" / "src"
+    pkg_src.mkdir(parents=True)
+
+    normalized = _normalize_cov_sources(
+        [str(pkg_src), str(tmp_path), "packages/other/src", "/outside/workspace/src"],
+        root=tmp_path,
+    )
+    assert normalized == [
+        "packages/demo_pkg/src",
+        ".",
+        "packages/other/src",
+        "/outside/workspace/src",
+    ]
+
+    key_file = tmp_path / "id_ed25519"
+    key_file.write_text("dummy-key", encoding="utf-8")
+    monkeypatch.setattr(
+        "hexaqueue_core.domain.credentials.discover_and_merge_env", dict
+    )
+
+    prof_no_host = HexaqueueProfileConfig(host=None)
+    assert _build_tunnel_command(prof_no_host) is None
+
+    prof_host = HexaqueueProfileConfig(
+        host="129.146.115.79",
+        ssh_user="hexaqueue-ci",
+        ssh_key=str(key_file),
+        ssh_port=2222,
+        remote_port=8000,
+        server_url="http://127.0.0.1:8000",
+    )
+    cmd = _build_tunnel_command(prof_host)
+    assert cmd is not None
+    assert "hexaqueue-ci@129.146.115.79" in cmd
+    assert str(key_file) in cmd
+
+    class _FakeProc:
+        returncode: int | None = None
+
+        def terminate(self) -> None:
+            self.returncode = 0
+
+        async def wait(self) -> int:
+            return 0
+
+    fake_proc = _FakeProc()
+
+    async def _fake_exec(*args: Any, **kwargs: Any) -> _FakeProc:
+        return fake_proc
+
+    monkeypatch.setattr("asyncio.create_subprocess_exec", _fake_exec)
+
+    http_client = HexaqueueTestDispatchClient(server_url="http://127.0.0.1:8000")
+    health_states = iter([False, False, True])
+
+    async def _fake_health() -> bool:
+        return next(health_states)
+
+    monkeypatch.setattr(http_client, "health_check", _fake_health)
+
+    async def _run_tunnel() -> bool:
+        async with _managed_ssh_tunnel(prof_host, http_client) as ok:
+            return bool(ok)
+
+    tunnel_ok = asyncio.run(_run_tunnel())
+    assert tunnel_ok is True
+    assert fake_proc.returncode == 0
 
 
 def test_plugin_module_reload_coverage() -> None:

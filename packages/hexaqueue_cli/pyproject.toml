@@ -1,6 +1,6 @@
 [project]
 name = "hexaqueue-cli"
-version = "0.8.4"
+version = "0.8.5"
 description = "Hexaqueue CLI - Modern developer and operator terminal interface"
 readme = "README.md"
 license = "Apache-2.0"
