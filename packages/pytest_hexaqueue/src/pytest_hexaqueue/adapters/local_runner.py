@@ -80,8 +80,7 @@ class LocalSliceRunner:
             cov_flags.extend(["--cov-report=", "--cov-fail-under=0"])
 
         cov_file = f".coverage.hq.{slice_spec.slice_id}"
-        env = dict(os.environ)
-        env.pop("HEXAQUEUE_CSP_PROVIDER", None)
+        env = {k: v for k, v in os.environ.items() if not k.startswith("HEXAQUEUE_")}
         if coverage_sources:
             env["COVERAGE_FILE"] = cov_file
 

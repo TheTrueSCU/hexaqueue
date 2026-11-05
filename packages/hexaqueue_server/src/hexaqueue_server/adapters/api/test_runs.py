@@ -406,8 +406,7 @@ def _configure_slice_env(
     coverage_sources: list[str] | None,
 ) -> dict[str, str]:
     """Build isolated subprocess environment variables for a worker test slice."""
-    env = dict(os.environ)
-    env.pop("HEXAQUEUE_CSP_PROVIDER", None)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("HEXAQUEUE_")}
     if workspace_dir:
         src_paths: list[str] = [
             str(p) for p in sorted((workspace_dir / "packages").glob("*/src"))

@@ -367,6 +367,14 @@ def test_cluster_tunnel_missing_host() -> None:
             "hexaqueue_cli.commands.cluster.resolve_runner_config",
             return_value=dummy_runner,
         ),
+        patch(
+            "hexaqueue_cli.commands.cluster.discover_and_merge_env",
+            return_value={},
+        ),
+        patch(
+            "hexaqueue_cli.commands.cluster._auto_select_online_host",
+            return_value=None,
+        ),
         patch.dict("os.environ", {}, clear=True),
     ):
         result = runner.invoke(app, ["cluster", "tunnel"])
@@ -473,6 +481,10 @@ def test_cluster_sync_missing_host() -> None:
         patch(
             "hexaqueue_cli.commands.cluster.resolve_runner_config",
             return_value=dummy_runner,
+        ),
+        patch(
+            "hexaqueue_cli.commands.cluster.discover_and_merge_env",
+            return_value={},
         ),
         patch.dict("os.environ", {}, clear=True),
     ):
@@ -838,6 +850,10 @@ def test_resolve_tunnel_target_auto_discovery() -> None:
     with (
         patch.dict("os.environ", {}, clear=True),
         patch(
+            "hexaqueue_cli.commands.cluster.discover_and_merge_env",
+            return_value={},
+        ),
+        patch(
             "hexaqueue_cli.commands.cluster._auto_select_online_host",
             return_value=mock_cand,
         ),
@@ -863,6 +879,10 @@ def test_resolve_tunnel_target_error_when_unresolved() -> None:
     """
     with (
         patch.dict("os.environ", {}, clear=True),
+        patch(
+            "hexaqueue_cli.commands.cluster.discover_and_merge_env",
+            return_value={},
+        ),
         patch(
             "hexaqueue_cli.commands.cluster._auto_select_online_host", return_value=None
         ),

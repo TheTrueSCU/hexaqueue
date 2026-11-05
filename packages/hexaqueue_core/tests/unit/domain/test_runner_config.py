@@ -312,7 +312,7 @@ def test_resolve_runner_config_cluster_ssh_options() -> None:
     )
 
     # 1. Profile resolution
-    resolved_profile = resolve_runner_config(project_config=base, profile="oci")
+    resolved_profile = resolve_runner_config(project_config=base, profile="oci", env={})
     assert resolved_profile.host == "10.0.0.1"
     assert resolved_profile.ssh_user == "opc"
     assert resolved_profile.ssh_key == "/id_rsa"
@@ -341,6 +341,7 @@ def test_resolve_runner_config_cluster_ssh_options() -> None:
     resolved_cli = resolve_runner_config(
         project_config=base,
         profile="oci",
+        env={},
         cli_overrides={
             "host": "custom.cluster.internal",
             "ssh_port": 2200,
