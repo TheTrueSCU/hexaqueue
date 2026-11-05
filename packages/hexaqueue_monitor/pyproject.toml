@@ -1,6 +1,6 @@
 [project]
 name = "hexaqueue-monitor"
-version = "0.8.2"
+version = "0.8.3"
 description = "Hexaqueue Monitor - Cluster health, worker/server heartbeat telemetry, and budget tracking daemon"
 readme = "README.md"
 license = "Apache-2.0"

@@ -1,7 +1,9 @@
 """Unit tests for pytest-hexaqueue plugin hooks and execution loop."""
 
 import importlib
+import sqlite3
 import sys
+from pathlib import Path
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
@@ -849,6 +851,81 @@ def test_pytest_terminal_summary_hybrid() -> None:
         "Hybrid Slices (1 Local Workstation + 1 Remote Cluster)" in line
         for line in written_lines
     )
+
+
+def test_normalize_coverage_sqlite_paths_and_remapping(tmp_path: Path) -> None:
+    """Verify remote worker file paths in SQLite coverage DB are normalized and deduplicated."""
+    from pytest_hexaqueue.infra.plugin import (
+        _normalize_coverage_sqlite_paths,
+        _remap_coverage_path,
+    )
+
+    pkg_file = tmp_path / "packages" / "demo_pkg" / "src" / "demo.py"
+    pkg_file.parent.mkdir(parents=True)
+    pkg_file.write_text("x = 1\n", encoding="utf-8")
+
+    p_already_local = _remap_coverage_path(str(pkg_file), tmp_path)
+    assert p_already_local == str(pkg_file)
+
+    p_remote_root = _remap_coverage_path(
+        "/opt/remote/work/packages/demo_pkg/src/demo.py",
+        tmp_path,
+        remote_root="/opt/remote/work",
+    )
+    assert p_remote_root == str(pkg_file)
+
+    p_hq_runs = _remap_coverage_path(
+        "/tmp/hexaqueue/runs/sess-999/packages/demo_pkg/src/demo.py",
+        tmp_path,
+    )
+    assert p_hq_runs == str(pkg_file)
+
+    p_workspace = _remap_coverage_path(
+        "/workspace/packages/demo_pkg/src/demo.py",
+        tmp_path,
+    )
+    assert p_workspace == str(pkg_file)
+
+    p_suffix = _remap_coverage_path(
+        "/custom/worker/dir/packages/demo_pkg/src/demo.py",
+        tmp_path,
+    )
+    assert p_suffix == str(pkg_file)
+
+    cov_db = tmp_path / ".coverage.hq.slice-norm"
+    con = sqlite3.connect(str(cov_db))
+    con.execute("CREATE TABLE file (id integer primary key, path text unique)")
+    con.execute(
+        "CREATE TABLE arc (file_id integer, context_id integer, fromno integer, tono integer, unique(file_id, context_id, fromno, tono))"
+    )
+    con.execute(
+        "CREATE TABLE line_bits (file_id integer, context_id integer, numbits blob, unique(file_id, context_id))"
+    )
+    con.execute("CREATE TABLE tracer (file_id integer primary key, tracer text)")
+    con.execute(
+        "INSERT INTO file (id, path) VALUES (1, ?), (2, ?)",
+        (
+            str(pkg_file),
+            "/tmp/hexaqueue/runs/sess-999/packages/demo_pkg/src/demo.py",
+        ),
+    )
+    con.execute(
+        "INSERT INTO arc (file_id, context_id, fromno, tono) VALUES (1, 1, 1, 2), (2, 1, 2, 3)"
+    )
+    con.commit()
+    con.close()
+
+    _normalize_coverage_sqlite_paths(cov_db, local_root=tmp_path)
+
+    con_check = sqlite3.connect(str(cov_db))
+    files = list(con_check.execute("SELECT id, path FROM file"))
+    arcs = list(
+        con_check.execute("SELECT file_id, fromno, tono FROM arc ORDER BY fromno")
+    )
+    con_check.close()
+
+    assert files == [(1, str(pkg_file))]
+    assert arcs == [(1, 1, 2), (1, 2, 3)]
 
 
 def test_plugin_module_reload_coverage() -> None:

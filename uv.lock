@@ -1015,7 +1015,7 @@ all = [
 
 [[package]]
 name = "hexaqueue"
-version = "0.8.2"
+version = "0.8.3"
 source = { editable = "packages/hexaqueue" }
 dependencies = [
     { name = "hexaqueue-cli" },
@@ -1071,7 +1071,7 @@ provides-extras = ["dotenv", "github", "pytest", "sentry"]
 
 [[package]]
 name = "hexaqueue-cli"
-version = "0.8.2"
+version = "0.8.3"
 source = { editable = "packages/hexaqueue_cli" }
 dependencies = [
     { name = "hexaqueue-core" },
@@ -1104,7 +1104,7 @@ requires-dist = [
 
 [[package]]
 name = "hexaqueue-collateral"
-version = "0.8.2"
+version = "0.8.3"
 source = { editable = "packages/hexaqueue_collateral" }
 dependencies = [
     { name = "hexaqueue-core" },
@@ -1125,7 +1125,7 @@ requires-dist = [
 
 [[package]]
 name = "hexaqueue-core"
-version = "0.8.2"
+version = "0.8.3"
 source = { editable = "packages/hexaqueue_core" }
 dependencies = [
     { name = "cryptography" },
@@ -1153,7 +1153,7 @@ provides-extras = ["dotenv"]
 
 [[package]]
 name = "hexaqueue-dashboard"
-version = "0.8.2"
+version = "0.8.3"
 source = { editable = "packages/hexaqueue_dashboard" }
 dependencies = [
     { name = "hexaqueue-core" },
@@ -1180,7 +1180,7 @@ requires-dist = [
 
 [[package]]
 name = "hexaqueue-github-runner"
-version = "0.8.2"
+version = "0.8.3"
 source = { editable = "packages/hexaqueue_github_runner" }
 dependencies = [
     { name = "cryptography" },
@@ -1201,7 +1201,7 @@ requires-dist = [
 
 [[package]]
 name = "hexaqueue-gitlab-runner"
-version = "0.8.2"
+version = "0.8.3"
 source = { editable = "packages/hexaqueue_gitlab_runner" }
 dependencies = [
     { name = "hexaqueue-core" },
@@ -1212,7 +1212,7 @@ requires-dist = [{ name = "hexaqueue-core", editable = "packages/hexaqueue_core"
 
 [[package]]
 name = "hexaqueue-kueue"
-version = "0.8.2"
+version = "0.8.3"
 source = { editable = "packages/hexaqueue_kueue" }
 dependencies = [
     { name = "hexaqueue-core" },
@@ -1223,7 +1223,7 @@ requires-dist = [{ name = "hexaqueue-core", editable = "packages/hexaqueue_core"
 
 [[package]]
 name = "hexaqueue-monitor"
-version = "0.8.2"
+version = "0.8.3"
 source = { editable = "packages/hexaqueue_monitor" }
 dependencies = [
     { name = "hexaqueue-core" },
@@ -1242,7 +1242,7 @@ requires-dist = [
 
 [[package]]
 name = "hexaqueue-scanner"
-version = "0.8.2"
+version = "0.8.3"
 source = { editable = "packages/hexaqueue_scanner" }
 dependencies = [
     { name = "hexaqueue-core" },
@@ -1263,7 +1263,7 @@ requires-dist = [
 
 [[package]]
 name = "hexaqueue-server"
-version = "0.8.2"
+version = "0.8.3"
 source = { editable = "packages/hexaqueue_server" }
 dependencies = [
     { name = "greenlet" },
@@ -1311,7 +1311,7 @@ provides-extras = ["github"]
 
 [[package]]
 name = "hexaqueue-worker"
-version = "0.8.2"
+version = "0.8.3"
 source = { editable = "packages/hexaqueue_worker" }
 dependencies = [
     { name = "hexaqueue-collateral" },
@@ -1341,7 +1341,7 @@ provides-extras = ["sentry"]
 
 [[package]]
 name = "hexaqueue-workflow"
-version = "0.8.2"
+version = "0.8.3"
 source = { editable = "packages/hexaqueue_workflow" }
 dependencies = [
     { name = "hexaflow" },
@@ -1366,7 +1366,7 @@ requires-dist = [
 
 [[package]]
 name = "hexaqueue-workspace"
-version = "0.8.2"
+version = "0.8.3"
 source = { virtual = "." }
 dependencies = [
     { name = "hexaqueue" },
@@ -2766,7 +2766,7 @@ wheels = [
 
 [[package]]
 name = "pytest-hexaqueue"
-version = "0.8.2"
+version = "0.8.3"
 source = { editable = "packages/pytest_hexaqueue" }
 dependencies = [
     { name = "hexaqueue-collateral" },

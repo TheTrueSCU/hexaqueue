@@ -400,6 +400,31 @@ async def _cleanup_session_workspace(
     shutil.rmtree(workspace_dir, ignore_errors=True)
 
 
+def _configure_slice_env(
+    workspace_dir: Path | None,
+    cov_file: str,
+    coverage_sources: list[str] | None,
+) -> dict[str, str]:
+    """Build isolated subprocess environment variables for a worker test slice."""
+    env = dict(os.environ)
+    env.pop("HEXAQUEUE_CSP_PROVIDER", None)
+    if workspace_dir:
+        src_paths: list[str] = [
+            str(p) for p in sorted((workspace_dir / "packages").glob("*/src"))
+        ]
+        if (workspace_dir / "src").is_dir():
+            src_paths.append(str(workspace_dir / "src"))
+        src_paths.append(str(workspace_dir))
+        env["PYTHONPATH"] = os.pathsep.join(src_paths)
+        if (workspace_dir / ".venv" / "bin").is_dir():
+            venv_dir = workspace_dir / ".venv"
+            env["VIRTUAL_ENV"] = str(venv_dir)
+            env["PATH"] = f"{venv_dir / 'bin'}:{env.get('PATH', '')}"
+    if coverage_sources:
+        env["COVERAGE_FILE"] = cov_file
+    return env
+
+
 async def _execute_slice(
     slice_spec: TestSliceDispatch,
     worker_index: int,
@@ -433,15 +458,7 @@ async def _execute_slice(
         )
 
     cov_file = f".coverage.hq.{slice_spec.slice_id}"
-    env = dict(os.environ)
-    env.pop("HEXAQUEUE_CSP_PROVIDER", None)
-    if workspace_dir and (workspace_dir / ".venv" / "bin").is_dir():
-        venv_dir = workspace_dir / ".venv"
-        env["VIRTUAL_ENV"] = str(venv_dir)
-        env.pop("PYTHONPATH", None)
-        env["PATH"] = f"{venv_dir / 'bin'}:{env.get('PATH', '')}"
-    if coverage_sources:
-        env["COVERAGE_FILE"] = cov_file
+    env = _configure_slice_env(workspace_dir, cov_file, coverage_sources)
 
     try:
         async with semaphore if semaphore is not None else nullcontext():
@@ -475,6 +492,9 @@ async def _execute_slice(
                 file_bytes = cov_path.read_bytes()
                 cov_data = {
                     "sqlite_b64": base64.b64encode(file_bytes).decode("ascii"),
+                    "workspace_root": "/workspace"
+                    if is_container
+                    else str((workspace_dir or Path.cwd()).resolve()),
                 }
 
         return SliceOutcomeResponse(

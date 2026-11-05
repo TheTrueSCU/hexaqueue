@@ -8,7 +8,9 @@ Notes/Architectural Intent:
 
 import asyncio
 import base64
+import contextlib
 import os
+import sqlite3
 import subprocess
 import uuid
 from pathlib import Path
@@ -590,6 +592,114 @@ def _resolve_session_params(
     )
 
 
+def _extract_marker_relative_path(norm_raw: str) -> str | None:
+    """Extract relative workspace path from standard Hexaqueue remote or container directories."""
+    runs_marker = "/tmp/hexaqueue/runs/"
+    runs_idx = norm_raw.find(runs_marker)
+    if runs_idx != -1:
+        after = norm_raw[runs_idx + len(runs_marker) :]
+        slash_idx = after.find("/")
+        if slash_idx != -1 and after[slash_idx + 1 :]:
+            return after[slash_idx + 1 :]
+
+    ws_marker = "/workspace/"
+    ws_idx = norm_raw.find(ws_marker)
+    if ws_idx != -1 and norm_raw[ws_idx + len(ws_marker) :]:
+        return norm_raw[ws_idx + len(ws_marker) :]
+
+    return None
+
+
+def _remap_coverage_path(
+    raw_path: str,
+    local_root: Path,
+    remote_root: str | None = None,
+) -> str:
+    """Remap a remote worker file path from a coverage database to the local workspace root."""
+    norm_local = str(local_root).replace("\\", "/").rstrip("/")
+    norm_raw = raw_path.replace("\\", "/")
+    if norm_raw == norm_local or norm_raw.startswith(norm_local + "/"):
+        return raw_path
+
+    if remote_root:
+        norm_remote = remote_root.replace("\\", "/").rstrip("/")
+        if norm_remote and norm_raw.startswith(norm_remote + "/"):
+            return str(local_root / norm_raw[len(norm_remote) + 1 :])
+
+    marker_rel = _extract_marker_relative_path(norm_raw)
+    if marker_rel:
+        return str(local_root / marker_rel)
+
+    parts = [p for p in norm_raw.split("/") if p]
+    for i in range(1, len(parts)):
+        candidate = local_root.joinpath(*parts[i:])
+        if candidate.exists():
+            return str(candidate)
+
+    return raw_path
+
+
+def _merge_duplicate_coverage_file_id(
+    con: sqlite3.Connection, source_id: int, target_id: int
+) -> None:
+    """Merge coverage arcs and line bits when two file rows map to the same local path."""
+    with contextlib.suppress(sqlite3.Error):
+        con.execute(
+            "INSERT OR IGNORE INTO arc (file_id, context_id, fromno, tono) "
+            "SELECT ?, context_id, fromno, tono FROM arc WHERE file_id = ?",
+            (target_id, source_id),
+        )
+        con.execute("DELETE FROM arc WHERE file_id = ?", (source_id,))
+    with contextlib.suppress(sqlite3.Error):
+        con.execute(
+            "INSERT OR IGNORE INTO line_bits (file_id, context_id, numbits) "
+            "SELECT ?, context_id, numbits FROM line_bits WHERE file_id = ?",
+            (target_id, source_id),
+        )
+        con.execute("DELETE FROM line_bits WHERE file_id = ?", (source_id,))
+    with contextlib.suppress(sqlite3.Error):
+        con.execute("DELETE FROM tracer WHERE file_id = ?", (source_id,))
+    con.execute("DELETE FROM file WHERE id = ?", (source_id,))
+
+
+def _normalize_coverage_sqlite_paths(
+    cov_path: Path,
+    remote_root: str | None = None,
+    local_root: Path | None = None,
+) -> None:
+    """Rewrite remote worker file paths in a coverage SQLite database to match the local workspace."""
+    if not cov_path.is_file():
+        return
+    effective_local = (local_root or Path.cwd()).resolve()
+    try:
+        with contextlib.closing(sqlite3.connect(str(cov_path))) as con:
+            rows = list(con.execute("SELECT id, path FROM file"))
+            if not rows:
+                return
+            existing_paths: dict[str, int] = {str(p): int(fid) for fid, p in rows}
+            mutated = False
+            for fid_raw, path_raw in rows:
+                fid = int(fid_raw)
+                orig_path = str(path_raw)
+                new_path = _remap_coverage_path(orig_path, effective_local, remote_root)
+                if new_path == orig_path:
+                    continue
+                mutated = True
+                existing_paths.pop(orig_path, None)
+                target_id = existing_paths.get(new_path)
+                if target_id is not None and target_id != fid:
+                    _merge_duplicate_coverage_file_id(con, fid, target_id)
+                else:
+                    con.execute(
+                        "UPDATE file SET path = ? WHERE id = ?", (new_path, fid)
+                    )
+                    existing_paths[new_path] = fid
+            if mutated:
+                con.commit()
+    except Exception:
+        return
+
+
 def _unpack_slice_coverage(reports: list["SliceOutcomeReport"]) -> None:
     """Materialize serialized SQLite coverage payloads from remote worker slices onto disk.
 
@@ -604,14 +714,19 @@ def _unpack_slice_coverage(reports: list["SliceOutcomeReport"]) -> None:
 
     Notes/Architectural Intent:
         Enables distributed coverage aggregation by writing worker coverage sqlite databases
-        as `.coverage.hq.<slice_id>` so pytest-cov can combine them automatically.
+        as `.coverage.hq.<slice_id>` and normalizing remote workspace file paths so
+        pytest-cov can combine them seamlessly with local slice measurements.
     """
     for rep in reports:
         if rep.coverage_data and "sqlite_b64" in rep.coverage_data:
             cov_path = Path(f".coverage.hq.{rep.slice_id}")
-            if not cov_path.exists():
+            if rep.provider != "LOCAL" or not cov_path.exists():
                 cov_bytes = base64.b64decode(rep.coverage_data["sqlite_b64"])
                 cov_path.write_bytes(cov_bytes)
+            _normalize_coverage_sqlite_paths(
+                cov_path,
+                remote_root=rep.coverage_data.get("workspace_root"),
+            )
 
 
 def _resolve_git_context() -> tuple[str | None, str | None]:
