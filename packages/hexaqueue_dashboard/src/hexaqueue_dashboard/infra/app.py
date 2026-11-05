@@ -28,7 +28,7 @@ def create_dashboard_app(pipeline: ExecutionPipeline) -> FastAPI:
     app = FastAPI(
         title="Hexaqueue Dashboard",
         description="Modern web interface, cluster visualizer, and operator console",
-        version="0.8.2",
+        version="0.8.4",
     )
     app.state.pipeline = pipeline
     router = create_dashboard_router(pipeline=pipeline)
