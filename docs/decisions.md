@@ -13,6 +13,7 @@
 - [ADR-005: Hexaqual Governance, Gate Audits & Anti-Drift Documentation](#adr-005-hexaqual-governance-gate-audits--anti-drift-documentation)
 - [ADR-006: Monorepo PEP 420 Namespace Package Traversal & Single-Pass Distributed CI Slicing](#adr-006-monorepo-pep-420-namespace-package-traversal--single-pass-distributed-ci-slicing)
 - [ADR-007: Zero-Trust OpenSSH Confinement and Ephemeral Git Worktree Isolation for Distributed Test Execution](#adr-007-zero-trust-openssh-confinement-and-ephemeral-git-worktree-isolation-for-distributed-test-execution)
+- [ADR-008: Elastic Scale-to-Zero Worker Pool Governed by an Always-On Controller](#adr-008-elastic-scale-to-zero-worker-pool-governed-by-an-always-on-controller)
 
 ---
 
@@ -174,3 +175,41 @@ Distributed test execution in CI/CD pipelines requires running test suites acros
 - *Direct SSH command execution (`ssh user@host "pytest ..."`)*: Rejected due to catastrophic security exposure and inability to throttle, track, or sandbox remote workloads.
 - *Defaulting to administrative accounts (`ubuntu`)*: Rejected under the principle of least privilege; a compromised CI token must never yield root or sudo access.
 - *Shared workspace on remote host*: Rejected because concurrent runs or dirty state mutations create non-reproducible test failures.
+
+### ADR-007 Amendment: Worker Ingress on Private VNIC
+To enable internal, scale-to-zero pool workers to communicate with the controller without exposing cluster control planes to the public internet, ADR-007 §4 is amended as follows:
+- `127.0.0.1:8000`: Client ingress strictly confined to the restricted SSH tunnel from authorized CI runners or local developer shells. Unchanged.
+- `<private VNIC IP>:8001`: Internal worker-only API (registration, heartbeats, slice leasing, report aggregation). Reachable strictly within the private VCN via the `worker-nsg`, authenticated via a shared ephemeral pool join token retrieved from OCI Vault using OCI Instance Principals.
+
+---
+
+## ADR-008: Elastic Scale-to-Zero Worker Pool Governed by an Always-On Controller
+
+### Context
+Hexaqueue's remote test execution on Oracle Cloud Infrastructure (OCI) previously operated on a single static VM (`129.146.115.79`, A1.Flex 4 OCPU / 24 GB) running 24/7, executing all slices as local subprocesses with workspace collateral persisted on the controller's local disk. While Hexaqueue already defined core elasticity ports (`InstancePoolGovernorPort`, `OciInstancePoolAdapter`, `PresignedStoragePort`, `FreeTierGovernorPort`), this infrastructure did not exercise or dogfood dynamic scaling, multi-node scheduling, or budget accounting in production.
+
+To validate Hexaqueue under authentic production conditions while remaining strictly within the monthly Always-Free allowance (3,000 OCPU-hours and 18,000 GB-hours) on a Pay-As-You-Go (PAYG) or trial account, the cluster must evolve into an elastic, self-managed scale-to-zero architecture governed by an always-on coordinator.
+
+### Decision
+1. **Always-On Coordinator Node (1 OCPU / 6 GB)**:
+   - Resize the permanent controller VM to 1 OCPU / 6 GB. It acts as the cluster scheduler, lease manager, and local slice worker for single-slice or low-depth runs, ensuring CI never blocks or fails back to local execution if cloud instance pool provisioning fails.
+2. **Scale-to-Zero Worker Pool in Private VCN**:
+   - Worker nodes are provisioned dynamically in a private VCN subnet (zero public IPs) via OCI Instance Pools governed by `InstancePoolGovernorPort`.
+   - Workers boot on demand when queue depth exceeds controller capacity, and scale down to zero after a configurable warm idle period (e.g. 15 minutes).
+3. **Object Storage Collateral & Coverage Distribution**:
+   - Workspace bundles (CAS collateral) and final coverage artifacts are transferred via OCI Object Storage using short-lived Pre-Authenticated Requests (PARs) via `PresignedStoragePort` and `CollateralServicePort`. Workers never mount shared file systems or require incoming SSH connections.
+4. **Pull-Based Slice Scheduling**:
+   - Worker nodes authenticate via an instance pool join token read from OCI Vault using instance principals, register with the controller over `<private VNIC IP>:8001`, and long-poll to lease slices. Slices are weighted and leased proportionally to worker OCPUs with heartbeat-based lease expiration and automatic requeueing.
+5. **Month-to-Date Hour-Budget Governance**:
+   - Budget governance (`FreeTierGovernorPort`) tracks accumulated month-to-date OCPU-hours and GB-hours rather than instantaneous vCPU count. The governor refuses scale-out requests when projected usage approaches the safety-margined monthly free ceiling (~2,270 burst OCPU-h remaining after controller baseline).
+6. **Vertical Scaling per Worker Node**:
+   - Because Always-Free block storage is capped at 200 GB (~47 GB minimum boot volume per instance = ~4 instances max: 1 controller + 3 workers), bursting capacity scales vertically (larger A1.Flex shapes with 4–8 OCPU per worker) before adding additional worker nodes.
+7. **Graceful Fallback on Capacity Errors**:
+   - If OCI returns `Out of host capacity`, a provisioning timeout occurs, or the budget governor throttles scale-out, the scheduler automatically dispatches slices back to the controller's local execution runtime.
+
+### Rejected Alternatives
+- *Direct SSH Fan-Out to Workers*: Rejected because workers reside in private subnets without public IPs; managing dynamic SSH tunnels to ephemeral worker nodes is fragile and increases latency.
+- *Push-Based Work Distribution via Controller-Initiated SSH*: Rejected because it violates ADR-007 least-privilege trust direction and requires baking host SSH keys into images.
+- *Object Storage Polling as Queue*: Rejected because polling high-frequency tasks over S3/OCI Object Storage introduces multi-second latency and rapidly exhausts monthly request allowances.
+- *Exposing Controller API Publicly*: Rejected because exposing cluster execution control planes to the public internet violates ADR-007 zero-trust boundaries.
+- *Static 4 OCPU Always-On VM*: Rejected because it wastes compute budget during idle hours and fails to dogfood Hexaqueue's native autoscaling, state machines, and failover logic.
