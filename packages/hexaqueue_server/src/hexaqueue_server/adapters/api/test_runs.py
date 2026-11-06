@@ -14,6 +14,7 @@ import shutil
 import sys
 import tarfile
 import time
+import urllib.request
 import uuid
 from contextlib import nullcontext
 from pathlib import Path
@@ -292,6 +293,76 @@ async def _fetch_git_target(
         pass
 
 
+async def _extract_collateral_workspace(
+    collateral_id: str,
+    collateral_service: Any,
+    target_dir: Path,
+) -> bool:
+    """Download or read collateral bundle archive and extract into target workspace directory.
+
+    Args:
+        collateral_id: CAS collateral bundle identifier.
+        collateral_service: Injected collateral service port.
+        target_dir: Destination workspace root directory.
+
+    Returns:
+        True if successfully unpacked, False otherwise.
+
+    Notes/Architectural Intent:
+        Supports both local filesystem paths and remote Pre-Authenticated Requests (PARs)
+        over HTTPS (OCI Object Storage).
+    """
+    try:
+        bundle = await collateral_service.get_bundle(collateral_id)
+        bundle_path_str = bundle.active_uri or bundle.staging_uri
+
+        # Check if remote download URL is available if local file is missing
+        if not bundle_path_str or (
+            not bundle_path_str.startswith("http")
+            and not Path(bundle_path_str.removeprefix("file://")).exists()
+        ):
+            get_url_fn = getattr(collateral_service, "get_download_url", None)
+            if callable(get_url_fn):
+                dl_url = await get_url_fn(collateral_id)
+                if dl_url and dl_url.startswith("http"):
+                    bundle_path_str = dl_url
+
+        if not bundle_path_str:
+            return False
+
+        target_dir.parent.mkdir(parents=True, exist_ok=True)
+        if target_dir.exists():
+            shutil.rmtree(target_dir, ignore_errors=True)
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        # Remote HTTP/HTTPS PAR download
+        if bundle_path_str.startswith(("http://", "https://")):
+
+            def _fetch_and_unpack() -> None:
+                with (
+                    urllib.request.urlopen(  # noqa: S310
+                        bundle_path_str, timeout=60
+                    ) as resp,
+                    tarfile.open(fileobj=resp, mode="r|gz") as tar,
+                ):
+                    tar.extractall(path=target_dir, filter="data")
+
+            await asyncio.to_thread(_fetch_and_unpack)
+            await _sync_workspace_environment(target_dir)
+            return True
+
+        # Local file path
+        clean_path = Path(bundle_path_str.removeprefix("file://"))
+        if clean_path.exists():
+            with tarfile.open(clean_path, "r:gz") as tar:
+                tar.extractall(path=target_dir, filter="data")
+            await _sync_workspace_environment(target_dir)
+            return True
+    except Exception:
+        pass
+    return False
+
+
 async def _prepare_session_workspace(
     session_id: str,
     collateral_id: str | None = None,
@@ -305,22 +376,11 @@ async def _prepare_session_workspace(
 
     # 1. Collateral-based workspace transport (client code under test)
     if collateral_id and collateral_service:
-        try:
-            bundle = await collateral_service.get_bundle(collateral_id)
-            bundle_path_str = bundle.active_uri or bundle.staging_uri
-            if bundle_path_str:
-                bundle_path = Path(bundle_path_str)
-                if bundle_path.exists():
-                    target_dir.parent.mkdir(parents=True, exist_ok=True)
-                    if target_dir.exists():
-                        shutil.rmtree(target_dir, ignore_errors=True)
-                    target_dir.mkdir(parents=True, exist_ok=True)
-                    with tarfile.open(bundle_path, "r:gz") as tar:
-                        tar.extractall(path=target_dir, filter="data")
-                    await _sync_workspace_environment(target_dir)
-                    return target_dir
-        except Exception:
-            pass
+        success = await _extract_collateral_workspace(
+            collateral_id, collateral_service, target_dir
+        )
+        if success:
+            return target_dir
 
     # 2. Fallback to Git worktree (for server self-dogfooding)
     root = repo_root or Path.cwd()

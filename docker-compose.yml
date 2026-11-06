@@ -3,7 +3,7 @@ services:
   server:
     build:
       context: .
-      dockerfile: docker/Dockerfile
+      dockerfile: deploy/docker/Dockerfile
       target: server
     image: hexaqueue-server:latest
     container_name: hexaqueue-server
@@ -25,7 +25,7 @@ services:
   worker-1:
     build:
       context: .
-      dockerfile: docker/Dockerfile
+      dockerfile: deploy/docker/Dockerfile
       target: worker
     image: hexaqueue-worker:latest
     container_name: hexaqueue-worker-1
@@ -42,7 +42,7 @@ services:
   worker-2:
     build:
       context: .
-      dockerfile: docker/Dockerfile
+      dockerfile: deploy/docker/Dockerfile
       target: worker
     image: hexaqueue-worker:latest
     container_name: hexaqueue-worker-2

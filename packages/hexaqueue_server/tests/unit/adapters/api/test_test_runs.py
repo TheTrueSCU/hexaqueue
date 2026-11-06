@@ -13,6 +13,7 @@ from hexaqueue_server.adapters.api.test_runs import (
     _build_slice_cmd,
     _cleanup_session_workspace,
     _execute_slice,
+    _extract_collateral_workspace,
     _fetch_git_target,
     _prepare_session_workspace,
     get_worker_semaphore,
@@ -380,3 +381,91 @@ async def test_sync_workspace_and_venv_slice_cmd(tmp_path: Path) -> None:
     )
     first_arg = cmd[0]
     assert first_arg == str(venv_python)
+
+
+@pytest.mark.asyncio
+async def test_extract_collateral_workspace_local(tmp_path: Path) -> None:
+    """Verify local collateral tarball is extracted successfully into workspace."""
+    import tarfile
+
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    sample_file = src_dir / "sample.py"
+    sample_file.write_text("print('hello')\n", encoding="utf-8")
+
+    tar_path = tmp_path / "bundle.tar.gz"
+    with tarfile.open(tar_path, "w:gz") as tar:
+        tar.add(sample_file, arcname="sample.py")
+
+    bundle_mock = MagicMock()
+    bundle_mock.active_uri = str(tar_path)
+    bundle_mock.staging_uri = None
+
+    collateral_svc = AsyncMock()
+    collateral_svc.get_bundle.return_value = bundle_mock
+
+    target_dir = tmp_path / "target_workspace"
+    success = await _extract_collateral_workspace("col-1", collateral_svc, target_dir)
+    assert success is True
+    extracted_file = target_dir / "sample.py"
+    assert extracted_file.exists()
+
+
+@pytest.mark.asyncio
+async def test_extract_collateral_workspace_remote_par(tmp_path: Path) -> None:
+    """Verify remote HTTPS PAR collateral tarball is downloaded and unpacked."""
+    import io
+    import tarfile
+
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        data = b"def test_remote(): pass\n"
+        tarinfo = tarfile.TarInfo(name="test_remote.py")
+        tarinfo.size = len(data)
+        tar.addfile(tarinfo, io.BytesIO(data))
+    tar_bytes = buf.getvalue()
+
+    bundle_mock = MagicMock()
+    bundle_mock.active_uri = None
+    bundle_mock.staging_uri = None
+
+    collateral_svc = AsyncMock()
+    collateral_svc.get_bundle.return_value = bundle_mock
+    collateral_svc.get_download_url.return_value = (
+        "https://objectstorage.us-phoenix-1.oraclecloud.com/p/test/tar.gz"
+    )
+
+    class MockHttpResp:
+        def __init__(self, data: bytes) -> None:
+            self._io = io.BytesIO(data)
+
+        def read(self, *args, **kwargs) -> bytes:
+            return self._io.read(*args, **kwargs)
+
+        def __enter__(self) -> "MockHttpResp":
+            return self
+
+        def __exit__(self, *args) -> None:
+            pass
+
+    target_dir = tmp_path / "remote_workspace"
+    with patch("urllib.request.urlopen", return_value=MockHttpResp(tar_bytes)):
+        success = await _extract_collateral_workspace(
+            "col-2", collateral_svc, target_dir
+        )
+        assert success is True
+        extracted_file = target_dir / "test_remote.py"
+        assert extracted_file.exists()
+
+
+@pytest.mark.asyncio
+async def test_extract_collateral_workspace_failure(tmp_path: Path) -> None:
+    """Verify failure to retrieve collateral returns False gracefully."""
+    collateral_svc = AsyncMock()
+    collateral_svc.get_bundle.side_effect = RuntimeError("Not found")
+
+    target_dir = tmp_path / "fail_workspace"
+    success = await _extract_collateral_workspace(
+        "col-fail", collateral_svc, target_dir
+    )
+    assert success is False
