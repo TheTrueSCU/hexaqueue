@@ -703,10 +703,13 @@ def create_test_runs_router() -> APIRouter:
         reports: list[SliceOutcomeResponse] = []
         remaining_slices = req.slices
 
-        # 1. Dispatch through cluster worker pool if workers are active
-        if coord.active_worker_count > 0:
+        # 1. Dispatch through cluster worker pool if workers are active or autoscaler configured
+        if coord.active_worker_count > 0 or coord.has_autoscaler:
             pool_reports = await _dispatch_remote_slices(
-                req, coord, collateral_svc, is_container
+                req=req,
+                coord=coord,
+                collateral_svc=collateral_svc,
+                is_container=is_container,
             )
             reports.extend(pool_reports)
             completed_ids = {r.slice_id for r in pool_reports}

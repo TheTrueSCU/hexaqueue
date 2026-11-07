@@ -31,11 +31,49 @@ from hexaqueue_server.domain.lease_coordinator import SliceLeaseCoordinator
 _DEFAULT_COORDINATOR: SliceLeaseCoordinator | None = None
 
 
+def _build_default_coordinator() -> SliceLeaseCoordinator:
+    """Build central coordinator wired with OCI autoscaler and storage if configured."""
+    pool_id = os.environ.get("HEXAQUEUE_OCI_INSTANCE_POOL_ID") or os.environ.get(
+        "HEXAQUEUE_INSTANCE_POOL_ID"
+    )
+    autoscaler = None
+    storage_port = None
+    if os.environ.get("HEXAQUEUE_CSP_PROVIDER") == "OCI" or pool_id:
+        try:
+            from hexaqueue_core.adapters.storage.oci import OciPresignedStorageAdapter
+            from hexaqueue_core.domain.credentials import OciCredentialsConfig
+            from hexaqueue_server.adapters.cloud.oci import OciInstancePoolAdapter
+            from hexaqueue_server.domain.autoscaler import (
+                BudgetAwareInstancePoolAutoscaler,
+            )
+
+            creds = OciCredentialsConfig(use_instance_principals=True)
+            if pool_id:
+                gov = OciInstancePoolAdapter.from_credentials(credentials=creds)
+                autoscaler = BudgetAwareInstancePoolAutoscaler(governors={pool_id: gov})
+            bucket = (
+                os.environ.get("HEXAQUEUE_COLLATERAL_BUCKET") or "hexaqueue-collateral"
+            )
+            storage_port = OciPresignedStorageAdapter.from_credentials(
+                credentials=creds,
+                bucket_name=bucket,
+            )
+        except Exception:
+            autoscaler = None
+            storage_port = None
+
+    return SliceLeaseCoordinator(
+        storage_port=storage_port,
+        autoscaler=autoscaler,
+        pool_id=pool_id,
+    )
+
+
 def get_lease_coordinator() -> SliceLeaseCoordinator:
     """Dependency provider for the central SliceLeaseCoordinator singleton."""
     global _DEFAULT_COORDINATOR
     if _DEFAULT_COORDINATOR is None:
-        _DEFAULT_COORDINATOR = SliceLeaseCoordinator()
+        _DEFAULT_COORDINATOR = _build_default_coordinator()
     return _DEFAULT_COORDINATOR
 
 

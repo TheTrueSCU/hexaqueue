@@ -213,3 +213,49 @@ async def test_report_slice_missing_lease_returns_false() -> None:
     )
     res = await coord.report_slice_outcome(report)
     assert res is False
+
+
+@pytest.mark.asyncio
+async def test_autoscaler_reconciliation_lifecycle() -> None:
+    """Verify coordinator reconciles registered autoscaler on enqueue and completion."""
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    mock_autoscaler = AsyncMock()
+    mock_autoscaler.reconcile_pool = AsyncMock()
+
+    coord = SliceLeaseCoordinator(
+        autoscaler=mock_autoscaler,
+        pool_id="pool-test",
+    )
+    has_auto = coord.has_autoscaler
+    assert has_auto is True
+
+    # Enqueuing slices triggers reconcile
+    slice_item = TestSliceDispatch(
+        slice_id="sl-auto",
+        slice_index=0,
+        total_slices=1,
+        test_nodeids=["tests/test_a.py::test_1"],
+    )
+    _ev = await coord.enqueue_session_slices("sess-auto", [slice_item])
+    await asyncio.sleep(0.05)
+
+    call_count = mock_autoscaler.reconcile_pool.call_count
+    assert call_count >= 1
+
+    # Lease and report completion to trigger scale-down reconcile
+    lease = await coord.lease_slice("worker-auto")
+    assert lease is not None
+    report = SliceReportPayload(
+        lease_id=lease.lease_id,
+        slice_id="sl-auto",
+        worker_id="worker-auto",
+        exit_code=0,
+    )
+    reported = await coord.report_slice_outcome(report)
+    assert reported is True
+    await asyncio.sleep(0.05)
+
+    final_call_count = mock_autoscaler.reconcile_pool.call_count
+    assert final_call_count >= 2

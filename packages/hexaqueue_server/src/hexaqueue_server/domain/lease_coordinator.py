@@ -45,10 +45,14 @@ class SliceLeaseCoordinator:
         storage_port: PresignedStoragePort | None = None,
         collateral_service: Any = None,
         default_lease_ttl_seconds: int = 90,
+        autoscaler: Any = None,
+        pool_id: str | None = None,
     ) -> None:
         self._storage_port = storage_port
         self._collateral_service = collateral_service
         self._default_ttl = default_lease_ttl_seconds
+        self._autoscaler = autoscaler
+        self._pool_id = pool_id
 
         self._lock = asyncio.Lock()
         self._condition = asyncio.Condition(lock=self._lock)
@@ -81,6 +85,26 @@ class SliceLeaseCoordinator:
         """Return the count of workers seen within the last 60 seconds."""
         cutoff = datetime.now(UTC) - timedelta(seconds=60)
         return sum(1 for ts in self._worker_last_seen.values() if ts >= cutoff)
+
+    @property
+    def has_autoscaler(self) -> bool:
+        """Return whether an instance pool autoscaler is registered."""
+        return self._autoscaler is not None and self._pool_id is not None
+
+    async def _reconcile_autoscaler(self) -> None:
+        """Evaluate pending slices and running leases, dispatching autoscaler decisions."""
+        if self._autoscaler is None or self._pool_id is None:
+            return
+        try:
+            pending = len(self._pending_tasks)
+            active = len(self._active_leases)
+            await self._autoscaler.reconcile_pool(
+                pool_id=self._pool_id,
+                pending_jobs=pending,
+                running_jobs=active,
+            )
+        except Exception:
+            pass
 
     async def register_worker(self, reg: WorkerRegistration) -> None:
         """Register or update an active compute worker node.
@@ -192,6 +216,9 @@ class SliceLeaseCoordinator:
             for t in tasks:
                 self._pending_tasks.append(t)
             self._condition.notify_all()
+
+        if self.has_autoscaler:
+            asyncio.create_task(self._reconcile_autoscaler())
 
         return completion_event
 
@@ -306,6 +333,12 @@ class SliceLeaseCoordinator:
                 event = self._session_events.get(session_id)
                 if event is not None and not event.is_set():
                     event.set()
+                if (
+                    self.has_autoscaler
+                    and len(self._pending_tasks) == 0
+                    and len(self._active_leases) == 0
+                ):
+                    asyncio.create_task(self._reconcile_autoscaler())
 
             return True
 
