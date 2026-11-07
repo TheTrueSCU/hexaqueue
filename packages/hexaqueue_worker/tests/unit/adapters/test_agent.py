@@ -334,6 +334,21 @@ async def test_worker_agent_run_lifecycle_and_stop() -> None:
         assert stopped is False  # Loop exited on idle timeout
 
 
+@pytest.mark.asyncio
+async def test_worker_agent_run_registration_failure() -> None:
+    """Verify worker agent raises RuntimeError if registration retries fail."""
+    cfg = WorkerAgentConfig(worker_id="w-fail")
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    agent = WorkerAgent(cfg, client=mock_client)
+
+    with (
+        patch.object(agent, "register", return_value=False),
+        patch("asyncio.sleep", new_callable=AsyncMock),
+        pytest.raises(RuntimeError, match="failed to register with coordinator"),
+    ):
+        await agent.run()
+
+
 def test_worker_agent_main_entrypoint() -> None:
     """Verify worker agent main entrypoint constructs config and runs agent."""
     with (

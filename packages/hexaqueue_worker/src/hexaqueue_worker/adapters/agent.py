@@ -489,14 +489,29 @@ class WorkerAgent:
             shutil.rmtree(base_dir, ignore_errors=True)
 
     async def run(self) -> None:
-        """Execute worker agent daemon lifecycle until idle timeout or stop signal."""
+        """Execute worker agent daemon lifecycle until idle timeout or stop signal.
+
+        Raises:
+            RuntimeError: If initial registration with coordinator fails after retries.
+        """
         client = self._custom_client or httpx.AsyncClient()
         consecutive_idle_seconds = 0.0
         heartbeat_task = None
         try:
-            registered = await self.register(client)
+            registered = False
+            for _ in range(10):
+                if self._stop_event.is_set():
+                    return
+                registered = await self.register(client)
+                if registered:
+                    break
+                await asyncio.sleep(2.0)
+
             if not registered:
-                return
+                raise RuntimeError(
+                    f"Worker {self.config.worker_id} failed to register with coordinator "
+                    f"at {self.config.controller_url} after 10 attempts"
+                )
 
             heartbeat_task = asyncio.create_task(self._run_heartbeat_loop(client))
 

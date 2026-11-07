@@ -54,7 +54,7 @@ User=root
 WorkingDirectory=/opt/hexaqueue
 EnvironmentFile=/etc/hexaqueue/worker.env
 ExecStart=/usr/local/bin/uv run python3 -m hexaqueue_worker.adapters.agent
-Restart=on-failure
+Restart=always
 RestartSec=5
 
 [Install]
