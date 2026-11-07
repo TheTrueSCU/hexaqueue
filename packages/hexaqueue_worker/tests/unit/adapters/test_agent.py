@@ -29,6 +29,7 @@ from hexaqueue_core.domain.lease import (
 from hexaqueue_worker.adapters.agent import (
     WorkerAgent,
     WorkerAgentConfig,
+    main,
 )
 
 
@@ -331,3 +332,16 @@ async def test_worker_agent_run_lifecycle_and_stop() -> None:
         await agent.run()
         stopped = agent._stop_event.is_set()
         assert stopped is False  # Loop exited on idle timeout
+
+
+def test_worker_agent_main_entrypoint() -> None:
+    """Verify worker agent main entrypoint constructs config and runs agent."""
+    with (
+        patch("hexaqueue_worker.adapters.agent.asyncio.run") as mock_run,
+        patch("hexaqueue_worker.adapters.agent.WorkerAgent") as mock_agent_cls,
+    ):
+        main()
+        call_count = mock_run.call_count
+        assert call_count == 1
+        agent_inst_count = mock_agent_cls.call_count
+        assert agent_inst_count == 1

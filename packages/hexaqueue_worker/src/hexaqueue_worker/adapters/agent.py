@@ -524,7 +524,24 @@ class WorkerAgent:
                 await client.aclose()
 
 
+def main() -> None:
+    """Execute autonomous worker agent lifecycle from process environment.
+
+    Notes/Architectural Intent:
+        Standard entrypoint for execution via `python -m hexaqueue_worker.adapters.agent`
+        or systemd background service inside burst worker VMs.
+    """
+    config = WorkerAgentConfig.from_env()
+    agent = WorkerAgent(config=config)
+    asyncio.run(agent.run())
+
+
+if __name__ == "__main__":
+    main()
+
+
 __all__ = [
+    "main",
     "WorkerAgent",
     "WorkerAgentConfig",
 ]

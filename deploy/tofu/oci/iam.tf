@@ -14,6 +14,10 @@ resource "oci_identity_policy" "controller_policy" {
   statements = [
     "Allow dynamic-group hq-controller-dg to manage instance-pools in tenancy",
     "Allow dynamic-group hq-controller-dg to manage instance-configurations in tenancy",
+    "Allow dynamic-group hq-controller-dg to manage instance-family in tenancy",
+    "Allow dynamic-group hq-controller-dg to use virtual-network-family in tenancy",
+    "Allow dynamic-group hq-controller-dg to use subnets in tenancy",
+    "Allow dynamic-group hq-controller-dg to use vnics in tenancy",
     "Allow dynamic-group hq-controller-dg to manage objects in tenancy where target.bucket.name = 'hexaqueue-collateral'"
   ]
 }

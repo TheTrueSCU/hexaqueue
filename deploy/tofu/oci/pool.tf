@@ -19,7 +19,7 @@ resource "oci_core_instance_configuration" "worker_config" {
       source_details {
         source_type             = "image"
         image_id                = var.worker_image_ocid
-        boot_volume_size_in_gbs = 47
+        boot_volume_size_in_gbs = 50
       }
 
       create_vnic_details {
