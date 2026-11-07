@@ -30,6 +30,9 @@ dependencies = [
 github = [
     "hexaqueue-github-runner",
 ]
+oci = [
+    "oci>=2.120.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.12.3,<0.14.0"]

@@ -35,6 +35,10 @@ dotenv = [
 github = [
     "hexaqueue-server[github]",
 ]
+oci = [
+    "hexaqueue-core[oci]",
+    "hexaqueue-server[oci]",
+]
 pytest = [
     "pytest-hexaqueue",
 ]
