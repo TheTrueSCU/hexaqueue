@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
@@ -241,3 +242,19 @@ def test_parse_flag_bool_variants() -> None:
     assert _parse_flag_bool("disabled") is False
     assert _parse_flag_bool("maybe") is None
     assert _parse_flag_bool(None) is None
+
+
+def test_server_config_worker_port_from_env() -> None:
+    """Verify ServerConfig worker_port is loaded from HEXAQUEUE_WORKER_PORT env var."""
+    with patch.dict(os.environ, {"HEXAQUEUE_WORKER_PORT": "8001"}):
+        cfg = ServerConfig()
+        assert cfg.worker_port == 8001
+
+    with patch.dict(os.environ, {"HEXAQUEUE_WORKER_PORT": "invalid"}):
+        cfg2 = ServerConfig()
+        assert cfg2.worker_port is None
+
+    # Explicit override takes precedence
+    with patch.dict(os.environ, {"HEXAQUEUE_WORKER_PORT": "8001"}):
+        cfg3 = ServerConfig(worker_port=8002)
+        assert cfg3.worker_port == 8002

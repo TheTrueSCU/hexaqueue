@@ -517,6 +517,10 @@ class ServerConfig(BaseModel):
             object.__setattr__(
                 self, "interfaces", ServerInterfaceConfig.for_role(self.role)
             )
+        if self.worker_port is None:
+            raw_w_port = os.environ.get("HEXAQUEUE_WORKER_PORT")
+            if raw_w_port and raw_w_port.isdigit():
+                object.__setattr__(self, "worker_port", int(raw_w_port))
         return self
 
     @classmethod
