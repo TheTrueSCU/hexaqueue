@@ -146,6 +146,13 @@ from hexaqueue_core.domain.group import (
 from hexaqueue_core.domain.job import (
     JobSpec,
 )
+from hexaqueue_core.domain.lease import (
+    SliceLease,
+    SliceLeaseState,
+    SliceReportPayload,
+    SliceTaskDescriptor,
+    WorkerRegistration,
+)
 from hexaqueue_core.domain.lifecycle import (
     JobState,
     JobStatus,
@@ -399,6 +406,10 @@ __all__ = [
     "SettleBudgetCommand",
     "SharedVolumeMount",
     "SimulatePlacementQuery",
+    "SliceLease",
+    "SliceLeaseState",
+    "SliceReportPayload",
+    "SliceTaskDescriptor",
     "SpiffeAuthorizationPolicy",
     "SpiffeId",
     "SpiffeRole",
@@ -418,4 +429,5 @@ __all__ = [
     "TriggerCondition",
     "VariableInterpolationError",
     "VmSpec",
+    "WorkerRegistration",
 ]

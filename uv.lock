@@ -1320,6 +1320,7 @@ dependencies = [
     { name = "hexastack-core" },
     { name = "hexastack-grpc" },
     { name = "hexastack-logging" },
+    { name = "httpx" },
 ]
 
 [package.optional-dependencies]
@@ -1335,6 +1336,7 @@ requires-dist = [
     { name = "hexastack-core", specifier = ">=0.11.0" },
     { name = "hexastack-grpc", specifier = ">=0.11.0" },
     { name = "hexastack-logging", specifier = ">=0.11.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
     { name = "sentry-sdk", marker = "extra == 'sentry'", specifier = ">=2.0.0" },
 ]
 provides-extras = ["sentry"]

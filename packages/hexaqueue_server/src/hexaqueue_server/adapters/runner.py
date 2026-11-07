@@ -6,6 +6,7 @@ Notes/Architectural Intent:
     to uvicorn when granian is not available.
 """
 
+import threading
 from typing import Any
 
 from hexastack_core.domain.exceptions import MissingDependencyError
@@ -34,6 +35,27 @@ def run_hexaqueue_server(
     """
     cfg = config or ServerConfig()
     app = create_server_app(config=cfg)
+
+    # Spawn secondary background listener for internal cluster worker port if configured
+    worker_port = cfg.worker_port
+    if worker_port is not None and worker_port != cfg.port:
+
+        def _run_worker_listener() -> None:
+            run_server(
+                app=app,
+                engine="uvicorn",
+                host=cfg.host,
+                port=worker_port,
+                reload=False,
+                workers=1,
+            )
+
+        worker_thread = threading.Thread(
+            target=_run_worker_listener,
+            daemon=True,
+            name="hexaqueue-worker-listener",
+        )
+        worker_thread.start()
 
     engine_to_use = cfg.engine.lower().strip()
     try:

@@ -61,3 +61,21 @@ def test_run_hexaqueue_server_no_fallback_raises() -> None:
         pytest.raises(MissingDependencyError, match="granian missing"),
     ):
         run_hexaqueue_server(config=cfg, fallback_to_uvicorn=False)
+
+
+def test_run_hexaqueue_server_spawns_worker_listener() -> None:
+    """Verify run_hexaqueue_server starts background thread when worker_port is set."""
+    cfg = ServerConfig(port=8000, worker_port=8001)
+
+    with (
+        patch("threading.Thread") as mock_thread,
+        patch("hexaqueue_server.adapters.runner.run_server") as mock_run,
+    ):
+        run_hexaqueue_server(config=cfg)
+        assert mock_thread.called
+        kwargs = mock_thread.call_args.kwargs
+        assert kwargs["name"] == "hexaqueue-worker-listener"
+        assert kwargs["daemon"] is True
+        mock_instance = mock_thread.return_value
+        assert mock_instance.start.called
+        assert mock_run.called

@@ -20,14 +20,22 @@ from hexaqueue_server.adapters.api.webhooks import (
     WebhookReceiptResponse,
     create_webhooks_router,
 )
+from hexaqueue_server.adapters.api.worker_pool import (
+    create_worker_pool_router,
+    get_lease_coordinator,
+    set_lease_coordinator,
+)
 
 __all__ = [
     "create_budget_router",
     "create_server_api_router",
     "create_server_app",
     "create_webhooks_router",
+    "create_worker_pool_router",
     "get_auth_context",
+    "get_lease_coordinator",
     "GitLabWebhookVerifier",
+    "set_lease_coordinator",
     "WebhookReceiptResponse",
     "ZeroTrustBoundaryMiddleware",
 ]

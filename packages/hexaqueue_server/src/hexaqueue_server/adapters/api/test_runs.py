@@ -16,7 +16,7 @@ import tarfile
 import time
 import urllib.request
 import uuid
-from contextlib import nullcontext
+from contextlib import nullcontext, suppress
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -25,20 +25,13 @@ from hexastack_cqrs.infra.pipeline import ExecutionPipeline
 from hexastack_fastapi.adapters.dependencies import get_pipeline
 from pydantic import BaseModel, ConfigDict, Field
 
+from hexaqueue_core.domain.lease import (
+    SliceOutcomeResponse,
+    TestOutcomeRecord,
+    TestSliceDispatch,
+)
 from hexaqueue_server.adapters.api.auth import get_auth_context
-
-
-class TestSliceDispatch(BaseModel):
-    """Specification of an execution partition assigned to a cluster worker."""
-
-    __test__ = False
-    model_config = ConfigDict(extra="ignore")
-
-    slice_id: str
-    slice_index: int
-    total_slices: int
-    test_nodeids: list[str] = Field(default_factory=list)
-    total_estimated_duration: float = 0.0
+from hexaqueue_server.adapters.api.worker_pool import get_lease_coordinator
 
 
 class TestRunDispatchRequest(BaseModel):
@@ -58,35 +51,6 @@ class TestRunDispatchRequest(BaseModel):
     bundle: dict[str, Any] | None = None
     git_commit: str | None = None
     git_ref: str | None = None
-
-
-class TestOutcomeRecord(BaseModel):
-    """Execution outcome of a single test item within a slice."""
-
-    __test__ = False
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    duration_seconds: float = Field(default=0.0, ge=0.0)
-    longrepr: str | None = None
-    nodeid: str
-    outcome: str
-    stderr: str | None = None
-    stdout: str | None = None
-
-
-class SliceOutcomeResponse(BaseModel):
-    """Aggregate execution report for a completed test slice."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    coverage_data: dict[str, Any] | None = None
-    duration_seconds: float = Field(default=0.0, ge=0.0)
-    is_free_tier: bool = True
-    outcomes: list[TestOutcomeRecord] = Field(default_factory=list)
-    provider: str = "LOCAL"
-    slice_id: str
-    slice_index: int
-    worker_id: str
 
 
 class TestRunDispatchResponse(BaseModel):
@@ -293,6 +257,66 @@ async def _fetch_git_target(
         pass
 
 
+async def _resolve_bundle_path(
+    collateral_id: str,
+    collateral_service: Any,
+) -> str | None:
+    """Resolve local path or remote download PAR URL for a collateral bundle.
+
+    Args:
+        collateral_id: CAS bundle identifier.
+        collateral_service: CollateralServicePort instance.
+
+    Returns:
+        Local path or remote HTTPS URL string, or None if unresolved.
+    """
+    bundle = await collateral_service.get_bundle(collateral_id)
+    bundle_path_str = bundle.active_uri or bundle.staging_uri
+
+    if not bundle_path_str or (
+        not bundle_path_str.startswith("http")
+        and not Path(bundle_path_str.removeprefix("file://")).exists()
+    ):
+        get_url_fn = getattr(collateral_service, "get_download_url", None)
+        if callable(get_url_fn):
+            dl_url = await get_url_fn(collateral_id)
+            if dl_url and dl_url.startswith("http"):
+                return str(dl_url)
+    return bundle_path_str
+
+
+async def _unpack_bundle_archive(bundle_path_str: str, target_dir: Path) -> bool:
+    """Extract remote HTTP tarball or local archive into target directory.
+
+    Args:
+        bundle_path_str: Local file path or remote HTTP PAR URL.
+        target_dir: Target directory path.
+
+    Returns:
+        True if successfully extracted, False otherwise.
+    """
+    if bundle_path_str.startswith(("http://", "https://")):
+
+        def _fetch_and_unpack() -> None:
+            with (
+                urllib.request.urlopen(  # noqa: S310
+                    bundle_path_str, timeout=60
+                ) as resp,
+                tarfile.open(fileobj=resp, mode="r|gz") as tar,
+            ):
+                tar.extractall(path=target_dir, filter="data")
+
+        await asyncio.to_thread(_fetch_and_unpack)
+        return True
+
+    clean_path = Path(bundle_path_str.removeprefix("file://"))
+    if clean_path.exists():
+        with tarfile.open(clean_path, "r:gz") as tar:
+            tar.extractall(path=target_dir, filter="data")
+        return True
+    return False
+
+
 async def _extract_collateral_workspace(
     collateral_id: str,
     collateral_service: Any,
@@ -313,20 +337,7 @@ async def _extract_collateral_workspace(
         over HTTPS (OCI Object Storage).
     """
     try:
-        bundle = await collateral_service.get_bundle(collateral_id)
-        bundle_path_str = bundle.active_uri or bundle.staging_uri
-
-        # Check if remote download URL is available if local file is missing
-        if not bundle_path_str or (
-            not bundle_path_str.startswith("http")
-            and not Path(bundle_path_str.removeprefix("file://")).exists()
-        ):
-            get_url_fn = getattr(collateral_service, "get_download_url", None)
-            if callable(get_url_fn):
-                dl_url = await get_url_fn(collateral_id)
-                if dl_url and dl_url.startswith("http"):
-                    bundle_path_str = dl_url
-
+        bundle_path_str = await _resolve_bundle_path(collateral_id, collateral_service)
         if not bundle_path_str:
             return False
 
@@ -335,27 +346,8 @@ async def _extract_collateral_workspace(
             shutil.rmtree(target_dir, ignore_errors=True)
         target_dir.mkdir(parents=True, exist_ok=True)
 
-        # Remote HTTP/HTTPS PAR download
-        if bundle_path_str.startswith(("http://", "https://")):
-
-            def _fetch_and_unpack() -> None:
-                with (
-                    urllib.request.urlopen(  # noqa: S310
-                        bundle_path_str, timeout=60
-                    ) as resp,
-                    tarfile.open(fileobj=resp, mode="r|gz") as tar,
-                ):
-                    tar.extractall(path=target_dir, filter="data")
-
-            await asyncio.to_thread(_fetch_and_unpack)
-            await _sync_workspace_environment(target_dir)
-            return True
-
-        # Local file path
-        clean_path = Path(bundle_path_str.removeprefix("file://"))
-        if clean_path.exists():
-            with tarfile.open(clean_path, "r:gz") as tar:
-                tar.extractall(path=target_dir, filter="data")
+        unpacked = await _unpack_bundle_archive(bundle_path_str, target_dir)
+        if unpacked:
             await _sync_workspace_environment(target_dir)
             return True
     except Exception:
@@ -585,6 +577,103 @@ async def _execute_slice(
         )
 
 
+async def _dispatch_remote_slices(
+    req: TestRunDispatchRequest,
+    coord: Any,
+    collateral_svc: Any,
+    is_container: bool,
+) -> list[SliceOutcomeResponse]:
+    """Dispatch slices to remote worker pool via SliceLeaseCoordinator.
+
+    Args:
+        req: Test run dispatch request payload.
+        coord: SliceLeaseCoordinator instance.
+        collateral_svc: Optional collateral service instance.
+        is_container: Whether container execution is requested.
+
+    Returns:
+        List of completed SliceOutcomeResponse objects.
+    """
+    if getattr(coord, "_collateral_service", None) is None:
+        coord._collateral_service = collateral_svc
+    completion_ev = await coord.enqueue_session_slices(
+        session_id=req.session_id,
+        slices=req.slices,
+        collateral_id=req.collateral_id,
+        coverage_sources=req.coverage_sources,
+        container=is_container,
+        container_image=req.container_image,
+    )
+    est_total = sum(s.total_estimated_duration for s in req.slices)
+    timeout = max(300.0, est_total * 2.0)
+    with suppress(TimeoutError):
+        await asyncio.wait_for(completion_ev.wait(), timeout=timeout)
+    return await coord.get_session_reports(req.session_id)
+
+
+async def _dispatch_local_slices(
+    *,
+    session_id: str,
+    collateral_id: str | None,
+    git_commit: str | None,
+    git_ref: str | None,
+    collateral_svc: Any,
+    slices: list[TestSliceDispatch],
+    free_tier: bool,
+    is_container: bool,
+    container_image: str | None,
+    coverage_sources: list[str],
+    semaphore: asyncio.Semaphore,
+) -> list[SliceOutcomeResponse]:
+    """Execute remaining slices on local worker host.
+
+    Args:
+        session_id: Session identifier.
+        collateral_id: Optional collateral bundle ID.
+        git_commit: Optional git commit.
+        git_ref: Optional git ref.
+        collateral_svc: Optional collateral service.
+        slices: List of test slices to execute.
+        free_tier: Whether free tier limits apply.
+        is_container: Whether container isolation is requested.
+        container_image: Container image name.
+        coverage_sources: List of coverage target packages.
+        semaphore: Concurrency limiter semaphore.
+
+    Returns:
+        List of locally executed SliceOutcomeResponse objects.
+    """
+    workspace_dir = None
+    if not is_container:
+        workspace_dir = await _prepare_session_workspace(
+            session_id=session_id,
+            collateral_id=collateral_id,
+            git_commit=git_commit,
+            git_ref=git_ref,
+            collateral_service=collateral_svc,
+        )
+
+    try:
+        tasks = [
+            _execute_slice(
+                s,
+                i,
+                free_tier,
+                is_container=is_container,
+                container_image=container_image,
+                coverage_sources=coverage_sources,
+                semaphore=semaphore,
+                workspace_dir=workspace_dir,
+            )
+            for i, s in enumerate(slices)
+        ]
+        local_reports = await asyncio.gather(*tasks)
+        return list(local_reports)
+    finally:
+        if workspace_dir is not None:
+            await _cleanup_session_workspace(workspace_dir)
+
+
 def create_test_runs_router() -> APIRouter:
     """Construct APIRouter for distributed test run operations.
 
@@ -606,38 +695,45 @@ def create_test_runs_router() -> APIRouter:
     ) -> TestRunDispatchResponse:
         """Receive test slices and execute them concurrently across worker nodes."""
         is_container = req.container or req.pool == "container"
-        workspace_dir = None
         collateral_svc = getattr(
             getattr(pipeline, "service", None), "collateral_service", None
         )
-        if not is_container:
-            workspace_dir = await _prepare_session_workspace(
+
+        coord = get_lease_coordinator()
+        reports: list[SliceOutcomeResponse] = []
+        remaining_slices = req.slices
+
+        # 1. Dispatch through cluster worker pool if workers are active
+        if coord.active_worker_count > 0:
+            pool_reports = await _dispatch_remote_slices(
+                req, coord, collateral_svc, is_container
+            )
+            reports.extend(pool_reports)
+            completed_ids = {r.slice_id for r in pool_reports}
+            remaining_slices = [
+                s for s in req.slices if s.slice_id not in completed_ids
+            ]
+
+        # 2. Execute any remaining slices locally as fallback
+        if remaining_slices:
+            local_reports = await _dispatch_local_slices(
                 session_id=req.session_id,
                 collateral_id=req.collateral_id,
                 git_commit=req.git_commit,
                 git_ref=req.git_ref,
-                collateral_service=collateral_svc,
+                collateral_svc=collateral_svc,
+                slices=remaining_slices,
+                free_tier=req.free_tier,
+                is_container=is_container,
+                container_image=req.container_image,
+                coverage_sources=req.coverage_sources,
+                semaphore=semaphore,
             )
+            reports.extend(local_reports)
 
-        try:
-            tasks = [
-                _execute_slice(
-                    s,
-                    i,
-                    req.free_tier,
-                    is_container=is_container,
-                    container_image=req.container_image,
-                    coverage_sources=req.coverage_sources,
-                    semaphore=semaphore,
-                    workspace_dir=workspace_dir,
-                )
-                for i, s in enumerate(req.slices)
-            ]
-            reports = await asyncio.gather(*tasks)
-            return TestRunDispatchResponse(reports=list(reports))
-        finally:
-            if workspace_dir is not None:
-                await _cleanup_session_workspace(workspace_dir)
+        order = {s.slice_id: idx for idx, s in enumerate(req.slices)}
+        reports.sort(key=lambda r: order.get(r.slice_id, 0))
+        return TestRunDispatchResponse(reports=reports)
 
     return router
 

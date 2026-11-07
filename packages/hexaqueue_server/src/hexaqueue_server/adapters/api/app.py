@@ -32,6 +32,7 @@ from hexaqueue_server.adapters.api.nodes import create_nodes_router
 from hexaqueue_server.adapters.api.runs import create_runs_router
 from hexaqueue_server.adapters.api.test_runs import create_test_runs_router
 from hexaqueue_server.adapters.api.webhooks import create_webhooks_router
+from hexaqueue_server.adapters.api.worker_pool import create_worker_pool_router
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
 from hexaqueue_server.adapters.mcp import mount_mcp_server
 from hexaqueue_server.domain.config import ServerConfig, ServerInterfaceConfig
@@ -66,6 +67,8 @@ def create_server_api_router(
         router.include_router(create_budget_router())
     if cfg.webhooks:
         router.include_router(create_webhooks_router())
+    if cfg.worker_pool:
+        router.include_router(create_worker_pool_router())
     return router
 
 
@@ -127,6 +130,8 @@ def create_server_app(
     api_router = create_server_api_router(server_cfg.interfaces)
     app.include_router(api_router)
     app.include_router(api_router, prefix="/api")
+    if server_cfg.interfaces.worker_pool:
+        app.include_router(create_worker_pool_router())
     if server_cfg.interfaces.mcp and server_cfg.mcp.enabled:
         mount_mcp_server(app, effective_pipeline, config=server_cfg.mcp)
     app.state.server_config = server_cfg

@@ -1,5 +1,9 @@
 """Adapters package for hexaqueue-worker."""
 
+from hexaqueue_worker.adapters.agent import (
+    WorkerAgent,
+    WorkerAgentConfig,
+)
 from hexaqueue_worker.adapters.apptainer import ApptainerExecutionRuntimeAdapter
 from hexaqueue_worker.adapters.assembler import CliContainerImageAssemblerAdapter
 from hexaqueue_worker.adapters.cgroups import CgroupsV2ProcessAdapter
@@ -30,4 +34,6 @@ __all__ = [
     "NvmeScratchStorageVolumeAdapter",
     "NvmlGpuDeviceManagerAdapter",
     "PodmanExecutionRuntimeAdapter",
+    "WorkerAgent",
+    "WorkerAgentConfig",
 ]

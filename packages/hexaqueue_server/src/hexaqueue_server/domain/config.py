@@ -162,6 +162,10 @@ class ServerInterfaceConfig(BaseModel):
     webhooks: bool = Field(
         default=True, description="Enable inbound webhook receiver endpoints"
     )
+    worker_pool: bool = Field(
+        default=True,
+        description="Enable internal worker registration, pull leasing, and report endpoints",
+    )
 
     @classmethod
     def for_role(cls, role: ServerRole) -> Self:
@@ -185,6 +189,7 @@ class ServerInterfaceConfig(BaseModel):
                     budget=False,
                     webhooks=True,
                     mcp=False,
+                    worker_pool=False,
                 )
             case ServerRole.WORKER_API:
                 return cls(
@@ -197,6 +202,7 @@ class ServerInterfaceConfig(BaseModel):
                     budget=False,
                     webhooks=False,
                     mcp=False,
+                    worker_pool=True,
                 )
             case ServerRole.ANALYTICS:
                 return cls(
@@ -209,6 +215,7 @@ class ServerInterfaceConfig(BaseModel):
                     budget=True,
                     webhooks=False,
                     mcp=False,
+                    worker_pool=False,
                 )
             case ServerRole.MCP:
                 return cls(
@@ -221,6 +228,7 @@ class ServerInterfaceConfig(BaseModel):
                     budget=False,
                     webhooks=False,
                     mcp=True,
+                    worker_pool=False,
                 )
             case _:  # ALL and CUSTOM default to full enablement
                 return cls(
@@ -233,6 +241,7 @@ class ServerInterfaceConfig(BaseModel):
                     budget=True,
                     webhooks=True,
                     mcp=True,
+                    worker_pool=True,
                 )
 
     def apply_feature_flags(
@@ -461,6 +470,7 @@ class ServerConfig(BaseModel):
         interfaces: Granular interface enablement settings.
         mcp: Model Context Protocol driving adapter configuration.
         security: Zero-trust security, SPIFFE, and boundary audit configuration.
+        worker_port: Dedicated listen port for internal cluster worker pull and lease traffic.
         workers: Process concurrency worker count.
         reload: Auto-reload on source modification.
     """
@@ -488,6 +498,12 @@ class ServerConfig(BaseModel):
     security: ServerSecurityConfig = Field(
         default_factory=ServerSecurityConfig,
         description="Zero-trust security and boundary audit settings",
+    )
+    worker_port: int | None = Field(
+        default=None,
+        ge=1,
+        le=65535,
+        description="Dedicated listen port for internal cluster worker pull and lease traffic",
     )
     workers: int | None = Field(default=None, ge=1, description="Worker process count")
 

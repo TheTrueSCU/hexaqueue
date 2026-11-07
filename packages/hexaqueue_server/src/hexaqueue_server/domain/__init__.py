@@ -9,6 +9,7 @@ from hexaqueue_server.domain.config import (
     ServerRole,
     ServerSecurityConfig,
 )
+from hexaqueue_server.domain.lease_coordinator import SliceLeaseCoordinator
 from hexaqueue_server.domain.memento import (
     DagRewindReport,
     DagRewindRequest,
@@ -40,5 +41,6 @@ __all__ = [
     "ServerInterfaceConfig",
     "ServerRole",
     "ServerSecurityConfig",
+    "SliceLeaseCoordinator",
     "WarmCachePlacementEngine",
 ]
