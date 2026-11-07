@@ -15,9 +15,12 @@ from fastapi import (
     Depends,
     Header,
     HTTPException,
+    Request,
     Response,
     status,
 )
+from hexastack_core.domain.exceptions import DependencyResolutionError
+from hexastack_core.ports.container import ContainerPort
 from pydantic import BaseModel, Field
 
 from hexaqueue_core.domain.lease import (
@@ -27,60 +30,24 @@ from hexaqueue_core.domain.lease import (
 )
 from hexaqueue_server.domain.lease_coordinator import SliceLeaseCoordinator
 
-# Module-level default singleton for runtime wiring
-_DEFAULT_COORDINATOR: SliceLeaseCoordinator | None = None
 
+def get_lease_coordinator(request: Request) -> SliceLeaseCoordinator:
+    """Dependency provider resolving the active SliceLeaseCoordinator from DI container.
 
-def _build_default_coordinator() -> SliceLeaseCoordinator:
-    """Build central coordinator wired with OCI autoscaler and storage if configured."""
-    pool_id = os.environ.get("HEXAQUEUE_OCI_INSTANCE_POOL_ID") or os.environ.get(
-        "HEXAQUEUE_INSTANCE_POOL_ID"
-    )
-    autoscaler = None
-    storage_port = None
-    if os.environ.get("HEXAQUEUE_CSP_PROVIDER") == "OCI" or pool_id:
-        try:
-            from hexaqueue_core.adapters.storage.oci import OciPresignedStorageAdapter
-            from hexaqueue_core.domain.credentials import OciCredentialsConfig
-            from hexaqueue_server.adapters.cloud.oci import OciInstancePoolAdapter
-            from hexaqueue_server.domain.autoscaler import (
-                BudgetAwareInstancePoolAutoscaler,
-            )
+    Args:
+        request: Incoming FastAPI Request providing application container.
 
-            creds = OciCredentialsConfig(use_instance_principals=True)
-            if pool_id:
-                gov = OciInstancePoolAdapter.from_credentials(credentials=creds)
-                autoscaler = BudgetAwareInstancePoolAutoscaler(governors={pool_id: gov})
-            bucket = (
-                os.environ.get("HEXAQUEUE_COLLATERAL_BUCKET") or "hexaqueue-collateral"
-            )
-            storage_port = OciPresignedStorageAdapter.from_credentials(
-                credentials=creds,
-                bucket_name=bucket,
-            )
-        except Exception:
-            autoscaler = None
-            storage_port = None
+    Returns:
+        The SliceLeaseCoordinator instance registered in the application container.
 
-    return SliceLeaseCoordinator(
-        storage_port=storage_port,
-        autoscaler=autoscaler,
-        pool_id=pool_id,
-    )
-
-
-def get_lease_coordinator() -> SliceLeaseCoordinator:
-    """Dependency provider for the central SliceLeaseCoordinator singleton."""
-    global _DEFAULT_COORDINATOR
-    if _DEFAULT_COORDINATOR is None:
-        _DEFAULT_COORDINATOR = _build_default_coordinator()
-    return _DEFAULT_COORDINATOR
-
-
-def set_lease_coordinator(coordinator: SliceLeaseCoordinator | None) -> None:
-    """Set or override the global SliceLeaseCoordinator singleton."""
-    global _DEFAULT_COORDINATOR
-    _DEFAULT_COORDINATOR = coordinator
+    Raises:
+        DependencyResolutionError: If SliceLeaseCoordinator is not registered in container.
+    """
+    container = getattr(request.app.state, "container", None)
+    if isinstance(container, ContainerPort) and SliceLeaseCoordinator in container:
+        return container.resolve(SliceLeaseCoordinator)
+    msg = "SliceLeaseCoordinator is not registered in request.app.state.container"
+    raise DependencyResolutionError(msg)
 
 
 class WorkerHeartbeatRequest(BaseModel):
@@ -129,8 +96,10 @@ def create_worker_pool_router(
     """
     router = APIRouter(dependencies=[Depends(verify_join_token)])
 
-    def _coord() -> SliceLeaseCoordinator:
-        return coordinator or get_lease_coordinator()
+    def _get_coord(request: Request) -> SliceLeaseCoordinator:
+        if coordinator is not None:
+            return coordinator
+        return get_lease_coordinator(request)
 
     # 1. Worker Registration
     @router.post(
@@ -140,8 +109,8 @@ def create_worker_pool_router(
     )
     async def register_worker(
         reg: WorkerRegistration,
+        coord: Annotated[SliceLeaseCoordinator, Depends(_get_coord)],
     ) -> dict[str, str]:
-        coord = _coord()
         await coord.register_worker(reg)
         return {"status": "registered", "worker_id": reg.worker_id}
 
@@ -152,9 +121,9 @@ def create_worker_pool_router(
     )
     async def worker_heartbeat(
         worker_id: str,
+        coord: Annotated[SliceLeaseCoordinator, Depends(_get_coord)],
         req: WorkerHeartbeatRequest | None = None,
     ) -> dict[str, Any]:
-        coord = _coord()
         active_ids = req.active_lease_ids if req else None
         acknowledged = await coord.record_heartbeat(worker_id, active_ids)
         if not acknowledged:
@@ -172,9 +141,9 @@ def create_worker_pool_router(
     )
     async def lease_slice(
         worker_id: str,
+        coord: Annotated[SliceLeaseCoordinator, Depends(_get_coord)],
         params: LeaseQueryRequest | None = None,
     ) -> Any:
-        coord = _coord()
         ocpus = params.available_ocpus if params else 1
         timeout = params.timeout_seconds if params else 5.0
         lease = await coord.lease_slice(
@@ -194,8 +163,8 @@ def create_worker_pool_router(
     async def report_slice(
         worker_id: str,
         report: SliceReportPayload,
+        coord: Annotated[SliceLeaseCoordinator, Depends(_get_coord)],
     ) -> dict[str, str]:
-        coord = _coord()
         accepted = await coord.report_slice_outcome(report)
         if not accepted:
             raise HTTPException(
@@ -209,8 +178,9 @@ def create_worker_pool_router(
         "/worker/stats",
         summary="Get active worker pool capacity and queue depth metrics",
     )
-    def worker_pool_stats() -> dict[str, int]:
-        coord = _coord()
+    def worker_pool_stats(
+        coord: Annotated[SliceLeaseCoordinator, Depends(_get_coord)],
+    ) -> dict[str, int]:
         return {
             "active_workers": coord.active_worker_count,
             "pending_slices": coord.pending_count,
@@ -223,5 +193,4 @@ def create_worker_pool_router(
 __all__ = [
     "create_worker_pool_router",
     "get_lease_coordinator",
-    "set_lease_coordinator",
 ]

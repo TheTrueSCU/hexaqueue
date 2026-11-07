@@ -32,6 +32,7 @@ from hexaqueue_core.domain.lease import (
 )
 from hexaqueue_server.adapters.api.auth import get_auth_context
 from hexaqueue_server.adapters.api.worker_pool import get_lease_coordinator
+from hexaqueue_server.domain.lease_coordinator import SliceLeaseCoordinator
 
 
 class TestRunDispatchRequest(BaseModel):
@@ -692,6 +693,7 @@ def create_test_runs_router() -> APIRouter:
         auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
         semaphore: Annotated[asyncio.Semaphore, Depends(get_worker_semaphore)],
         pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+        coord: Annotated[SliceLeaseCoordinator, Depends(get_lease_coordinator)],
     ) -> TestRunDispatchResponse:
         """Receive test slices and execute them concurrently across worker nodes."""
         is_container = req.container or req.pool == "container"
@@ -699,7 +701,6 @@ def create_test_runs_router() -> APIRouter:
             getattr(pipeline, "service", None), "collateral_service", None
         )
 
-        coord = get_lease_coordinator()
         reports: list[SliceOutcomeResponse] = []
         remaining_slices = req.slices
 

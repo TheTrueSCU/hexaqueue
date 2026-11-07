@@ -10,16 +10,19 @@ import threading
 from typing import Any
 
 from hexastack_core.domain.exceptions import MissingDependencyError
+from hexastack_core.ports.container import ContainerPort
 from hexastack_fastapi.adapters.server import run_server
 
 from hexaqueue_server.adapters.api.app import create_server_app
 from hexaqueue_server.domain.config import ServerConfig
+from hexaqueue_server.infra.bootstrap import bootstrap_server_container
 
 
 def run_hexaqueue_server(
     config: ServerConfig | None = None,
     *,
     fallback_to_uvicorn: bool = True,
+    container: ContainerPort | None = None,
     **extra_kwargs: Any,
 ) -> None:
     """Execute Hexaqueue Server using the configured ASGI engine.
@@ -28,13 +31,15 @@ def run_hexaqueue_server(
         config: Optional ServerConfig with host, port, engine, and role settings.
         fallback_to_uvicorn: If True, falls back to Uvicorn if Granian is requested
             but not installed.
+        container: Optional ContainerPort dependency injection container.
         **extra_kwargs: Extra keyword arguments forwarded to run_server.
 
     Raises:
         MissingDependencyError: If the chosen engine is missing and fallback is False.
     """
     cfg = config or ServerConfig()
-    app = create_server_app(config=cfg)
+    di = container or bootstrap_server_container(config=cfg)
+    app = create_server_app(config=cfg, container=di)
 
     # Spawn secondary background listener for internal cluster worker port if configured
     worker_port = cfg.worker_port

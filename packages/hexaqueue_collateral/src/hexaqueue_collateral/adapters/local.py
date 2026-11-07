@@ -8,6 +8,7 @@ Notes/Architectural Intent:
 """
 
 import hashlib
+import inspect
 import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -260,10 +261,12 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
             if self._storage_port:
                 put_fn = getattr(self._storage_port, "put_object", None)
                 if callable(put_fn):
-                    put_fn(
+                    put_res = put_fn(
                         f"collateral/{bundle.sha256_checksum}/{bundle.filename}",
                         active_path.read_bytes(),
                     )
+                    if inspect.isawaitable(put_res):
+                        await put_res
 
             approved_bundle = CollateralBundle(
                 id=bundle.id,

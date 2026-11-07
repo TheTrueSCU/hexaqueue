@@ -6,10 +6,12 @@ Notes/Architectural Intent:
     via SliceLeaseCoordinator. Ensures side-effect free assertions to prevent CodeQL alerts.
 """
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
+from hexastack_core.domain.exceptions import DependencyResolutionError
+from hexastack_core.infra.container import create_container
 from httpx import ASGITransport, AsyncClient
 
 from hexaqueue_core.domain.lease import (
@@ -20,7 +22,6 @@ from hexaqueue_server.adapters.api.test_runs import TestSliceDispatch
 from hexaqueue_server.adapters.api.worker_pool import (
     create_worker_pool_router,
     get_lease_coordinator,
-    set_lease_coordinator,
 )
 from hexaqueue_server.domain.lease_coordinator import SliceLeaseCoordinator
 
@@ -28,26 +29,30 @@ from hexaqueue_server.domain.lease_coordinator import SliceLeaseCoordinator
 def _create_test_app(coordinator: SliceLeaseCoordinator | None = None) -> FastAPI:
     """Helper to instantiate test FastAPI app with worker pool router."""
     app = FastAPI()
-    router = create_worker_pool_router(coordinator=coordinator)
+    container = create_container()
+    coord = coordinator or SliceLeaseCoordinator()
+    container.add_instance(coord, declared_class=SliceLeaseCoordinator)
+    app.state.container = container
+    router = create_worker_pool_router(coordinator=coord)
     app.include_router(router)
     return app
 
 
-@pytest.mark.asyncio
-async def test_get_and_set_lease_coordinator() -> None:
-    """Verify coordinator singleton getters and setters."""
-    coord1 = get_lease_coordinator()
-    assert coord1 is not None
+def test_get_lease_coordinator_dependency() -> None:
+    """Verify get_lease_coordinator resolves from request application container."""
+    mock_request = MagicMock()
+    container = create_container()
+    coord = SliceLeaseCoordinator()
+    container.add_instance(coord, declared_class=SliceLeaseCoordinator)
+    mock_request.app.state.container = container
 
-    custom = SliceLeaseCoordinator()
-    set_lease_coordinator(custom)
-    coord2 = get_lease_coordinator()
-    assert coord2 is custom
+    resolved = get_lease_coordinator(mock_request)
+    assert resolved is coord
 
-    # Reset back to fresh coordinator
-    set_lease_coordinator(None)
-    coord3 = get_lease_coordinator()
-    assert coord3 is not custom
+    empty_request = MagicMock()
+    empty_request.app.state.container = create_container()
+    with pytest.raises(DependencyResolutionError, match="not registered"):
+        get_lease_coordinator(empty_request)
 
 
 @pytest.mark.asyncio

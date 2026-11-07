@@ -235,74 +235,71 @@ async def test_dispatch_test_run_container_mode() -> None:
 @pytest.mark.asyncio
 async def test_dispatch_test_run_with_worker_pool() -> None:
     """Verify POST /api/v1/test/runs delegates slices to active worker pool."""
+    from hexastack_core.infra.container import create_container
+
     from hexaqueue_core.domain.lease import SliceReportPayload, WorkerRegistration
-    from hexaqueue_server.adapters.api.worker_pool import (
-        set_lease_coordinator,
-    )
     from hexaqueue_server.domain.lease_coordinator import SliceLeaseCoordinator
 
     coord = SliceLeaseCoordinator()
-    set_lease_coordinator(coord)
-    try:
-        await coord.register_worker(
-            WorkerRegistration(
-                worker_id="w-remote-1",
-                hostname="remote-1",
-                ip_address="10.0.2.50",
-                ocpus=4,
-                memory_mb=16384,
-            )
+    await coord.register_worker(
+        WorkerRegistration(
+            worker_id="w-remote-1",
+            hostname="remote-1",
+            ip_address="10.0.2.50",
+            ocpus=4,
+            memory_mb=16384,
         )
-        app = create_server_app()
-        transport = ASGITransport(app=app)
+    )
+    container = create_container()
+    container.add_instance(coord, declared_class=SliceLeaseCoordinator)
+    app = create_server_app(container=container)
+    transport = ASGITransport(app=app)
 
-        async def _mock_worker() -> None:
-            lease = await coord.lease_slice(worker_id="w-remote-1", timeout_seconds=5.0)
-            if lease is not None:
-                report = SliceReportPayload(
-                    lease_id=lease.lease_id,
-                    slice_id=lease.task.slice_id,
-                    worker_id="w-remote-1",
-                    exit_code=0,
-                    duration_seconds=1.23,
-                    outcomes=[
-                        {
-                            "nodeid": lease.task.test_nodeids[0],
-                            "outcome": "passed",
-                            "duration_seconds": 1.23,
-                        }
-                    ],
-                )
-                await coord.report_slice_outcome(report)
+    async def _mock_worker() -> None:
+        lease = await coord.lease_slice(worker_id="w-remote-1", timeout_seconds=5.0)
+        if lease is not None:
+            report = SliceReportPayload(
+                lease_id=lease.lease_id,
+                slice_id=lease.task.slice_id,
+                worker_id="w-remote-1",
+                exit_code=0,
+                duration_seconds=1.23,
+                outcomes=[
+                    {
+                        "nodeid": lease.task.test_nodeids[0],
+                        "outcome": "passed",
+                        "duration_seconds": 1.23,
+                    }
+                ],
+            )
+            await coord.report_slice_outcome(report)
 
-        worker_task = asyncio.create_task(_mock_worker())
-        payload = {
-            "session_id": "sess-remote",
-            "free_tier": True,
-            "slices": [
-                {
-                    "slice_id": "s-rem-0",
-                    "slice_index": 0,
-                    "total_slices": 1,
-                    "test_nodeids": ["tests/test_remote.py::test_fn"],
-                }
-            ],
-        }
+    worker_task = asyncio.create_task(_mock_worker())
+    payload = {
+        "session_id": "sess-remote",
+        "free_tier": True,
+        "slices": [
+            {
+                "slice_id": "s-rem-0",
+                "slice_index": 0,
+                "total_slices": 1,
+                "test_nodeids": ["tests/test_remote.py::test_fn"],
+            }
+        ],
+    }
 
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            resp = await client.post("/api/v1/test/runs", json=payload)
-            code = resp.status_code
-            assert code == 200
-            data = resp.json()
-            reports = data.get("reports", [])
-            reports_len = len(reports)
-            assert reports_len == 1
-            assert reports[0]["provider"] == "oci_worker_pool"
-            assert reports[0]["worker_id"] == "w-remote-1"
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/v1/test/runs", json=payload)
+        code = resp.status_code
+        assert code == 200
+        data = resp.json()
+        reports = data.get("reports", [])
+        reports_len = len(reports)
+        assert reports_len == 1
+        assert reports[0]["provider"] == "oci_worker_pool"
+        assert reports[0]["worker_id"] == "w-remote-1"
 
-        await worker_task
-    finally:
-        set_lease_coordinator(None)
+    await worker_task
 
 
 def test_build_slice_cmd_with_coverage() -> None:

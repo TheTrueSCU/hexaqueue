@@ -12,17 +12,15 @@ from typing import Any
 
 from fastapi import APIRouter, FastAPI
 from hexastack_core.infra.container import create_container
+from hexastack_core.ports.container import ContainerPort
 from hexastack_core.utils.context import get_correlation_id
 from hexastack_cqrs.infra.pipeline import ExecutionPipeline
 from hexastack_fastapi.domain.config import HealthConfig, HexastackFastApiConfig
 from hexastack_fastapi.infra import create_fastapi_app
 
-from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
 from hexaqueue_core.adapters.security.audit import InMemoryBoundaryAuditLoggerAdapter
 from hexaqueue_core.adapters.security.spiffe import PolicySpiffeAuthorizerAdapter
 from hexaqueue_core.domain.security import SpiffeAuthorizationPolicy
-from hexaqueue_monitor.adapters.ledger import InMemoryBudgetLedgerAdapter
-from hexaqueue_monitor.adapters.local import LocalClusterMonitorAdapter
 from hexaqueue_server.adapters.api.budget import create_budget_router
 from hexaqueue_server.adapters.api.cluster import create_cluster_router
 from hexaqueue_server.adapters.api.jobs import create_jobs_router
@@ -33,10 +31,9 @@ from hexaqueue_server.adapters.api.runs import create_runs_router
 from hexaqueue_server.adapters.api.test_runs import create_test_runs_router
 from hexaqueue_server.adapters.api.webhooks import create_webhooks_router
 from hexaqueue_server.adapters.api.worker_pool import create_worker_pool_router
-from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
 from hexaqueue_server.adapters.mcp import mount_mcp_server
 from hexaqueue_server.domain.config import ServerConfig, ServerInterfaceConfig
-from hexaqueue_server.infra.cqrs import create_hexaqueue_execution_pipeline
+from hexaqueue_server.infra.bootstrap import bootstrap_server_container
 
 
 def create_server_api_router(
@@ -75,12 +72,14 @@ def create_server_api_router(
 def create_server_app(
     pipeline: ExecutionPipeline | None = None,
     config: ServerConfig | None = None,
+    container: ContainerPort | None = None,
 ) -> FastAPI:
     """Create a fully assembled FastAPI application for Hexaqueue Server.
 
     Args:
         pipeline: Optional preconfigured CQRS ExecutionPipeline instance.
         config: Optional ServerConfig instance specifying feature flags and interfaces.
+        container: Optional preconfigured ContainerPort instance.
 
     Returns:
         Configured FastAPI application instance.
@@ -91,28 +90,30 @@ def create_server_app(
     server_cfg = server_cfg.model_copy(
         update={"interfaces": effective_interfaces, "mcp": effective_mcp}
     )
-    effective_pipeline = pipeline
-    if effective_pipeline is None:
-        queue = InMemoryJobQueueAdapter()
-        budget_port = InMemoryBudgetLedgerAdapter()
-        cluster_monitor = LocalClusterMonitorAdapter()
-        controller = LocalSchedulerControllerAdapter(
-            queue=queue,
-            budget_port=budget_port,
-            cluster_monitor=cluster_monitor,
-        )
-        effective_pipeline = create_hexaqueue_execution_pipeline(
-            controller,
-            budget_port=budget_port,
-            cluster_monitor=cluster_monitor,
-        )
 
-    container = create_container()
-    container.add_instance(effective_pipeline, declared_class=ExecutionPipeline)
+    if container is not None:
+        di = container
+        if pipeline is not None:
+            effective_pipeline = pipeline
+            di.add_instance(effective_pipeline, declared_class=ExecutionPipeline)
+        else:
+            effective_pipeline = (
+                di.resolve(ExecutionPipeline) if ExecutionPipeline in di else None
+            )
+            if effective_pipeline is None:
+                di = bootstrap_server_container(config=server_cfg, container=di)
+                effective_pipeline = di.resolve(ExecutionPipeline)
+    elif pipeline is not None:
+        effective_pipeline = pipeline
+        di = create_container()
+        di.add_instance(effective_pipeline, declared_class=ExecutionPipeline)
+    else:
+        di = bootstrap_server_container(config=server_cfg)
+        effective_pipeline = di.resolve(ExecutionPipeline)
 
     fastapi_cfg = HexastackFastApiConfig(health=HealthConfig(enable=False))
     app = create_fastapi_app(
-        config=fastapi_cfg, container=container, pipeline=effective_pipeline
+        config=fastapi_cfg, container=di, pipeline=effective_pipeline
     )
 
     @app.get("/health", summary="Cluster health check", tags=["Health"])
