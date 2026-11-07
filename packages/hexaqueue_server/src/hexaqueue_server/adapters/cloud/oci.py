@@ -138,8 +138,9 @@ class OciInstancePoolAdapter(InstancePoolGovernorPort):
             try:
                 resp = self._client.get_instance_pool(instance_pool_id=pool_id)
                 pool = resp.data
+                eff_comp = getattr(pool, "compartment_id", None) or self._compartment_id
                 instances_resp = self._client.list_instance_pool_instances(
-                    compartment_id=self._compartment_id,
+                    compartment_id=eff_comp,
                     instance_pool_id=pool_id,
                 )
                 instances = (

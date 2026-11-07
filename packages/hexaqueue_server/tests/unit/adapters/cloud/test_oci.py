@@ -93,6 +93,30 @@ async def test_oci_instance_pool_with_client() -> None:
 
 
 @pytest.mark.asyncio
+async def test_oci_instance_pool_dynamic_compartment() -> None:
+    """Verify list_instance_pool_instances receives compartment_id from pool response."""
+    mock_client = MagicMock()
+    mock_pool = MagicMock()
+    mock_pool.size = 1
+    mock_pool.compartment_id = "ocid1.compartment.oc1..from-pool"
+    mock_pool.defined_tags = {}
+    mock_client.get_instance_pool.return_value = MagicMock(data=mock_pool)
+    mock_client.list_instance_pool_instances.return_value = MagicMock(data=[])
+
+    adapter = OciInstancePoolAdapter(
+        compute_management_client=mock_client,
+        compartment_id="ocid1.compartment.oc1..default",
+    )
+    res = await adapter.get_pool_state("ocid1.instancepool.oc1..pool1")
+    count = res.desired_nodes
+    assert count == 1
+    mock_client.list_instance_pool_instances.assert_called_once_with(
+        compartment_id="ocid1.compartment.oc1..from-pool",
+        instance_pool_id="ocid1.instancepool.oc1..pool1",
+    )
+
+
+@pytest.mark.asyncio
 async def test_oci_instance_pool_errors() -> None:
     """Verify error propagation when OCI instance pool is not found or API fails."""
     adapter = OciInstancePoolAdapter()
