@@ -10,8 +10,9 @@ resource "oci_objectstorage_bucket" "collateral" {
 
 # Lifecycle policy: purge ephemeral test artifacts and collateral after 24 hours
 resource "oci_objectstorage_object_lifecycle_policy" "collateral_lifecycle" {
-  namespace = var.object_storage_namespace
-  bucket    = oci_objectstorage_bucket.collateral.name
+  namespace  = var.object_storage_namespace
+  bucket     = oci_objectstorage_bucket.collateral.name
+  depends_on = [oci_identity_policy.objectstorage_lifecycle_policy]
 
   rules {
     name        = "purge-ephemeral-collateral-24h"

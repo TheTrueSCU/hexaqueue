@@ -17,3 +17,13 @@ resource "oci_identity_policy" "controller_policy" {
     "Allow dynamic-group hq-controller-dg to manage objects in tenancy where target.bucket.name = 'hexaqueue-collateral'"
   ]
 }
+
+# Policy granting the regional Object Storage service principal permission to evaluate lifecycle deletion rules
+resource "oci_identity_policy" "objectstorage_lifecycle_policy" {
+  compartment_id = var.tenancy_ocid
+  name           = "hq-objectstorage-lifecycle-policy"
+  description    = "Policy allowing OCI Object Storage service principal to execute automated lifecycle expiration"
+  statements = [
+    "Allow service objectstorage-${var.region} to manage object-family in tenancy"
+  ]
+}

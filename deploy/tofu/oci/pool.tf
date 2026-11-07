@@ -29,15 +29,21 @@ resource "oci_core_instance_configuration" "worker_config" {
         nsg_ids          = [oci_core_network_security_group.worker_nsg.id]
       }
 
-      metadata = {
-        ssh_authorized_keys = var.ssh_public_key
-        user_data = base64encode(templatefile("${path.module}/templates/worker_bootstrap.sh", {
-          controller_ip   = var.controller_private_ip
-          controller_port = 8001
-          worker_ocpus    = var.worker_ocpus
-        }))
-      }
+      metadata = merge(
+        {
+          user_data = base64encode(templatefile("${path.module}/templates/worker_bootstrap.sh", {
+            controller_ip   = var.controller_private_ip
+            controller_port = 8001
+            worker_ocpus    = var.worker_ocpus
+          }))
+        },
+        var.ssh_public_key != "" ? { ssh_authorized_keys = var.ssh_public_key } : {}
+      )
     }
+  }
+
+  lifecycle {
+    create_before_destroy = true
   }
 }
 
