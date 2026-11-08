@@ -19,13 +19,14 @@
 ```mermaid
 graph TD
     subgraph S1["hexaqueue-worker"]
+        AGENT["WorkerAgent (Autonomous Pull-Based Lease Poller & Runner)"]
         RUNNER["Execution Runtimes (cgroups v2, Docker/Podman, Apptainer)"]
         GPU["GPU Masking (NVML & CUDA_VISIBLE_DEVICES)"]
         STREAM["Log & Telemetry gRPC Streaming"]
     end
 
     subgraph S2["Internal & Hexastack Dependencies"]
-        HQ_CORE["hexaqueue-core"]
+        HQ_CORE["hexaqueue-core (Lease Models & Storage Ports)"]
         HS_AUTH["hexastack-auth (SPIFFE mTLS)"]
         HS_CORE["hexastack-core"]
         HS_GRPC["hexastack-grpc (Bidirectional Streams)"]
@@ -38,3 +39,22 @@ graph TD
     S1 --> HS_GRPC
     S1 --> HS_LOG
 ```
+
+---
+
+## 🏃 Autonomous Pull-Based Worker Agent
+
+In elastic cloud environments (e.g. OCI scale-to-zero instance pools under private subnets), worker nodes run the autonomous `WorkerAgent`:
+
+```bash
+# Start autonomous worker agent connecting to controller
+hq-worker-agent --controller-url http://10.0.1.101:8001
+```
+
+### Agent Lifecycle
+1. **Dynamic Registration**: On boot, registers hardware footprint (vCPUs, RAM, architecture) with the controller at `POST /worker/register`.
+2. **Lease Polling**: Actively requests work slices via `POST /worker/{id}/lease`.
+3. **Collateral Ingestion**: Fetches and unpacks content-addressed workspace bundles (via local cache or signed OCI Object Storage PAR URLs).
+4. **Isolated Virtualenv Execution**: Spawns test runners with isolated environments (`VIRTUAL_ENV`, `PATH`).
+5. **Outcome Reporting**: Posts exit codes, JUnit reports, and coverage back via `POST /worker/{id}/report`.
+6. **Heartbeat & Self-Healing**: Transmits heartbeats every 10 seconds; backs off gracefully when the queue is drained so the cloud pool can scale down.

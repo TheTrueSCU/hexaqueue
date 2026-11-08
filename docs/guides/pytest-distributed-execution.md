@@ -240,16 +240,17 @@ markers = [
 ]
 ```
 
-### 3. Zero-Trust GitHub Actions Cloud Slicing
+### 3. Zero-Trust GitHub Actions Cloud Slicing (ADR-008)
 
-Instead of maintaining expensive GitHub Actions matrix jobs or provisioning long-lived CI runners with administrative access, test suites are sliced dynamically and dispatched across remote compute fleets over an encrypted, port-restricted OpenSSH tunnel with ephemeral worktree isolation:
+Instead of maintaining expensive GitHub Actions matrix jobs or provisioning long-lived CI runners with administrative access, test suites are sliced dynamically, content-addressed into CAS archives, and dispatched across an elastic scale-to-zero cloud compute pool (OCI Ampere A1 ARM64) over an encrypted, port-restricted OpenSSH tunnel:
 
-![Zero-Trust Ephemeral Test Cloud Slicing & Execution](../assets/topologies/ephemeral_cloud_slicing.png)
+![Zero-Trust Ephemeral Test Cloud Slicing & Elastic OCI Pool](../assets/topologies/ephemeral_cloud_slicing.png)
 
 #### Security & Confinement Guarantees
 - **OpenSSH Forced Directives**: The remote worker account (`hexaqueue-ci`) has a `/bin/false` shell, no sudo rights, and is restricted by OpenSSH `command="/bin/false",permitopen="localhost:8000"`. Arbitrary command execution is impossible.
-- **Ephemeral Git Worktrees**: Slices execute in isolated, detached worktrees under `/tmp/hexaqueue/runs/<session_id>/slice-<N>` branching from an immutable read-only cache.
-- **100% Teardown & GC**: Upon completion, all worktrees are forcefully purged (`git worktree remove --force`), ensuring zero host state mutation.
+- **Elastic Scale-to-Zero Worker Pool**: The controller's `BudgetAwareInstancePoolAutoscaler` dynamically scales worker instances in a private subnet (`10.0.2.0/24`, 0 public IPs) on demand, and scales down to 0 instances when the queue is idle.
+- **Content-Addressed Storage (CAS) & PAR**: Slices pull code collateral directly from OCI Object Storage (`hexaqueue-collateral`) using secure, time-limited Pre-Authenticated Requests (PAR) with 24-hour lifecycle bucket deletion.
+- **Hermetic Virtualenv Isolation**: Test slices execute in isolated virtual environments with clean outcome and coverage streaming.
 
 #### GitHub Actions Workflow Example
 ```yaml

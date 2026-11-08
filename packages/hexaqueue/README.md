@@ -61,11 +61,17 @@ Install the unified distribution:
 # Core umbrella with default runner bridges
 pip install hexaqueue
 
+# With Oracle Cloud Infrastructure (OCI) elastic instance pool & object storage
+pip install hexaqueue[oci]
+
 # With GitHub Actions dynamic runner autoscaler
 pip install hexaqueue[github]
 
 # With Sentry observability integrations
 pip install hexaqueue[sentry]
+
+# Complete ecosystem installation
+pip install hexaqueue[all]
 ```
 
 ---

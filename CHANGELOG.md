@@ -1,5 +1,47 @@
 # CHANGELOG
 
+## v0.9.0 (2026-11-07)
+
+### Elastic Scale-to-Zero Cloud Worker Pool & Pure DI Composition Root (ADR-008)
+* **Elastic Scale-to-Zero Worker Instance Pool (`ADR-008`, `hexaqueue-server`)**:
+  * Implemented `BudgetAwareInstancePoolAutoscaler` coordinating with `SliceLeaseCoordinator` to dynamically scale OCI Ampere A1 compute pools on queue demand and down to 0 instances when idle.
+  * Added `OciInstancePoolAdapter` with dynamic compartment resolution from instance pool lifecycle inspection and zero-trust private subnet confinement (`10.0.2.0/24`).
+* **Pull-Based Worker Agent Daemon (`hexaqueue-worker`)**:
+  * Implemented autonomous `WorkerAgent` executing on private worker nodes, polling `/worker/{id}/lease`, pulling collateral packages, executing test slices in isolated virtualenvs, and reporting outcomes via `/worker/{id}/report`.
+  * Configured turnkey systemd service and cloud-init bootstrap automation (`worker_bootstrap.sh`) with registration retry backoff and automated self-healing.
+* **Authentic OCI Object Storage PAR Transport (`hexaqueue-core`, `hexaqueue-collateral`)**:
+  * Added `OciPresignedStorageAdapter` providing authentic Pre-Authenticated Request (PAR) upload and download URLs directly from OCI Object Storage bucket `hexaqueue-collateral`.
+  * Hardened `LocalCollateralServiceAdapter` quarantine promotion to await asynchronous OCI upload coroutines and provide signed remote download links to workers.
+* **Pure Hexagonal Container Dependency Injection (`hexaqueue-server`)**:
+  * Centralized runtime composition root in `bootstrap_server_container` (`infra/bootstrap.py`), wiring storage, autoscalers, pipelines, and lease coordinators into `ContainerPort`.
+  * Completely eliminated global singletons and mutable module state (`_DEFAULT_COORDINATOR`, `set_lease_coordinator`).
+  * Replaced lazy imports in route handlers with FastAPI `Depends(get_lease_coordinator)` resolving cleanly from the application container.
+* **Import Hygiene & Zero Lazy Imports (`pytest-hexaqueue`, test suites)**:
+  * Relocated all standard library and internal in-function imports to module top-levels, passing AST lazy import audits with zero violations.
+* **Declarative Cloud IaC Automation (`deploy/tofu/oci`)**:
+  * Authored complete OpenTofu stack for OCI VCN, private worker subnets, NAT/Service gateways, network security groups, instance configurations, and instance pools.
+
+## v0.8.5 (2026-11-05)
+
+### Scoped Coverage Normalization & Managed SSH Tunneling
+* **Scoped Coverage Source Path Normalization (`pytest-hexaqueue`)**:
+  * Normalized remote unpacked test slice coverage paths against host workspace root, ensuring seamless coverage aggregation across hybrid distributed executions.
+* **Managed SSH Tunnel Lifecycle (`pytest-hexaqueue`)**:
+  * Implemented `_managed_ssh_tunnel` context manager auto-managing background SSH port forwarding tunnels during remote cluster test execution.
+
+## v0.8.4 (2026-11-05)
+
+### Subprocess Environment Isolation & Test Parity
+* **Subprocess Environment Sanitization (`hexaqueue-server`)**:
+  * Stripped `HEXAQUEUE_*` environment variables from slice test runner child subprocesses to prevent recursive remote cluster dispatch loops.
+  * Isolated cluster CLI test suites and unified action package synchronization.
+
+## v0.8.3 (2026-11-04)
+
+### Remote Worker SQLite Coverage Path Translation
+* **SQLite Coverage Database Remapping (`pytest-hexaqueue`)**:
+  * Added path translation logic for SQLite `.coverage` files harvested from isolated remote worker execution environments back to root repository workspaces.
+
 ## v0.8.2 (2026-11-04)
 
 ### CAS Collateral API Prefix Alignment & Isolated Remote Virtualenv Sync

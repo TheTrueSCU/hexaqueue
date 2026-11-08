@@ -101,11 +101,11 @@ Hexaqueue clearly separates container packaging, static infrastructure bootstrap
 
 ---
 
-## 4. Zero-Trust Ephemeral Test Cloud Slicing & Execution
+## 4. Zero-Trust Ephemeral Test Cloud Slicing & Elastic OCI Pool (ADR-008)
 
-Hexaqueue includes native, zero-trust cloud test acceleration via `pytest-hexaqueue` and `hq cluster tunnel`. Instead of running multi-thousand test suites sequentially on developer laptops or slow CI runners, tests are dynamically sliced and distributed across remote high-core compute nodes over an encrypted, port-restricted OpenSSH tunnel.
+Hexaqueue includes native, zero-trust cloud test acceleration via `pytest-hexaqueue` and `hq cluster tunnel`. Instead of running multi-thousand test suites sequentially on developer laptops or slow CI runners, tests are dynamically sliced, content-addressed into CAS archives, and distributed across elastic, scale-to-zero cloud compute pools over an encrypted, port-restricted OpenSSH tunnel.
 
-![Zero-Trust Ephemeral Test Cloud Slicing & Execution](assets/topologies/ephemeral_cloud_slicing.png)
+![Zero-Trust Ephemeral Test Cloud Slicing & Elastic OCI Pool](assets/topologies/ephemeral_cloud_slicing.png)
 
 ### Architectural Invariants & Security Boundaries
 
@@ -117,16 +117,17 @@ Hexaqueue includes native, zero-trust cloud test acceleration via `pytest-hexaqu
      ```
    - CI runners establish a restricted local port forward (`-L 8000:localhost:8000 -N`). Shell execution and arbitrary remote commands are rejected with exit code 1.
 
-2. **Detached Git Worktree Isolation**:
-   - Each distributed test slice executes inside an ephemeral, isolated git worktree created under `/tmp/hexaqueue/runs/<session_id>/slice-<N>` branching from a read-only git object cache.
-   - Computations execute on ephemeral disks without modifying the host's primary working tree or git indices.
+2. **Elastic Scale-to-Zero Compute Pool & Pull-Based Leasing (ADR-008)**:
+   - When test slices are submitted, the controller's `BudgetAwareInstancePoolAutoscaler` dynamically scales up worker nodes in an isolated cloud instance pool (OCI Ampere A1 ARM64) inside a private subnet (`10.0.2.0/24`) with 0 public IPs.
+   - Autonomous worker daemons (`WorkerAgent`) register on boot, poll leases from `SliceLeaseCoordinator` over port 8001, and stream heartbeats.
+   - Once all slices are executed, the queue drains and the autoscaler scales the instance pool back to 0 instances.
 
-3. **Guaranteed Teardown & Garbage Collection**:
-   - Upon session completion (success, failure, or cancellation), all slice worktrees are forcefully purged (`git worktree remove --force`), leaving zero residual state mutation on the host node.
+3. **Content-Addressed Storage (CAS) & Pre-Authenticated Requests (PAR)**:
+   - Client workspaces snapshot uncommitted diffs and repository files into a deterministic `.tar.gz` archive and stage them directly via OCI Object Storage bucket (`hexaqueue-collateral`).
+   - Workers download collateral directly from Object Storage using secure, short-lived Pre-Authenticated Request (PAR) URLs with automated 24-hour lifecycle bucket expiration.
 
-4. **Dynamic Slicing & Distributed Dispatch**:
-   - `pytest-hexaqueue` partitions test items across local cores and remote workers concurrently using the hybrid slicing engine.
-   - Slices $1..L$ execute immediately on client cores, while slices $L+1..L+R$ dispatch in parallel to the remote Hexaqueue controller daemon over `http://127.0.0.1:8000/v1/sessions`.
+4. **Hermetic Virtualenv Isolation & Clean Reporting**:
+   - Each distributed test slice executes inside an isolated workspace virtualenv (`workspace_dir/.venv/bin/python -m pytest`).
    - Results (JUnit XML and coverage artifacts) stream back in real time and are seamlessly merged on the client.
 
 ### Hybrid Slicing Partitioning: Local vs. Remote Concurrency

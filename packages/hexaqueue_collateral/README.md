@@ -20,11 +20,12 @@
 graph TD
     subgraph S1["hexaqueue-collateral"]
         URL_GEN["Presigned Upload URL Generator"]
+        STORAGE["PresignedStoragePort (Local Disk & OCI Object Storage)"]
         NOTIFY["Upload Completion & Hash Registration"]
     end
 
     subgraph S2["Internal & Hexastack Dependencies"]
-        HQ_CORE["hexaqueue-core"]
+        HQ_CORE["hexaqueue-core (PresignedStoragePort & Collateral Models)"]
         HS_AUTH["hexastack-auth (SPIFFE/mTLS)"]
         HS_CORE["hexastack-core"]
         HS_EVENTS["hexastack-events (Emits CollateralUploadedEvent)"]

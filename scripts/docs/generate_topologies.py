@@ -13,6 +13,8 @@ from diagrams import Cluster, Diagram, Edge
 from diagrams.generic.compute import Rack
 from diagrams.generic.os import LinuxGeneral
 from diagrams.generic.storage import Storage
+from diagrams.oci.compute import VM, Autoscale, InstancePools
+from diagrams.oci.storage import ObjectStorage
 from diagrams.onprem.ci import GithubActions, GitlabCI
 from diagrams.onprem.client import Client, User, Users
 from diagrams.onprem.compute import Server
@@ -298,7 +300,7 @@ def generate_distributed_cluster_diagram() -> None:
 
 
 def generate_ephemeral_cloud_slicing_diagram() -> None:
-    """Generate architecture diagram for zero-trust ephemeral test cloud execution."""
+    """Generate architecture diagram for zero-trust ephemeral test cloud execution (ADR-008)."""
     out_file = str(OUTPUT_DIR / "ephemeral_cloud_slicing")
     graph_attr = {
         "fontsize": "14",
@@ -306,7 +308,7 @@ def generate_ephemeral_cloud_slicing_diagram() -> None:
         "pad": "0.5",
     }
     with Diagram(
-        "Zero-Trust Ephemeral Test Cloud Slicing & Execution",
+        "Zero-Trust Ephemeral Test Cloud Slicing & Elastic OCI Pool (ADR-008)",
         show=False,
         filename=out_file,
         outformat="png",
@@ -320,40 +322,61 @@ def generate_ephemeral_cloud_slicing_diagram() -> None:
             runner >> slicer
             slicer >> local_slices
 
-        with Cluster("Zero-Trust Cryptographic Boundary"):
+        with Cluster("Zero-Trust Boundary (SSH / Ingress)"):
             tunnel = Server(
                 "OpenSSH Port Forwarding\n(localhost:8000 -> remote:8000)\ncommand='/bin/false'\npermitopen='localhost:8000'"
             )
 
-        with Cluster("Cloud Fleet Node (Immutable Control Plane)"):
-            identity = User("hexaqueue-ci User\n(No sudo / No shell / No repo write)")
-            daemon = Server(
-                "Hexaqueue Controller Daemon\n(systemd :8000)\nImmutable Release Pin"
-            )
-            identity >> daemon
+        with Cluster("OCI Controller Host (10.0.1.101)"):
+            daemon = Server("Hexaqueue Controller\n(:8000 API / :8001 Worker Pool)")
+            coordinator = Server("SliceLeaseCoordinator\n(In-Memory Lease State)")
+            autoscaler = Autoscale("BudgetAwareAutoscaler\n(Scale-to-Zero Governor)")
+            daemon - coordinator
+            coordinator - autoscaler
 
-        with Cluster("Ephemeral Data Plane (/tmp/hexaqueue/runs/<session_id>)"):
-            git_cache = Storage("Git Object Cache\n(Read-Only fetch)")
-            slices = [
-                LinuxGeneral("Detached Worktree 1\n(pytest slice)"),
-                LinuxGeneral("Detached Worktree 2\n(pytest slice)"),
-                Rack("Detached Worktrees 3..32\n(distributed slices)"),
-            ]
-            cleanup = Storage(
-                "Teardown & GC\n(100% Worktree Purge\nZero State Mutation)"
+        with Cluster("Content-Addressed Storage"):
+            cas = ObjectStorage(
+                "OCI Object Storage\n(hexaqueue-collateral Bucket\n24h Lifecycle Deletion)"
             )
-            for s in slices:
-                daemon >> Edge(label="Spawn Slice") >> s
-                git_cache >> Edge(style="dotted") >> s
-                s >> Edge(label="JUnit / Cov") >> cleanup
+
+        with Cluster("Private Worker Subnet (10.0.2.0/24 - 0 Public IPs)"):
+            pool = InstancePools("Elastic OCI Instance Pool\n(Scale-to-Zero Ampere A1)")
+            workers = [
+                VM("Worker Node 1\n(WorkerAgent :8001)"),
+                VM("Worker Node 2\n(WorkerAgent :8001)"),
+                VM("Worker Node N\n(WorkerAgent :8001)"),
+            ]
 
         slicer >> Edge(label="Encrypted SSH Tunnel", color="darkgreen") >> tunnel
-        tunnel >> Edge(label="HTTP /sessions API", color="darkgreen") >> daemon
+        tunnel >> Edge(label="Dispatch /test/runs", color="darkgreen") >> daemon
         (
-            cleanup
-            >> Edge(label="Aggregate Results", color="blue", style="dashed")
-            >> slicer
+            slicer
+            >> Edge(label="Upload Collateral (PAR)", color="darkorange", style="dashed")
+            >> cas
         )
+
+        autoscaler >> Edge(label="Scale 0 -> N", color="blue") >> pool
+        pool - workers
+
+        for w in workers:
+            w >> Edge(label="Poll Lease (:8001)", color="darkgreen") >> coordinator
+            (
+                cas
+                >> Edge(
+                    label="Download Collateral (PAR)",
+                    color="darkorange",
+                    style="dotted",
+                )
+                >> w
+            )
+            w >> Edge(label="Report Outcome & Coverage", color="purple") >> coordinator
+
+        (
+            coordinator
+            >> Edge(label="Aggregate Results", color="blue", style="dashed")
+            >> daemon
+        )
+        daemon >> Edge(label="Session Results", color="blue", style="dashed") >> slicer
 
 
 def main() -> None:
