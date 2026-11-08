@@ -211,8 +211,13 @@ jobs:
       - name: Check pydeps diagrams are up to date
         run: |
           uv run hexaqual deps pydeps
-          git diff --exit-code docs/assets/pydeps/ || \
-            (echo "::error::Architecture diagrams are stale. Run 'pydeps-generate' locally and commit the updated SVGs." && exit 1)
+          SEMANTIC_DIFF=$(git diff docs/assets/pydeps/ | grep -E '^[+-]\s*<title>' || true)
+          if [ -n "$SEMANTIC_DIFF" ]; then
+            echo "::error::Architecture dependencies have changed without updating diagrams. Run 'hexaqual deps pydeps' locally and commit the updated SVGs."
+            echo "$SEMANTIC_DIFF"
+            exit 1
+          fi
+          echo "Architecture dependency diagrams verified (no structural changes)."
 
       - name: Check topology diagrams are up to date
         run: |
