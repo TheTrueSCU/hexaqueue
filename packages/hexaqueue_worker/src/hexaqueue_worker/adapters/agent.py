@@ -307,7 +307,13 @@ class WorkerAgent:
         cmd.extend(nodeids)
 
         env = os.environ.copy()
-        env["PYTHONPATH"] = str(workspace.resolve())
+        src_paths: list[str] = [
+            str(p) for p in sorted((workspace / "packages").glob("*/src"))
+        ]
+        if (workspace / "src").is_dir():
+            src_paths.append(str(workspace / "src"))
+        src_paths.append(str(workspace.resolve()))
+        env["PYTHONPATH"] = os.pathsep.join(src_paths)
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
