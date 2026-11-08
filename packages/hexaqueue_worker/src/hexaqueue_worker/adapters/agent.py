@@ -291,7 +291,15 @@ class WorkerAgent:
         Returns:
             Tuple of (exit_code, outcomes, stdout, stderr).
         """
-        cmd = [sys.executable, "-m", "pytest", "-o", "junit_family=xunit2"]
+        cmd = [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-o",
+            "junit_family=xunit2",
+            "--cov-fail-under=0",
+            "--cov-report=",
+        ]
         if coverage_sources:
             for src in coverage_sources:
                 cmd.extend(["--cov", src])

@@ -256,7 +256,7 @@ jobs:
   # =========================================================================
   mutation-verification:
     name: Mutation Testing Verification
-    needs: [test-suite]
+    needs: [test-suite, cluster-probe]
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -277,7 +277,20 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-packages --all-extras --all-groups
 
-      - name: Run Affected Mutation Testing Verification
+      - name: Connect to Hexaqueue Cluster (Cloud Execution)
+        if: needs.cluster-probe.outputs.cluster_ready == 'true'
+        uses: ./
+        with:
+          cluster-env: ${{ secrets.HEXAQUEUE_ENV }}
+          auto-tunnel: "true"
+          step-summary: "false"
+
+      - name: Run Affected Mutation Testing via Hexaqueue Cloud
+        if: needs.cluster-probe.outputs.cluster_ready == 'true'
+        run: uv run hexaqual mutate run -A -e gremlins -w auto --batch-size 10 -n auto --cluster hexaqueue
+
+      - name: Run Affected Mutation Testing Locally (Fallback)
+        if: needs.cluster-probe.outputs.cluster_ready != 'true'
         run: uv run hexaqual mutate run -A -e gremlins -w auto --batch-size 10 -n auto
 
   # =========================================================================
