@@ -6,7 +6,9 @@ Notes/Architectural Intent:
     CodeQL compliance.
 """
 
+import asyncio
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -218,9 +220,6 @@ async def test_report_slice_missing_lease_returns_false() -> None:
 @pytest.mark.asyncio
 async def test_autoscaler_reconciliation_lifecycle() -> None:
     """Verify coordinator reconciles registered autoscaler on enqueue and completion."""
-    import asyncio
-    from unittest.mock import AsyncMock
-
     mock_autoscaler = AsyncMock()
     mock_autoscaler.reconcile_pool = AsyncMock()
 

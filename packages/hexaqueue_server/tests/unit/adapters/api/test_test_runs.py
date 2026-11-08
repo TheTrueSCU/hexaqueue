@@ -1,12 +1,16 @@
 """Unit tests for distributed test slice dispatch API endpoints."""
 
 import asyncio
+import io
+import tarfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from hexastack_core.infra.container import create_container
 from httpx import ASGITransport, AsyncClient
 
+from hexaqueue_core.domain.lease import SliceReportPayload, WorkerRegistration
 from hexaqueue_server.adapters.api.app import create_server_app
 from hexaqueue_server.adapters.api.test_runs import (
     TestSliceDispatch,
@@ -18,6 +22,7 @@ from hexaqueue_server.adapters.api.test_runs import (
     _prepare_session_workspace,
     get_worker_semaphore,
 )
+from hexaqueue_server.domain.lease_coordinator import SliceLeaseCoordinator
 
 
 @pytest.mark.asyncio
@@ -235,11 +240,6 @@ async def test_dispatch_test_run_container_mode() -> None:
 @pytest.mark.asyncio
 async def test_dispatch_test_run_with_worker_pool() -> None:
     """Verify POST /api/v1/test/runs delegates slices to active worker pool."""
-    from hexastack_core.infra.container import create_container
-
-    from hexaqueue_core.domain.lease import SliceReportPayload, WorkerRegistration
-    from hexaqueue_server.domain.lease_coordinator import SliceLeaseCoordinator
-
     coord = SliceLeaseCoordinator()
     await coord.register_worker(
         WorkerRegistration(
@@ -456,8 +456,6 @@ async def test_sync_workspace_and_venv_slice_cmd(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_extract_collateral_workspace_local(tmp_path: Path) -> None:
     """Verify local collateral tarball is extracted successfully into workspace."""
-    import tarfile
-
     src_dir = tmp_path / "src"
     src_dir.mkdir()
     sample_file = src_dir / "sample.py"
@@ -484,9 +482,6 @@ async def test_extract_collateral_workspace_local(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_extract_collateral_workspace_remote_par(tmp_path: Path) -> None:
     """Verify remote HTTPS PAR collateral tarball is downloaded and unpacked."""
-    import io
-    import tarfile
-
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
         data = b"def test_remote(): pass\n"

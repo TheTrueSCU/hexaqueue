@@ -15,8 +15,11 @@ import subprocess
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
+from urllib.parse import urlparse
 
 import pytest
+
+from hexaqueue_core.domain.credentials import discover_and_merge_env
 
 if TYPE_CHECKING:
     from pytest_hexaqueue.domain.outcome import SliceOutcomeReport
@@ -799,10 +802,6 @@ def _normalize_cov_sources(
 
 def _build_tunnel_command(resolved: Any) -> list[str] | None:
     """Build foreground SSH port-forwarding command if a remote host is configured."""
-    from urllib.parse import urlparse
-
-    from hexaqueue_core.domain.credentials import discover_and_merge_env
-
     env = discover_and_merge_env()
     host = getattr(resolved, "host", None) or env.get("HEXAQUEUE_CLUSTER_HOST")
     if not host:
