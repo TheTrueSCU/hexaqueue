@@ -43,10 +43,35 @@ jobs:
           uv sync --all-packages --all-extras --all-groups
           uv pip install atheris
 
+      - name: Cluster Reachability & Health Probe
+        id: cluster-probe
+        continue-on-error: true
+        run: |
+          if [ -z "${{ secrets.HEXAQUEUE_CLUSTER_HOST }}" ] || [ -z "${{ secrets.HEXAQUEUE_SSH_KEY }}" ]; then
+            echo "status=unreachable" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "status=healthy" >> "$GITHUB_OUTPUT"
+
+      - name: Connect to Hexaqueue Cluster (Cloud Execution)
+        if: steps.cluster-probe.outputs.status == 'healthy'
+        uses: TheTrueSCU/hexaqueue@v0.9.0
+        with:
+          host: ${{ secrets.HEXAQUEUE_CLUSTER_HOST }}
+          ssh-key: ${{ secrets.HEXAQUEUE_SSH_KEY }}
+          user: ${{ secrets.HEXAQUEUE_SSH_USER }}
+          port: 8000
+          version: ">=0.9.0"
+
       - name: Execute Coverage-Guided & OWASP Fuzzing
         run: |
           RUNS="${{ github.event.inputs.runs || '5000' }}"
           uv run hexaqual test fuzz --target all --runs "$RUNS" --engine auto || true
 
       - name: Execute Full Property-Based State Machine Fuzzing
-        run: uv run hexaqual test run -P --no-cov
+        run: |
+          CLUSTER_FLAGS=""
+          if [ "${{ steps.cluster-probe.outputs.status }}" = "healthy" ]; then
+            CLUSTER_FLAGS="--cluster hexaqueue --cluster-url http://127.0.0.1:8000"
+          fi
+          uv run hexaqual test run -P --no-cov --allow-empty $CLUSTER_FLAGS

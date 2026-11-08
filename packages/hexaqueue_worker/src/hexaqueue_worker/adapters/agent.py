@@ -12,6 +12,7 @@ Notes/Architectural Intent:
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import io
 import os
@@ -413,6 +414,14 @@ class WorkerAgent:
                 )
 
             cov_key = await self._handle_coverage_upload(task, workspace)
+            inline_cov: dict[str, Any] | None = None
+            cov_path = workspace / ".coverage"
+            if cov_path.exists():
+                cov_bytes = cov_path.read_bytes()
+                inline_cov = {
+                    "sqlite_b64": base64.b64encode(cov_bytes).decode("ascii"),
+                    "workspace_root": str(workspace.resolve()),
+                }
 
         except Exception as exc:
             exit_code = 1
@@ -423,13 +432,14 @@ class WorkerAgent:
             lease_id=lease.lease_id,
             slice_id=task.slice_id,
             worker_id=self.config.worker_id,
-            exit_code=exit_code,
-            duration_seconds=duration,
-            outcomes=outcomes,
+            coverage_data=inline_cov,
             coverage_object_key=cov_key,
+            duration_seconds=duration,
+            error_message=error_msg,
+            exit_code=exit_code,
+            outcomes=outcomes,
             stdout=stdout_text[:4000] if stdout_text else None,
             stderr=stderr_text[:4000] if stderr_text else None,
-            error_message=error_msg,
         )
 
     async def report_slice(

@@ -14,7 +14,7 @@ import sqlite3
 import subprocess
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import urlparse
 
 import pytest
@@ -516,7 +516,7 @@ def _build_test_report_item(
     return pytest.TestReport(
         nodeid=out.nodeid,
         location=location,
-        keywords=keywords,
+        keywords=cast("Any", keywords),
         outcome=outcome_literal,
         longrepr=out.longrepr or error_msg,
         when="call",
