@@ -10,7 +10,7 @@ inputs:
   version:
     description: "Hexaqueue package version requirement to install on runner"
     required: false
-    default: ">=0.8.2"
+    default: ">=0.9.0"
   probe-only:
     description: "Only probe and verify cluster connectivity; stop tunnel before step completion (for probe stages)"
     required: false
