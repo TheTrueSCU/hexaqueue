@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## v0.9.1 (2026-11-09)
+
+### Remote Worker Project Hydration & Unified Cloud Execution
+* **Remote Worker Project Hydration (`hexaqueue-worker`)**:
+  * Updated `WorkerAgent._run_pytest_slice` to pass `--project <workspace>` to `uv run`, guaranteeing correct virtual environment and root workspace discovery across dynamically unpacked cloud test slices.
+  * Added unit test coverage for project workspace flag resolution.
+* **Workflow Consolidation & CI Unification (`.github/workflows/ci.yml`)**:
+  * Retired standalone `.github/workflows/pytest-distributed.yml` canary, unifying all distributed test execution, zero-trust SSH tunneling, and OCI Ampere A1 pool bursting directly under `.github/workflows/ci.yml`.
+  * Gated all pull requests and main pushes strictly through the consolidated `CI Success (All Required Checks)` branch protection gate.
+* **Property-Based Invariant Fuzzing (`pytest-hexaqueue`)**:
+  * Authored property-based invariant test suite in `packages/pytest_hexaqueue/tests/properties/test_slicer_fuzz.py`, verifying partition completeness and disjointness algebraic properties across `RoundRobinTestSlicer` and `FileContiguousTestSlicer`.
+  * Optimized test item generator strategies for high-throughput headless CI runner execution.
+
 ## v0.9.0 (2026-11-07)
 
 ### Elastic Scale-to-Zero Cloud Worker Pool & Pure DI Composition Root (ADR-008)
