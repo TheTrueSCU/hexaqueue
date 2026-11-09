@@ -230,7 +230,7 @@ jobs:
   # =========================================================================
   hypothesis-fuzzing:
     name: Property-Based State Machine Fuzzing
-    needs: [test-suite]
+    needs: [test-suite, cluster-probe]
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -251,8 +251,21 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-packages --all-extras --all-groups
 
+      - name: Connect to Hexaqueue Cluster (Cloud Execution)
+        if: needs.cluster-probe.outputs.cluster_ready == 'true'
+        uses: ./
+        with:
+          cluster-env: ${{ secrets.HEXAQUEUE_ENV }}
+          auto-tunnel: "true"
+          step-summary: "false"
+
       - name: Run Affected Property-Based Fuzzing
-        run: uv run hexaqual test run -A -P --no-cov --allow-empty
+        run: |
+          CLUSTER_FLAGS=""
+          if [ "${{ needs.cluster-probe.outputs.cluster_ready }}" = "true" ]; then
+            CLUSTER_FLAGS="--cluster hexaqueue --cluster-url http://127.0.0.1:8000"
+          fi
+          uv run hexaqual test run -A -P --no-cov --allow-empty $CLUSTER_FLAGS
 
   # =========================================================================
   # Stage 4: Mutation Testing Verification (PR Quality Fortification)

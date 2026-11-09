@@ -252,6 +252,36 @@ async def test_worker_agent_execute_slice_success(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_worker_agent_execute_slice_uv_project(tmp_path: Path) -> None:
+    """Verify slice execution uses uv run --project when pyproject.toml is present."""
+    cfg = WorkerAgentConfig(worker_id="w-uv", scratch_dir=tmp_path)
+    agent = WorkerAgent(cfg)
+    lease = _make_dummy_lease("sl-uv")
+
+    workspace = tmp_path / "sess-test"
+    workspace.mkdir(parents=True, exist_ok=True)
+    (workspace / "pyproject.toml").write_text("[project]\nname = 'test-pkg'\n")
+
+    mock_proc = AsyncMock()
+    mock_proc.communicate.return_value = (b"1 passed in 0.02s", b"")
+    mock_proc.returncode = 0
+
+    with (
+        patch("shutil.which", return_value="/custom/bin/uv"),
+        patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
+    ):
+        report = await agent.execute_slice(lease)
+        assert report.slice_id == "sl-uv"
+        assert report.exit_code == 0
+        call_args = mock_exec.call_args[0]
+        assert call_args[0] == "/custom/bin/uv"
+        assert call_args[1] == "run"
+        assert call_args[2] == "--project"
+        assert call_args[3] == str(workspace)
+        assert call_args[4] == "pytest"
+
+
+@pytest.mark.asyncio
 async def test_worker_agent_execute_slice_collateral_failure(tmp_path: Path) -> None:
     """Verify execution reports failure when collateral download fails."""
     cfg = WorkerAgentConfig(worker_id="w-err", scratch_dir=tmp_path)

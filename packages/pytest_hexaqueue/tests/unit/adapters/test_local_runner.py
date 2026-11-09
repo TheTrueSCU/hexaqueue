@@ -8,6 +8,11 @@ import pytest
 from pytest_hexaqueue.adapters.local_runner import LocalSliceRunner
 from pytest_hexaqueue.domain.slice import TestSliceSpec
 
+_TEST_TARGET_NODEID = (
+    str((Path(__file__).parents[1] / "domain" / "test_outcome.py").resolve())
+    + "::test_test_outcome_item"
+)
+
 
 @pytest.mark.asyncio
 async def test_local_slice_runner_empty_nodeids() -> None:
@@ -38,9 +43,7 @@ async def test_local_slice_runner_successful_execution() -> None:
         slice_id=str(uuid.uuid4()),
         slice_index=1,
         total_slices=4,
-        test_nodeids=[
-            "packages/pytest_hexaqueue/tests/unit/domain/test_outcome.py::test_test_outcome_item"
-        ],
+        test_nodeids=[_TEST_TARGET_NODEID],
     )
     report = await runner.execute_slice(spec)
     passed = report.passed_count
@@ -85,9 +88,7 @@ async def test_local_slice_runner_with_coverage() -> None:
         slice_id=f"cov-{uuid.uuid4().hex[:6]}",
         slice_index=3,
         total_slices=4,
-        test_nodeids=[
-            "packages/pytest_hexaqueue/tests/unit/domain/test_outcome.py::test_test_outcome_item"
-        ],
+        test_nodeids=[_TEST_TARGET_NODEID],
     )
     report = await runner.execute_slice(
         spec, coverage_sources=["pytest_hexaqueue.domain.outcome"]
