@@ -68,6 +68,6 @@ jobs:
         run: |
           CLUSTER_FLAGS=""
           if [ "${{ steps.cluster-probe.outputs.cluster_ready }}" = "true" ]; then
-            CLUSTER_FLAGS="--cluster hexaqueue --cluster-url http://127.0.0.1:8000"
+            CLUSTER_FLAGS="-- --hexaqueue --hq-server http://127.0.0.1:8000"
           fi
           uv run hexaqual test run -P --no-cov --allow-empty $CLUSTER_FLAGS

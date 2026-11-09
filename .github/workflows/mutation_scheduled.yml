@@ -36,29 +36,8 @@ jobs:
       - name: Install Dependencies
         run: uv sync --all-packages --all-extras --all-groups
 
-      - name: Probe Hexaqueue Cloud Fleet
-        id: cluster-probe
-        uses: ./
-        with:
-          cluster-env: ${{ secrets.HEXAQUEUE_ENV }}
-          probe-only: "true"
-          step-summary: "true"
-
-      - name: Connect to Hexaqueue Cluster (Cloud Execution)
-        if: steps.cluster-probe.outputs.cluster_ready == 'true'
-        uses: ./
-        with:
-          cluster-env: ${{ secrets.HEXAQUEUE_ENV }}
-          auto-tunnel: "true"
-          step-summary: "false"
-
       - name: Execute Full Workspace Mutation Sweep
-        run: |
-          CLUSTER_FLAGS=""
-          if [ "${{ steps.cluster-probe.outputs.cluster_ready }}" = "true" ]; then
-            CLUSTER_FLAGS="--cluster hexaqueue --cluster-url http://127.0.0.1:8000"
-          fi
-          uv run hexaqual mutate run -a -e gremlins -w auto --batch-size 10 -n auto $CLUSTER_FLAGS
+        run: uv run hexaqual mutate run -a -e gremlins -w auto --batch-size 10 -n auto
 
       - name: Generate Mutation Triage Summary
         if: always()
