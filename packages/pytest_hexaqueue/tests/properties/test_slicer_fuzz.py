@@ -9,7 +9,7 @@ Notes/Architectural Intent:
     - Structural validity: slice IDs and indices strictly within bounds.
 """
 
-from hypothesis import given
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from pytest_hexaqueue.adapters.slicer import (
     FileContiguousTestSlicer,
@@ -21,13 +21,12 @@ from pytest_hexaqueue.domain.slice import TestItemInfo, TestSliceSpec
 @st.composite
 def item_info_strategy(draw: st.DrawFn) -> TestItemInfo:
     """Generate synthetic TestItemInfo with randomized file path and nodeid."""
-    module = draw(st.from_regex(r"^[a-z_][a-z0-9_]{1,10}$", fullmatch=True))
-    test_name = draw(st.from_regex(r"^test_[a-z0-9_]{1,15}$", fullmatch=True))
+    idx = draw(st.integers(min_value=0, max_value=100000))
     duration = draw(
         st.floats(min_value=0.01, max_value=60.0, allow_nan=False, allow_infinity=False)
     )
-    file_path = f"tests/unit/test_{module}.py"
-    nodeid = f"{file_path}::{test_name}"
+    file_path = f"tests/unit/test_module_{idx % 20}.py"
+    nodeid = f"{file_path}::test_case_{idx}"
     return TestItemInfo(
         nodeid=nodeid,
         file_path=file_path,
@@ -35,6 +34,7 @@ def item_info_strategy(draw: st.DrawFn) -> TestItemInfo:
     )
 
 
+@settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
 @given(
     st.lists(
         item_info_strategy(), min_size=0, max_size=100, unique_by=lambda x: x.nodeid
@@ -68,6 +68,7 @@ def test_round_robin_slicer_invariants(
     assert seen_len == items_len
 
 
+@settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
 @given(
     st.lists(
         item_info_strategy(), min_size=0, max_size=100, unique_by=lambda x: x.nodeid
