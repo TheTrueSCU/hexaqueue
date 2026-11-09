@@ -67,7 +67,15 @@ def test_bootstrap_server_container_oci_configured() -> None:
         "HEXAQUEUE_OCI_INSTANCE_POOL_ID": "ocid1.instancepool.oc1.phx..mock",
         "HEXAQUEUE_COLLATERAL_BUCKET": "mock-bucket",
     }
-    with patch.dict("os.environ", env_vars, clear=False):
+    with (
+        patch.dict("os.environ", env_vars, clear=False),
+        patch(
+            "hexaqueue_core.adapters.storage.oci.optional_dependency", return_value=None
+        ),
+        patch(
+            "hexaqueue_server.adapters.cloud.oci.optional_dependency", return_value=None
+        ),
+    ):
         di = bootstrap_server_container()
         coord = di.resolve(SliceLeaseCoordinator)
         autoscaler_active = coord.has_autoscaler
