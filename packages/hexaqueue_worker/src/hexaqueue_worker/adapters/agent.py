@@ -292,15 +292,35 @@ class WorkerAgent:
         Returns:
             Tuple of (exit_code, outcomes, stdout, stderr).
         """
-        cmd = [
-            sys.executable,
-            "-m",
-            "pytest",
-            "-o",
-            "junit_family=xunit2",
-            "--cov-fail-under=0",
-            "--cov-report=",
-        ]
+        uv_bin = shutil.which("uv") or (
+            "/usr/local/bin/uv" if Path("/usr/local/bin/uv").is_file() else None
+        )
+        has_uv_project = (workspace / "pyproject.toml").is_file() or (
+            workspace / "uv.lock"
+        ).is_file()
+
+        if uv_bin and has_uv_project:
+            cmd = [
+                uv_bin,
+                "run",
+                "--project",
+                str(workspace),
+                "pytest",
+                "-o",
+                "junit_family=xunit2",
+                "--cov-fail-under=0",
+                "--cov-report=",
+            ]
+        else:
+            cmd = [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-o",
+                "junit_family=xunit2",
+                "--cov-fail-under=0",
+                "--cov-report=",
+            ]
         if coverage_sources:
             for src in coverage_sources:
                 cmd.extend(["--cov", src])
