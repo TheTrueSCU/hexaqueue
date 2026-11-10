@@ -26,6 +26,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from hexaqueue_cli.adapters.oci_pool import inspect_pool
 from hexaqueue_cli.infra.options import format_option, resolve_format
 from hexaqueue_core.domain.credentials import discover_and_merge_env
 from hexaqueue_core.domain.runner_config import (
@@ -475,6 +476,55 @@ def _resolve_tunnel_target(
         raise typer.Exit(code=1)
 
     return target_host, target_user, target_key, target_ssh_port, target_remote_port
+
+
+def _resolve_admin_target(
+    profile: str | None,
+    host: str | None,
+    user: str | None,
+    key: str | None,
+) -> tuple[str, str, str | None]:
+    """Resolve administrative SSH target parameters from CLI flags, profile, or env.
+
+    Args:
+        profile: Runner profile specifying target host and keys.
+        host: Target remote cluster host IP or hostname.
+        user: Administrative SSH login user.
+        key: Path to SSH private key identity file.
+
+    Returns:
+        Tuple of (target_host, target_user, target_key).
+
+    Raises:
+        typer.Exit: If target host cannot be resolved.
+    """
+    proj_cfg = load_project_config()
+    resolved = resolve_runner_config(project_config=proj_cfg, profile=profile)
+    env = discover_and_merge_env()
+
+    target_host = host or resolved.host or env.get("HEXAQUEUE_CLUSTER_HOST")
+    target_user = (
+        user
+        or env.get("HEXAQUEUE_ADMIN_USER")
+        or getattr(resolved, "admin_user", None)
+        or "ubuntu"
+    )
+    target_key = key or resolved.ssh_key or env.get("HEXAQUEUE_SSH_KEY")
+
+    if not target_host:
+        discovered = _auto_select_online_host()
+        if discovered:
+            target_host = discovered["host"]
+            target_key = target_key or discovered.get("key")
+
+    if not target_host:
+        console.print(
+            "[bold red]Error:[/] Target host not specified. Provide --host, specify host in "
+            f"profile '{profile or 'default'}', or export HEXAQUEUE_CLUSTER_HOST."
+        )
+        raise typer.Exit(code=1)
+
+    return target_host, target_user, target_key
 
 
 @app.command("tunnel")
@@ -973,10 +1023,149 @@ def discover_cmd(
     _render_discovered_table(probed)
 
 
+@app.command("journal")
+def journal_cmd(
+    profile: str | None = typer.Option(
+        None, "--profile", "-p", help="Runner profile specifying target host and keys"
+    ),
+    host: str | None = typer.Option(
+        None, "--host", "-h", help="Target remote cluster host IP or hostname"
+    ),
+    user: str | None = typer.Option(
+        None, "--user", "-u", help="SSH login user (administrative, default: ubuntu)"
+    ),
+    key: str | None = typer.Option(
+        None, "--key", "-i", help="Path to SSH private key identity file"
+    ),
+    lines: int = typer.Option(
+        50, "-n", "--lines", help="Number of journal log lines to display"
+    ),
+    follow: bool = typer.Option(
+        True, "-f/--no-follow", help="Continuously follow journal stream"
+    ),
+) -> None:
+    """Stream systemd journal logs from the Hexaqueue controller daemon over SSH.
+
+    Args:
+        profile: Runner profile specifying target host and keys.
+        host: Target remote cluster host IP or hostname.
+        user: Administrative SSH user.
+        key: Path to SSH private key identity file.
+        lines: Historical lines to fetch.
+        follow: Whether to follow logs in real time.
+
+    Notes/Architectural Intent:
+        Enables rapid debugging of host-level daemon failures, systemd restarts,
+        and unhandled controller exceptions directly through the hq CLI.
+    """
+    target_host, target_user, target_key = _resolve_admin_target(
+        profile=profile, host=host, user=user, key=key
+    )
+    follow_flag = "-f" if follow else ""
+    remote_cmd = (
+        f"sudo journalctl -u hexaqueue.service -n {lines} {follow_flag} --no-pager"
+    )
+
+    ssh_cmd = [
+        "ssh",
+        "-t",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+    ]
+    if target_key:
+        key_path = Path(target_key).expanduser()
+        if key_path.exists():
+            ssh_cmd.extend(["-i", str(key_path)])
+    ssh_cmd.extend([f"{target_user}@{target_host}", remote_cmd])
+
+    console.print(f"[dim]Tailing journal logs on {target_user}@{target_host}...[/]")
+    try:
+        proc = subprocess.run(ssh_cmd, check=False)
+        if proc.returncode != 0:
+            raise typer.Exit(code=proc.returncode)
+    except KeyboardInterrupt:
+        return
+
+
+@app.command("pool")
+def pool_cmd(
+    profile: str | None = typer.Option(
+        None, "--profile", "-p", help="Runner profile specifying target host and keys"
+    ),
+    host: str | None = typer.Option(
+        None, "--host", "-h", help="Target remote cluster host IP or hostname"
+    ),
+    user: str | None = typer.Option(
+        None, "--user", "-u", help="SSH login user (administrative, default: ubuntu)"
+    ),
+    pool_id: str | None = typer.Option(
+        None, "--pool-id", help="Explicit OCI instance pool OCID override"
+    ),
+    local: bool = typer.Option(
+        False,
+        "--local",
+        help="Query local OCI SDK instead of delegating to remote host via SSH",
+    ),
+    format_type: str = format_option(),
+) -> None:
+    """Inspect cloud compute worker pool scaling status and instance health.
+
+    Args:
+        profile: Runner profile specifying target host and keys.
+        host: Target remote cluster host IP or hostname.
+        user: Administrative SSH user.
+        pool_id: Explicit cloud instance pool identifier override.
+        local: Whether to execute pool inspection locally.
+        format_type: Chosen serialization output format.
+
+    Notes/Architectural Intent:
+        Exposes low-level CSP instance pool elasticity, pending instance boots,
+        and private IP topology directly through the unified hq CLI.
+    """
+    if local:
+        code = inspect_pool(pool_id)
+        if code != 0:
+            raise typer.Exit(code=code)
+        return
+
+    target_host, target_user, target_key = _resolve_admin_target(
+        profile=profile, host=host, user=user, key=None
+    )
+
+    pool_arg = f" --pool-id {pool_id}" if pool_id else ""
+    remote_cmd = (
+        "cd /home/ubuntu/hexaqueue && "
+        f"/home/ubuntu/.local/bin/uv run hq cluster pool --local{pool_arg}"
+    )
+
+    ssh_cmd = [
+        "ssh",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+    ]
+    if target_key:
+        key_path = Path(target_key).expanduser()
+        if key_path.exists():
+            ssh_cmd.extend(["-i", str(key_path)])
+    ssh_cmd.extend([f"{target_user}@{target_host}", remote_cmd])
+
+    console.print(
+        f"[dim]Querying OCI instance pool via {target_user}@{target_host}...[/]"
+    )
+    try:
+        proc = subprocess.run(ssh_cmd, check=False)
+        if proc.returncode != 0:
+            raise typer.Exit(code=proc.returncode)
+    except KeyboardInterrupt:
+        raise typer.Exit(code=130) from None
+
+
 __all__ = [
     "app",
     "discover_cmd",
+    "journal_cmd",
     "ping_cmd",
+    "pool_cmd",
     "status_cmd",
     "sync_cmd",
     "tunnel_cmd",

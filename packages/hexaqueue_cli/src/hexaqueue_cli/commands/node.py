@@ -6,6 +6,8 @@ Notes/Architectural Intent:
 """
 
 import asyncio
+import os
+import subprocess
 
 import typer
 from rich.console import Console
@@ -48,7 +50,9 @@ def list_nodes_cmd(
 
 @app.command("ssh")
 def ssh_node_cmd(
-    node_id: str = typer.Argument(..., help="Target worker node ID to attach to"),
+    node_id: str = typer.Argument(
+        ..., help="Target worker node ID or private IP to attach to"
+    ),
     admin: bool = typer.Option(
         False,
         "--admin",
@@ -60,17 +64,36 @@ def ssh_node_cmd(
         "-u",
         help="Requesting user identity",
     ),
+    direct: bool = typer.Option(
+        False,
+        "--direct",
+        help="Connect directly via SSH jump-host through controller instead of controller API session",
+    ),
+    jump_host: str | None = typer.Option(
+        None,
+        "--jump-host",
+        help="Jump host public IP/hostname for direct connection",
+    ),
+    jump_user: str = typer.Option(
+        "ubuntu",
+        "--jump-user",
+        help="Jump host SSH user",
+    ),
 ) -> None:
     """Open an administrative bastion terminal session on a worker node.
 
     Args:
-        node_id: Target compute node worker ID.
+        node_id: Target compute node worker ID or private IP.
         admin: Explicit administrative elevation confirmation.
         user: Requesting user identity.
+        direct: Whether to connect directly via SSH jump host.
+        jump_host: Public IP/hostname of jump host.
+        jump_user: Administrative user on jump host.
 
     Notes/Architectural Intent:
         Enforces least privilege: connecting to worker node underlying infrastructure
-        requires explicit administrative elevation (--admin).
+        requires explicit administrative elevation (--admin). Direct mode allows
+        out-of-band rescue when the in-band controller API is unreachable.
     """
     if not admin:
         console.print(
@@ -78,6 +101,34 @@ def ssh_node_cmd(
             "requires explicit administrative elevation (--admin)."
         )
         raise typer.Exit(code=1)
+
+    if direct:
+        target_jump_host = jump_host or os.environ.get(
+            "HEXAQUEUE_CLUSTER_HOST", "129.146.115.79"
+        )
+        target_jump_user = jump_user or os.environ.get("HEXAQUEUE_ADMIN_USER", "ubuntu")
+        target = f"ubuntu@{node_id}"
+
+        ssh_cmd = [
+            "ssh",
+            "-A",
+            "-t",
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            "-J",
+            f"{target_jump_user}@{target_jump_host}",
+            target,
+        ]
+        console.print(
+            f"[dim]Connecting to {target} via jump host {target_jump_user}@{target_jump_host}...[/]"
+        )
+        try:
+            proc = subprocess.run(ssh_cmd, check=False)
+            if proc.returncode != 0:
+                raise typer.Exit(code=proc.returncode)
+            return
+        except KeyboardInterrupt:
+            raise typer.Exit(code=130) from None
 
     async def _ssh() -> None:
         client = LocalClientAdapter()

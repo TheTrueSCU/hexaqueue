@@ -192,7 +192,6 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "**/hexaqueue_cli/**/*.py" = ["T201"]
 "**/tests/**/*.py" = ["ARG", "D", "E501", "S101", "S105"]
-"scripts/**/*.py" = ["T201"]
 
 [tool.ruff.lint.isort]
 known-first-party = [

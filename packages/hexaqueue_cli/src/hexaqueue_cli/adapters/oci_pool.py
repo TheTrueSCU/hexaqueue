@@ -1,8 +1,9 @@
-"""OCI Instance Pool Inspection Utility.
+"""OCI compute worker pool inspection adapter.
 
-Queries OCI Compute Management and Virtual Network APIs using Instance Principals
-or local configuration to display current pool scaling status, instance states,
-and private IP addresses.
+Notes/Architectural Intent:
+    Queries OCI Compute Management and Virtual Network APIs using Instance Principals
+    or local configuration to display current pool scaling status, instance states,
+    and private IP addresses.
 """
 
 from __future__ import annotations
@@ -30,12 +31,11 @@ def inspect_pool(pool_id: str | None = None) -> int:
         import oci
     except ImportError:
         sys.stderr.write(
-            "Error: 'oci' Python SDK is not installed. Run via 'uv run --with oci scripts/ops/oci_inspect_pool.py'\n"
+            "Error: 'oci' Python SDK is not installed. Install via 'uv pip install oci'\n"
         )
         return 1
 
     try:
-        # Prefer Instance Principals (when running inside OCI compute), fallback to default config file
         try:
             signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
             config: dict[str, str] = {}
@@ -93,6 +93,7 @@ def inspect_pool(pool_id: str | None = None) -> int:
         return 2
 
 
-if __name__ == "__main__":
-    cli_pool_id = sys.argv[1] if len(sys.argv) > 1 else None
-    sys.exit(inspect_pool(cli_pool_id))
+__all__ = [
+    "DEFAULT_POOL_ID",
+    "inspect_pool",
+]
