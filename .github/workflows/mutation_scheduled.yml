@@ -36,8 +36,21 @@ jobs:
       - name: Install Dependencies
         run: uv sync --all-packages --all-extras --all-groups
 
+      - name: Connect to Hexaqueue Cluster (Cloud Execution)
+        uses: ./
+        with:
+          cluster-env: ${{ secrets.HEXAQUEUE_ENV }}
+          auto-tunnel: "true"
+          step-summary: "false"
+
       - name: Execute Full Workspace Mutation Sweep
-        run: uv run hexaqual mutate run -a -e gremlins -w auto --batch-size 10 -n auto
+        env:
+          HEXAQUEUE_TIMEOUT: "7200"
+        run: uv run hexaqual mutate run -a -e gremlins -w auto --batch-size 10 -n auto --cluster hexaqueue
+
+      - name: Disconnect Hexaqueue Cluster Tunnel
+        if: always()
+        run: uv run hq cluster tunnel --stop || true
 
       - name: Generate Mutation Triage Summary
         if: always()

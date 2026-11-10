@@ -281,7 +281,7 @@ jobs:
     if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' && !startsWith(github.head_ref, 'dependabot/')
     continue-on-error: true
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -300,19 +300,27 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-packages --all-extras --all-groups
 
-      - name: Run Affected Mutation Testing
-        run: |
-          AFFECTED_PKGS=$(git diff origin/main...HEAD --name-only | grep -E '^packages/' | cut -d/ -f2 | sort -u || true)
-          if [ -z "$AFFECTED_PKGS" ]; then
-            echo "No package source files modified; skipping PR mutation testing sweep."
-            exit 0
-          fi
-          PKG_ARGS=()
-          for pkg in $AFFECTED_PKGS; do
-            PKG_ARGS+=("-p" "$pkg")
-          done
-          echo "Executing mutation verification on package diff: ${PKG_ARGS[*]}"
-          uv run hexaqual mutate run "${PKG_ARGS[@]}" -e gremlins -w auto --batch-size 10 -n auto
+      - name: Connect to Hexaqueue Cluster (Cloud Execution)
+        if: needs.cluster-probe.outputs.cluster_ready == 'true'
+        uses: ./
+        with:
+          cluster-env: ${{ secrets.HEXAQUEUE_ENV }}
+          auto-tunnel: "true"
+          step-summary: "false"
+
+      - name: Run Affected Mutation Testing via Hexaqueue Cloud
+        if: needs.cluster-probe.outputs.cluster_ready == 'true'
+        env:
+          HEXAQUEUE_TIMEOUT: "3600"
+        run: uv run hexaqual mutate run -A -e gremlins -w auto --batch-size 10 -n auto --cluster hexaqueue
+
+      - name: Run Affected Mutation Testing Locally (Fallback)
+        if: needs.cluster-probe.outputs.cluster_ready != 'true'
+        run: uv run hexaqual mutate run -A -e gremlins -w auto --batch-size 10 -n auto
+
+      - name: Disconnect Hexaqueue Cluster Tunnel
+        if: always() && needs.cluster-probe.outputs.cluster_ready == 'true'
+        run: uv run hq cluster tunnel --stop || true
 
   # =========================================================================
   # Stage 5: Unified CI Success Status Check (Branch Protection Gate)
