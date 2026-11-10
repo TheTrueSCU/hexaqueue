@@ -9,6 +9,7 @@ import asyncio
 import contextlib
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from typing import Any
 
 from hexaqueue_collateral.ports.service import CollateralServicePort
 from hexaqueue_core.domain.config import CspProvider, ExecutionMode
@@ -74,6 +75,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
         budget_port: BudgetAccountingPort | None = None,
         cost_model: CostRateModelPort | None = None,
         cluster_monitor: ClusterMonitorPort | None = None,
+        lease_coordinator: Any = None,
     ) -> None:
         """Initialize controller with task queue and optional notification dispatcher.
 
@@ -89,6 +91,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             budget_port: Optional BudgetAccountingPort for two-phase budget reservation holds.
             cost_model: Optional CostRateModelPort for translating job resource requirements to credit estimates.
             cluster_monitor: Optional ClusterMonitorPort for hardware telemetry pulses.
+            lease_coordinator: Optional SliceLeaseCoordinator for unified cluster pull-leasing.
 
         Notes/Architectural Intent:
             When operating under Free-Tier Safety Mode (`mode == ExecutionMode.FREE_TIER`
@@ -112,6 +115,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
         self._budget_port = budget_port
         self._cost_model = cost_model
         self._cluster_monitor = cluster_monitor
+        self._lease_coordinator = lease_coordinator
         self._job_reservations: dict[str, str] = {}
         self._runs: dict[str, RunSubmission] = {}
         self._jobs: dict[str, JobSpec] = {}
@@ -119,6 +123,14 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
         self._nodes: dict[str, ComputeNodeProfile] = {}
         self._dead_letters: list[DeadLetterRecord] = []
         self._lock = asyncio.Lock()
+
+    def set_lease_coordinator(self, coordinator: Any) -> None:
+        """Attach or update the cluster SliceLeaseCoordinator."""
+        self._lease_coordinator = coordinator
+
+    def has_job(self, job_id: str) -> bool:
+        """Check if job_id is registered in this controller."""
+        return job_id in self._jobs
 
     async def _check_leadership(self) -> None:
         """Verify that this controller holds active leadership before mutating state.
@@ -311,6 +323,8 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                 )
                 self._jobs[job.id] = pending_job
                 await self._queue.enqueue(pending_job)
+                if self._lease_coordinator is not None:
+                    await self._lease_coordinator.enqueue_job(pending_job)
 
         if blocked_reasons:
             await self._advance_dependents(submission, dag)
@@ -483,6 +497,8 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                     )
                     self._jobs[j_id] = ready_job
                     await self._queue.enqueue(ready_job)
+                    if self._lease_coordinator is not None:
+                        await self._lease_coordinator.enqueue_job(ready_job)
                 elif dag.is_job_blocked(j_id, outcomes):
                     blocked_job = stored.model_copy(
                         update={
@@ -576,6 +592,9 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                 submission.run_spec, NotificationTrigger.CANCELLED
             )
 
+        if self._lease_coordinator is not None:
+            await self._lease_coordinator.cancel_task(run_id)
+
         return await self.get_run_status(run_id)
 
     async def cancel_job(self, job_id: str) -> JobSpec:
@@ -591,6 +610,8 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             HexaqueueError: If job is not registered.
         """
         await self._check_leadership()
+        if self._lease_coordinator is not None:
+            await self._lease_coordinator.cancel_task(job_id)
         async with self._lock:
             if job_id not in self._jobs:
                 msg = f"Job with ID '{job_id}' not found"

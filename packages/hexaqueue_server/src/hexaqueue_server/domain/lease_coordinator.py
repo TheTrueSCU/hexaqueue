@@ -9,10 +9,12 @@ Notes/Architectural Intent:
 """
 
 import asyncio
+import contextlib
 from collections import deque
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lease import (
     SliceLease,
     SliceLeaseState,
@@ -23,6 +25,7 @@ from hexaqueue_core.domain.lease import (
     TestSliceDispatch,
     WorkerRegistration,
 )
+from hexaqueue_core.domain.lifecycle import TerminalOutcome
 from hexaqueue_core.ports.storage import PresignedStoragePort
 
 
@@ -47,12 +50,14 @@ class SliceLeaseCoordinator:
         default_lease_ttl_seconds: int = 90,
         autoscaler: Any = None,
         pool_id: str | None = None,
+        controller: Any = None,
     ) -> None:
         self._storage_port = storage_port
         self._collateral_service = collateral_service
         self._default_ttl = default_lease_ttl_seconds
         self._autoscaler = autoscaler
         self._pool_id = pool_id
+        self._controller = controller
 
         self._lock = asyncio.Lock()
         self._condition = asyncio.Condition(lock=self._lock)
@@ -69,6 +74,19 @@ class SliceLeaseCoordinator:
         self._session_total_slices: dict[str, int] = {}
         self._session_reports: dict[str, list[SliceOutcomeResponse]] = {}
         self._session_events: dict[str, asyncio.Event] = {}
+
+    def set_controller(self, controller: Any) -> None:
+        """Attach scheduler controller to coordinator for job lifecycle synchronizations.
+
+        Args:
+            controller: SchedulerControllerPort instance.
+        """
+        self._controller = controller
+
+    @property
+    def controller(self) -> Any:
+        """Return the bound scheduler controller instance."""
+        return self._controller
 
     @property
     def pending_count(self) -> int:
@@ -222,6 +240,78 @@ class SliceLeaseCoordinator:
 
         return completion_event
 
+    async def enqueue_job(
+        self,
+        job: JobSpec,
+        collateral_id: str | None = None,
+    ) -> None:
+        """Enqueue an individual JobSpec for cluster worker execution.
+
+        Args:
+            job: Candidate JobSpec to enqueue.
+            collateral_id: Optional CAS collateral bundle ID transporting workspace code.
+
+        Notes/Architectural Intent:
+            Converts a DAG job specification into a pull-leasable task descriptor,
+            vending presigned CAS collateral download links if available.
+        """
+        collateral_url = None
+        cid = collateral_id or (job.collateral_ids[0] if job.collateral_ids else None)
+        if cid and self._collateral_service is not None:
+            get_url_fn = getattr(self._collateral_service, "get_download_url", None)
+            if callable(get_url_fn):
+                try:
+                    collateral_url = await get_url_fn(cid)
+                except Exception:
+                    collateral_url = None
+
+        cwd = None
+        if "HEXAQUEUE_CWD" in job.env:
+            cwd = job.env["HEXAQUEUE_CWD"]
+
+        descriptor = SliceTaskDescriptor(
+            session_id=job.run_id,
+            slice_id=job.id,
+            slice_index=0,
+            total_slices=1,
+            command=job.command,
+            args=job.args,
+            env=job.env,
+            cwd=cwd,
+            collateral_id=cid,
+            collateral_download_url=collateral_url,
+            container=job.container is not None,
+            container_image=job.container.image if job.container else None,
+            task_type="job",
+        )
+
+        async with self._condition:
+            self._pending_tasks.append(descriptor)
+            self._condition.notify_all()
+
+        if self.has_autoscaler:
+            asyncio.create_task(self._reconcile_autoscaler())
+
+    async def cancel_task(self, task_id: str) -> bool:
+        """Remove pending tasks matching task_id/slice_id or session_id from queue.
+
+        Args:
+            task_id: Task, slice, or session identifier to cancel.
+
+        Returns:
+            True if any task was found and removed, False otherwise.
+        """
+        async with self._condition:
+            retained: deque[SliceTaskDescriptor] = deque()
+            removed = False
+            for t in self._pending_tasks:
+                if t.slice_id == task_id or t.session_id == task_id:
+                    removed = True
+                else:
+                    retained.append(t)
+            self._pending_tasks = retained
+            return removed
+
     async def lease_slice(
         self,
         worker_id: str,
@@ -340,7 +430,24 @@ class SliceLeaseCoordinator:
                 ):
                     asyncio.create_task(self._reconcile_autoscaler())
 
-            return True
+        if lease.task.task_type == "job" and self._controller is not None:
+            terminal_outcome = (
+                TerminalOutcome.COMPLETED
+                if report.exit_code == 0
+                else TerminalOutcome.FAILED
+            )
+            reason = report.error_message
+            if not reason and report.exit_code != 0:
+                reason = f"Command failed with exit code {report.exit_code}"
+            with contextlib.suppress(Exception):
+                await self._controller.update_job_outcome(
+                    job_id=lease.task.slice_id,
+                    outcome=terminal_outcome,
+                    reason=reason,
+                    walltime_seconds=report.duration_seconds,
+                )
+
+        return True
 
     async def reclaim_expired_leases(self) -> list[str]:
         """Scan active leases, reclaim any that timed out, and re-enqueue slices.

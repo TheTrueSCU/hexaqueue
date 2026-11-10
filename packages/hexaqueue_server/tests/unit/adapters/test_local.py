@@ -19,6 +19,7 @@ from hexaqueue_core.domain.freetier import (
     FreeTierGovernor,
 )
 from hexaqueue_core.domain.job import JobSpec
+from hexaqueue_core.domain.lease import SliceReportPayload
 from hexaqueue_core.domain.lifecycle import (
     JobState,
     RunOutcome,
@@ -43,6 +44,7 @@ from hexaqueue_monitor.adapters.ledger import InMemoryBudgetLedgerAdapter
 from hexaqueue_monitor.adapters.local import LocalClusterMonitorAdapter
 from hexaqueue_monitor.adapters.rates import NormalizedCostRateModelAdapter
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
+from hexaqueue_server.domain.lease_coordinator import SliceLeaseCoordinator
 from hexaqueue_server.domain.models import RunSubmission
 
 
@@ -1391,3 +1393,75 @@ async def test_dag_rewind_partial_recovery() -> None:
     job_a_current = await controller.get_job("job-a")
     outcome_a = job_a_current.outcome
     assert outcome_a == TerminalOutcome.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_local_controller_integrated_with_lease_coordinator() -> None:
+    """Verify LocalSchedulerControllerAdapter dispatches jobs into SliceLeaseCoordinator."""
+    queue = InMemoryJobQueueAdapter()
+    coord = SliceLeaseCoordinator()
+    controller = LocalSchedulerControllerAdapter(
+        queue=queue,
+        lease_coordinator=coord,
+    )
+    coord.set_controller(controller)
+
+    job1 = JobSpec(id="job-1", run_id="run-pipeline", name="task-1", command="echo 1")
+    job2 = JobSpec(id="job-2", run_id="run-pipeline", name="task-2", command="echo 2")
+    run = RunSpec(id="run-pipeline", name="test-pipeline")
+    submission = RunSubmission(
+        run_spec=run,
+        jobs=[job1, job2],
+        dependencies={"job-2": ["job-1"]},
+    )
+    await controller.submit_run(submission)
+
+    # Initial job is enqueued in lease coordinator
+    pending_count = coord.pending_count
+    assert pending_count == 1
+
+    # Worker leases job1
+    lease1 = await coord.lease_slice("worker-w1")
+    assert lease1 is not None
+    assert lease1.task.slice_id == "job-1"
+    assert lease1.task.command == "echo 1"
+
+    # Worker reports completion of job1
+    report1 = SliceReportPayload(
+        lease_id=lease1.lease_id,
+        slice_id="job-1",
+        worker_id="worker-w1",
+        exit_code=0,
+        duration_seconds=1.0,
+    )
+    rep1_ok = await coord.report_slice_outcome(report1)
+    assert rep1_ok is True
+
+    # Controller marks job1 COMPLETED and automatically enqueues job2 into coordinator
+    j1_status = await controller.get_job("job-1")
+    assert j1_status.outcome == TerminalOutcome.COMPLETED
+
+    pending_after_j1 = coord.pending_count
+    assert pending_after_j1 == 1
+
+    # Worker leases job2
+    lease2 = await coord.lease_slice("worker-w2")
+    assert lease2 is not None
+    assert lease2.task.slice_id == "job-2"
+
+    report2 = SliceReportPayload(
+        lease_id=lease2.lease_id,
+        slice_id="job-2",
+        worker_id="worker-w2",
+        exit_code=0,
+        duration_seconds=1.2,
+    )
+    rep2_ok = await coord.report_slice_outcome(report2)
+    assert rep2_ok is True
+
+    # Entire run is now COMPLETED
+    run_status = await controller.get_run_status("run-pipeline")
+    assert run_status.state == RunState.DONE
+    assert run_status.outcome == RunOutcome.SUCCEEDED
+    assert run_status.completed_jobs == 2
+    assert run_status.failed_jobs == 0

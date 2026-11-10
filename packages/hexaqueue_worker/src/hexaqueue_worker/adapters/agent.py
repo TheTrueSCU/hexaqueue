@@ -364,6 +364,86 @@ class WorkerAgent:
         ]
         return exit_code, outcomes, stdout_text, stderr_text
 
+    async def _run_command_task(
+        self,
+        command: str,
+        args: list[str],
+        task_env: dict[str, str],
+        workspace: Path,
+        relative_cwd: str | None,
+        start_time: float,
+    ) -> tuple[int, list[dict[str, Any]], str, str]:
+        """Execute arbitrary command or batch task in workspace.
+
+        Args:
+            command: Executable command string or entrypoint.
+            args: Command-line arguments.
+            task_env: Task-specific environment variables.
+            workspace: Base workspace root directory.
+            relative_cwd: Optional working directory relative to workspace root.
+            start_time: Monotonic start timestamp.
+
+        Returns:
+            Tuple of (exit_code, outcomes, stdout, stderr).
+        """
+        cwd_path = (workspace / relative_cwd).resolve() if relative_cwd else workspace
+        if not cwd_path.exists():
+            cwd_path = workspace
+
+        uv_bin = shutil.which("uv") or (
+            "/usr/local/bin/uv" if Path("/usr/local/bin/uv").is_file() else None
+        )
+        has_uv_project = (workspace / "pyproject.toml").is_file() or (
+            workspace / "uv.lock"
+        ).is_file()
+
+        if (
+            uv_bin
+            and has_uv_project
+            and not Path(command).is_absolute()
+            and not command.startswith("uv")
+        ):
+            cmd = [uv_bin, "run", "--project", str(workspace), command, *args]
+        else:
+            cmd = [command, *args]
+
+        env = os.environ.copy()
+        src_paths: list[str] = [
+            str(p) for p in sorted((workspace / "packages").glob("*/src"))
+        ]
+        if (workspace / "src").is_dir():
+            src_paths.append(str(workspace / "src"))
+        src_paths.append(str(workspace.resolve()))
+        env["PYTHONPATH"] = os.pathsep.join(src_paths)
+        env["PYTHONUNBUFFERED"] = "1"
+        env.update(task_env)
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            cwd=str(cwd_path),
+            env=env,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout_bytes, stderr_bytes = await proc.communicate()
+        exit_code = proc.returncode or 0
+        stdout_text = stdout_bytes.decode(errors="replace")
+        stderr_text = stderr_bytes.decode(errors="replace")
+
+        item_outcome = "passed" if exit_code == 0 else "failed"
+        duration = max(0.001, time.monotonic() - start_time)
+        node_id = f"{command} {' '.join(args)}".strip()
+        outcomes = [
+            {
+                "nodeid": node_id,
+                "outcome": item_outcome,
+                "duration_seconds": round(duration, 3),
+                "stdout": stdout_text if exit_code != 0 else None,
+                "stderr": stderr_text if exit_code != 0 else None,
+            }
+        ]
+        return exit_code, outcomes, stdout_text, stderr_text
+
     async def _handle_coverage_upload(
         self,
         task: Any,
@@ -426,18 +506,33 @@ class WorkerAgent:
                     error_msg = f"Failed to download or extract collateral from {task.collateral_download_url}"
                     exit_code = 1
 
-            if exit_code == 0 and task.test_nodeids:
-                (
-                    exit_code,
-                    outcomes,
-                    stdout_text,
-                    stderr_text,
-                ) = await self._run_pytest_slice(
-                    task.test_nodeids,
-                    task.coverage_sources,
-                    workspace,
-                    start_time,
-                )
+            if exit_code == 0:
+                if task.command:
+                    (
+                        exit_code,
+                        outcomes,
+                        stdout_text,
+                        stderr_text,
+                    ) = await self._run_command_task(
+                        task.command,
+                        task.args,
+                        task.env,
+                        workspace,
+                        task.cwd,
+                        start_time,
+                    )
+                elif task.test_nodeids:
+                    (
+                        exit_code,
+                        outcomes,
+                        stdout_text,
+                        stderr_text,
+                    ) = await self._run_pytest_slice(
+                        task.test_nodeids,
+                        task.coverage_sources,
+                        workspace,
+                        start_time,
+                    )
 
             cov_key = await self._handle_coverage_upload(task, workspace)
             inline_cov: dict[str, Any] | None = None

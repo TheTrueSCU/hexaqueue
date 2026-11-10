@@ -581,7 +581,7 @@
 <!-- hexaqueue_server_domain_lease_coordinator -->
 <g id="node36" class="node">
 <title>hexaqueue_server_domain_lease_coordinator</title><style>.edge>path:hover{stroke-width:8}</style>
-<ellipse fill="#6bc115" stroke="black" cx="2476.52" cy="-1633.15" rx="77.15" ry="28.98"/>
+<ellipse fill="#61af13" stroke="black" cx="2476.52" cy="-1633.15" rx="77.15" ry="28.98"/>
 <text text-anchor="middle" x="2476.52" y="-1641.65" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#000000">hexaqueue_server.</text>
 <text text-anchor="middle" x="2476.52" y="-1630.65" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#000000">domain.</text>
 <text text-anchor="middle" x="2476.52" y="-1619.65" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#000000">lease_coordinator</text>
@@ -1361,20 +1361,20 @@
 <g id="edge149" class="edge">
 <title>hexaqueue_server_domain_lease_coordinator&#45;&gt;hexaqueue_server_adapters_api_test_runs</title><style>.edge>path:hover{stroke-width:8}</style>
 <path fill="none" stroke="black" d="M2627.52,-1431.62C2647.27,-1404.97 2654.47,-1399.64 2670.52,-1370.62 2700.6,-1316.23 2675.6,-1279.96 2724.52,-1241.62 2805.95,-1177.79 2854.45,-1231.93 2954.52,-1205.62 3044.5,-1181.96 3061.65,-1159.6 3150.52,-1132.08 3214.36,-1112.31 3234.35,-1120.6 3296.52,-1096.08 3301.02,-1094.3 3305.59,-1092.27 3310.12,-1090.09"/>
-<polygon fill="#6bc115" stroke="black" points="3311.96,-1093.08 3319.31,-1085.45 3308.8,-1086.83 3311.96,-1093.08"/>
+<polygon fill="#61af13" stroke="black" points="3311.96,-1093.08 3319.31,-1085.45 3308.8,-1086.83 3311.96,-1093.08"/>
 </g>
 <!-- hexaqueue_server_domain_lease_coordinator&#45;&gt;hexaqueue_server_adapters_api_worker_pool -->
 <g id="edge150" class="edge">
 <title>hexaqueue_server_domain_lease_coordinator&#45;&gt;hexaqueue_server_adapters_api_worker_pool</title><style>.edge>path:hover{stroke-width:8}</style>
 <path fill="none" stroke="black" d="M2540.52,-1530.39C2564.29,-1477.66 2602.01,-1485.52 2627.52,-1433.62"/>
 <path fill="none" stroke="black" d="M2627.52,-1431.62C2666.53,-1352.26 2652.13,-1323.08 2686.52,-1241.62 2691.83,-1229.04 2698.66,-1215.77 2705.12,-1204.11"/>
-<polygon fill="#6bc115" stroke="black" points="2708.31,-1205.58 2710.18,-1195.15 2702.21,-1202.14 2708.31,-1205.58"/>
+<polygon fill="#61af13" stroke="black" points="2708.31,-1205.58 2710.18,-1195.15 2702.21,-1202.14 2708.31,-1205.58"/>
 </g>
 <!-- hexaqueue_server_domain_lease_coordinator&#45;&gt;hexaqueue_server_domain -->
 <g id="edge151" class="edge">
 <title>hexaqueue_server_domain_lease_coordinator&#45;&gt;hexaqueue_server_domain</title><style>.edge>path:hover{stroke-width:8}</style>
 <path fill="none" stroke="black" d="M2420.15,-1613.04C2408.78,-1609.69 2396.85,-1606.52 2385.52,-1604.16 2182.46,-1561.7 1936.84,-1542.81 1822.25,-1535.83"/>
-<polygon fill="#6bc115" stroke="black" points="1822.43,-1532.34 1812.24,-1535.24 1822.01,-1539.33 1822.43,-1532.34"/>
+<polygon fill="#61af13" stroke="black" points="1822.43,-1532.34 1812.24,-1535.24 1822.01,-1539.33 1822.43,-1532.34"/>
 </g>
 <!-- hexaqueue_server_domain_lease_coordinator&#45;&gt;hexaqueue_server_infra_bootstrap -->
 <g id="edge152" class="edge">

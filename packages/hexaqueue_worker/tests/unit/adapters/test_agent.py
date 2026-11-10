@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import io
 import os
+import sys
 import tarfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -390,3 +391,39 @@ def test_worker_agent_main_entrypoint() -> None:
         assert call_count == 1
         agent_inst_count = mock_agent_cls.call_count
         assert agent_inst_count == 1
+
+
+@pytest.mark.asyncio
+async def test_worker_agent_execute_command_task(tmp_path: Path) -> None:
+    """Verify worker agent executes arbitrary batch command task."""
+    cfg = WorkerAgentConfig(worker_id="w-cmd", scratch_dir=tmp_path)
+    agent = WorkerAgent(cfg)
+    now = datetime.now(UTC)
+    task = SliceTaskDescriptor(
+        session_id="run-cmd-test",
+        slice_id="job-1",
+        command=sys.executable,
+        args=["-c", "import os; print(os.environ.get('CUSTOM_VAR', '')); exit(0)"],
+        env={"CUSTOM_VAR": "val1"},
+        task_type="job",
+    )
+    lease = SliceLease(
+        task=task,
+        worker_id="w-cmd",
+        state=SliceLeaseState.LEASED,
+        leased_at=now,
+        expires_at=now + timedelta(seconds=60),
+    )
+    report = await agent.execute_slice(lease)
+    exit_code = report.exit_code
+    assert exit_code == 0
+    slice_id = report.slice_id
+    assert slice_id == "job-1"
+    error_msg = report.error_message
+    assert error_msg is None
+    outcomes_len = len(report.outcomes)
+    assert outcomes_len == 1
+    outcome_status = report.outcomes[0]["outcome"]
+    assert outcome_status == "passed"
+    stdout_txt = report.stdout or ""
+    assert "val1" in stdout_txt
