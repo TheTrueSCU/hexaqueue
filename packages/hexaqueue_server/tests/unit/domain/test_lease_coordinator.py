@@ -12,10 +12,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lease import (
     SliceReportPayload,
     WorkerRegistration,
 )
+from hexaqueue_core.domain.lifecycle import TerminalOutcome
 from hexaqueue_server.adapters.api.test_runs import TestSliceDispatch
 from hexaqueue_server.domain.lease_coordinator import SliceLeaseCoordinator
 
@@ -258,3 +260,70 @@ async def test_autoscaler_reconciliation_lifecycle() -> None:
 
     final_call_count = mock_autoscaler.reconcile_pool.call_count
     assert final_call_count >= 2
+
+
+@pytest.mark.asyncio
+async def test_enqueue_and_lease_job_spec() -> None:
+    """Verify coordinator enqueues JobSpec and updates controller upon completion."""
+    mock_ctrl = AsyncMock()
+    mock_ctrl.update_job_outcome = AsyncMock()
+
+    coord = SliceLeaseCoordinator(controller=mock_ctrl)
+    job = JobSpec(
+        id="job-mut-001",
+        run_id="run-mut-test",
+        name="mutation-core",
+        command="pytest",
+        args=["--gremlins", "--gremlin-batch=0"],
+        env={"PYTHONUNBUFFERED": "1", "HEXAQUEUE_CWD": "packages/core"},
+    )
+    await coord.enqueue_job(job)
+
+    pending = coord.pending_count
+    assert pending == 1
+
+    lease = await coord.lease_slice("worker-oci-01")
+    assert lease is not None
+    task = lease.task
+    assert task.task_type == "job"
+    assert task.slice_id == "job-mut-001"
+    assert task.command == "pytest"
+    assert task.args == ["--gremlins", "--gremlin-batch=0"]
+    assert task.cwd == "packages/core"
+
+    report = SliceReportPayload(
+        lease_id=lease.lease_id,
+        slice_id="job-mut-001",
+        worker_id="worker-oci-01",
+        exit_code=0,
+        duration_seconds=12.5,
+    )
+    res = await coord.report_slice_outcome(report)
+    assert res is True
+
+    update_called = mock_ctrl.update_job_outcome.called
+    assert update_called is True
+    call_kwargs = mock_ctrl.update_job_outcome.call_args[1]
+    assert call_kwargs["job_id"] == "job-mut-001"
+    assert call_kwargs["outcome"] == TerminalOutcome.COMPLETED
+    assert call_kwargs["walltime_seconds"] == 12.5
+
+
+@pytest.mark.asyncio
+async def test_cancel_task_from_coordinator() -> None:
+    """Verify coordinator cancels pending tasks."""
+    coord = SliceLeaseCoordinator()
+    job = JobSpec(
+        id="job-cancel-001",
+        run_id="run-cancel",
+        name="cancel-job",
+        command="echo",
+    )
+    await coord.enqueue_job(job)
+    pending_before = coord.pending_count
+    assert pending_before == 1
+
+    cancelled = await coord.cancel_task("job-cancel-001")
+    assert cancelled is True
+    pending_after = coord.pending_count
+    assert pending_after == 0

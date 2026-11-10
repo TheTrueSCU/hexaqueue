@@ -71,14 +71,19 @@ class WorkerRegistration(BaseModel):
 
 
 class SliceTaskDescriptor(BaseModel):
-    """Immutable specification of a single test slice enqueued for worker execution.
+    """Immutable specification of a single test slice or batch task enqueued for worker execution.
 
     Args:
-        session_id: Overall distributed test execution session identifier.
-        slice_id: Unique slice identifier within the session.
+        session_id: Overall distributed test execution session or run identifier.
+        slice_id: Unique slice or job identifier within the session.
         slice_index: Zero-indexed position of this slice.
-        total_slices: Total slice count across the test session.
-        test_nodeids: List of individual pytest nodeids assigned to this slice.
+        total_slices: Total slice count across the test session or run.
+        test_nodeids: Optional list of individual pytest nodeids assigned to this slice.
+        command: Optional executable command or entrypoint for arbitrary batch task.
+        args: Optional command-line arguments for arbitrary batch task.
+        env: Optional task-specific environment variables.
+        cwd: Optional working directory relative to workspace root.
+        task_type: Task classification ('test' for pytest slice, 'job' for arbitrary command).
         collateral_id: Optional CAS collateral bundle ID transporting workspace code.
         collateral_download_url: Optional Pre-Authenticated Request GET URL for workspace tarball.
         coverage_upload_url: Optional Pre-Authenticated Request PUT URL for .coverage artifact.
@@ -90,12 +95,18 @@ class SliceTaskDescriptor(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    args: list[str] = Field(
+        default_factory=list, description="Command arguments for arbitrary batch tasks"
+    )
     collateral_download_url: str | None = Field(
         default=None,
         description="Presigned PAR download URL for workspace archive",
     )
     collateral_id: str | None = Field(
         default=None, description="CAS collateral bundle ID"
+    )
+    command: str | None = Field(
+        default=None, description="Executable command for arbitrary batch tasks"
     )
     container: bool = Field(
         default=False, description="Require containerized execution"
@@ -113,13 +124,27 @@ class SliceTaskDescriptor(BaseModel):
         default_factory=lambda: datetime.now(UTC),
         description="Task enqueued timestamp in UTC",
     )
-    session_id: str = Field(description="Parent test session identifier")
-    slice_id: str = Field(description="Unique test slice identifier")
-    slice_index: int = Field(ge=0, description="Slice zero-index")
-    test_nodeids: list[str] = Field(
-        description="List of pytest nodeids to execute in this slice"
+    cwd: str | None = Field(
+        default=None,
+        description="Optional working directory relative to workspace root",
     )
-    total_slices: int = Field(ge=1, description="Total slices in session")
+    env: dict[str, str] = Field(
+        default_factory=dict,
+        description="Environment variables for arbitrary batch tasks",
+    )
+    session_id: str = Field(description="Parent test session or run identifier")
+    slice_id: str = Field(description="Unique test slice or job identifier")
+    slice_index: int = Field(default=0, ge=0, description="Slice zero-index")
+    task_type: str = Field(
+        default="test", description="Task classification ('test' or 'job')"
+    )
+    test_nodeids: list[str] = Field(
+        default_factory=list,
+        description="List of pytest nodeids to execute in this slice",
+    )
+    total_slices: int = Field(
+        default=1, ge=1, description="Total slices in session or run"
+    )
 
 
 class SliceLease(BaseModel):

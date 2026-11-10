@@ -37,6 +37,100 @@ from hexaqueue_server.infra.cqrs.pipeline import (
 )
 
 
+def _resolve_storage_port(
+    di: ContainerPort, provider: str, pool_id: str | None
+) -> PresignedStoragePort:
+    """Resolve or construct PresignedStoragePort implementation."""
+    storage_port = (
+        di.resolve(PresignedStoragePort) if PresignedStoragePort in di else None
+    )
+    if storage_port is not None:
+        return storage_port
+
+    if provider == "OCI" or pool_id:
+        creds = OciCredentialsConfig(use_instance_principals=True)
+        bucket = os.environ.get("HEXAQUEUE_COLLATERAL_BUCKET") or "hexaqueue-collateral"
+        storage_port = OciPresignedStorageAdapter.from_credentials(
+            credentials=creds,
+            bucket_name=bucket,
+        )
+    else:
+        storage_port = InMemoryPresignedStorageAdapter()
+    di.add_instance(storage_port, declared_class=PresignedStoragePort)
+    return storage_port
+
+
+def _resolve_coordinator(
+    di: ContainerPort,
+    storage_port: PresignedStoragePort,
+    collateral_service: CollateralServicePort,
+    provider: str,
+    pool_id: str | None,
+) -> SliceLeaseCoordinator:
+    """Resolve or construct SliceLeaseCoordinator implementation."""
+    coordinator = (
+        di.resolve(SliceLeaseCoordinator) if SliceLeaseCoordinator in di else None
+    )
+    if coordinator is not None:
+        return coordinator
+
+    autoscaler: BudgetAwareInstancePoolAutoscaler | None = None
+    if pool_id and provider == "OCI":
+        creds = OciCredentialsConfig(use_instance_principals=True)
+        gov = OciInstancePoolAdapter.from_credentials(credentials=creds)
+        autoscaler = BudgetAwareInstancePoolAutoscaler(governors={pool_id: gov})
+
+    coordinator = SliceLeaseCoordinator(
+        storage_port=storage_port,
+        collateral_service=collateral_service,
+        autoscaler=autoscaler,
+        pool_id=pool_id,
+    )
+    di.add_instance(coordinator, declared_class=SliceLeaseCoordinator)
+    return coordinator
+
+
+def _resolve_pipeline(
+    di: ContainerPort,
+    coordinator: SliceLeaseCoordinator,
+    storage_port: PresignedStoragePort,
+    collateral_service: CollateralServicePort,
+) -> ExecutionPipeline:
+    """Resolve or construct ExecutionPipeline and wire coordinator controller."""
+    pipeline = di.resolve(ExecutionPipeline) if ExecutionPipeline in di else None
+    if pipeline is not None:
+        if coordinator.controller is None:
+            ctrl = getattr(pipeline, "controller", None) or getattr(
+                getattr(pipeline, "service", None), "controller", None
+            )
+            if ctrl is not None:
+                coordinator.set_controller(ctrl)
+                if hasattr(ctrl, "set_lease_coordinator"):
+                    ctrl.set_lease_coordinator(coordinator)
+        return pipeline
+
+    queue = InMemoryJobQueueAdapter()
+    budget_port = InMemoryBudgetLedgerAdapter()
+    cluster_monitor = LocalClusterMonitorAdapter()
+    controller = LocalSchedulerControllerAdapter(
+        queue=queue,
+        budget_port=budget_port,
+        cluster_monitor=cluster_monitor,
+        lease_coordinator=coordinator,
+    )
+    coordinator.set_controller(controller)
+
+    pipeline = create_hexaqueue_execution_pipeline(
+        controller=controller,
+        budget_port=budget_port,
+        cluster_monitor=cluster_monitor,
+        storage_port=storage_port,
+        collateral_service=collateral_service,
+    )
+    di.add_instance(pipeline, declared_class=ExecutionPipeline)
+    return pipeline
+
+
 def bootstrap_server_container(
     config: ServerConfig | None = None,
     container: ContainerPort | None = None,
@@ -63,22 +157,7 @@ def bootstrap_server_container(
         "HEXAQUEUE_INSTANCE_POOL_ID"
     )
 
-    storage_port = (
-        di.resolve(PresignedStoragePort) if PresignedStoragePort in di else None
-    )
-    if storage_port is None:
-        if provider == "OCI" or pool_id:
-            creds = OciCredentialsConfig(use_instance_principals=True)
-            bucket = (
-                os.environ.get("HEXAQUEUE_COLLATERAL_BUCKET") or "hexaqueue-collateral"
-            )
-            storage_port = OciPresignedStorageAdapter.from_credentials(
-                credentials=creds,
-                bucket_name=bucket,
-            )
-        else:
-            storage_port = InMemoryPresignedStorageAdapter()
-        di.add_instance(storage_port, declared_class=PresignedStoragePort)
+    storage_port = _resolve_storage_port(di, provider, pool_id)
 
     collateral_service = (
         di.resolve(CollateralServicePort) if CollateralServicePort in di else None
@@ -90,43 +169,15 @@ def bootstrap_server_container(
         )
         di.add_instance(collateral_service, declared_class=CollateralServicePort)
 
-    coordinator = (
-        di.resolve(SliceLeaseCoordinator) if SliceLeaseCoordinator in di else None
+    coordinator = _resolve_coordinator(
+        di, storage_port, collateral_service, provider, pool_id
     )
-    if coordinator is None:
-        autoscaler: BudgetAwareInstancePoolAutoscaler | None = None
-        if pool_id and provider == "OCI":
-            creds = OciCredentialsConfig(use_instance_principals=True)
-            gov = OciInstancePoolAdapter.from_credentials(credentials=creds)
-            autoscaler = BudgetAwareInstancePoolAutoscaler(governors={pool_id: gov})
+    _resolve_pipeline(di, coordinator, storage_port, collateral_service)
 
-        coordinator = SliceLeaseCoordinator(
-            storage_port=storage_port,
-            collateral_service=collateral_service,
-            autoscaler=autoscaler,
-            pool_id=pool_id,
-        )
-        di.add_instance(coordinator, declared_class=SliceLeaseCoordinator)
+    if ServerConfig not in di:
+        di.add_instance(server_cfg, declared_class=ServerConfig)
 
-    pipeline = di.resolve(ExecutionPipeline) if ExecutionPipeline in di else None
-    if pipeline is None:
-        queue = InMemoryJobQueueAdapter()
-        budget_port = InMemoryBudgetLedgerAdapter()
-        cluster_monitor = LocalClusterMonitorAdapter()
-        controller = LocalSchedulerControllerAdapter(
-            queue=queue,
-            budget_port=budget_port,
-            cluster_monitor=cluster_monitor,
-        )
-
-        pipeline = create_hexaqueue_execution_pipeline(
-            controller=controller,
-            budget_port=budget_port,
-            cluster_monitor=cluster_monitor,
-            storage_port=storage_port,
-            collateral_service=collateral_service,
-        )
-        di.add_instance(pipeline, declared_class=ExecutionPipeline)
+    return di
 
     if ServerConfig not in di:
         di.add_instance(server_cfg, declared_class=ServerConfig)
