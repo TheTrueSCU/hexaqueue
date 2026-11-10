@@ -936,3 +936,91 @@ def test_probe_single_candidate_localhost_fallback() -> None:
         status = result["status"]
         assert status == "ONLINE"
         assert result["cores"] == 8
+
+
+def test_cluster_journal_cmd_success() -> None:
+    """Verify 'hq cluster journal' invokes ssh with correct systemd flags.
+
+    Notes/Architectural Intent:
+        Ensures administrative journal log streaming constructs the proper command string.
+    """
+    with (
+        patch(
+            "hexaqueue_cli.commands.cluster._resolve_admin_target",
+            return_value=("1.2.3.4", "ubuntu", None),
+        ),
+        patch("subprocess.run") as mock_run,
+    ):
+        mock_run.return_value = MagicMock(returncode=0)
+        result = runner.invoke(app, ["cluster", "journal", "-n", "20", "--no-follow"])
+        assert result.exit_code == 0
+        mock_run.assert_called_once()
+        args = mock_run.call_args[0][0]
+        assert "ubuntu@1.2.3.4" in args
+        assert "sudo journalctl -u hexaqueue.service -n 20  --no-pager" in args
+
+
+def test_cluster_pool_cmd_remote_success() -> None:
+    """Verify 'hq cluster pool' invokes remote inspection via SSH.
+
+    Notes/Architectural Intent:
+        Ensures remote pool inspection invokes 'hq cluster pool --local' on controller.
+    """
+    with (
+        patch(
+            "hexaqueue_cli.commands.cluster._resolve_admin_target",
+            return_value=("1.2.3.4", "ubuntu", None),
+        ),
+        patch("subprocess.run") as mock_run,
+    ):
+        mock_run.return_value = MagicMock(returncode=0)
+        result = runner.invoke(app, ["cluster", "pool"])
+        assert result.exit_code == 0
+        mock_run.assert_called_once()
+        args = mock_run.call_args[0][0]
+        assert "ubuntu@1.2.3.4" in args
+        assert "hq cluster pool --local" in args[-1]
+
+
+def test_cluster_pool_cmd_local_success() -> None:
+    """Verify 'hq cluster pool --local' executes inspect_pool directly."""
+    with patch(
+        "hexaqueue_cli.commands.cluster.inspect_pool", return_value=0
+    ) as mock_inspect:
+        result = runner.invoke(app, ["cluster", "pool", "--local"])
+        assert result.exit_code == 0
+        mock_inspect.assert_called_once()
+
+
+def test_cluster_pool_cmd_local_failure() -> None:
+    """Verify 'hq cluster pool --local' propagates exit code on failure."""
+    with patch("hexaqueue_cli.commands.cluster.inspect_pool", return_value=2):
+        result = runner.invoke(app, ["cluster", "pool", "--local"])
+        assert result.exit_code == 2
+
+
+def test_cluster_pool_cmd_remote_failure() -> None:
+    """Verify 'hq cluster pool' propagates exit code when remote SSH command fails."""
+    with (
+        patch(
+            "hexaqueue_cli.commands.cluster._resolve_admin_target",
+            return_value=("1.2.3.4", "ubuntu", None),
+        ),
+        patch("subprocess.run") as mock_run,
+    ):
+        mock_run.return_value = MagicMock(returncode=12)
+        result = runner.invoke(app, ["cluster", "pool"])
+        assert result.exit_code == 12
+
+
+def test_cluster_pool_cmd_keyboard_interrupt() -> None:
+    """Verify 'hq cluster pool' exits with 130 on KeyboardInterrupt."""
+    with (
+        patch(
+            "hexaqueue_cli.commands.cluster._resolve_admin_target",
+            return_value=("1.2.3.4", "ubuntu", None),
+        ),
+        patch("subprocess.run", side_effect=KeyboardInterrupt),
+    ):
+        result = runner.invoke(app, ["cluster", "pool"])
+        assert result.exit_code == 130

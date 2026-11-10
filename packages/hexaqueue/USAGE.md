@@ -191,6 +191,10 @@ Usage: hq cluster [OPTIONS] COMMAND [ARGS]...
 │           resolution over SSH.                                               │
 │ discover  Discover available remote cluster nodes, active controllers, and   │
 │           SSH connection endpoints.                                          │
+│ journal   Stream systemd journal logs from the Hexaqueue controller daemon   │
+│           over SSH.                                                          │
+│ pool      Inspect cloud compute worker pool scaling status and instance      │
+│           health.                                                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -233,6 +237,51 @@ Usage: hq cluster discover [OPTIONS]
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
+#### `hq cluster journal`
+
+```text
+Usage: hq cluster journal [OPTIONS]
+
+ Stream systemd journal logs from the Hexaqueue controller daemon over SSH.
+
+ Args:
+     profile: Runner profile specifying target host and keys.
+     host: Target remote cluster host IP or hostname.
+     user: Administrative SSH user.
+     key: Path to SSH private key identity file.
+     lines: Historical lines to fetch.
+     follow: Whether to follow logs in real time.
+
+ Notes/Architectural Intent:
+     Enables rapid debugging of host-level daemon failures, systemd restarts,
+     and unhandled controller exceptions directly through the hq CLI.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --profile  -p                 <str>  Runner profile specifying target host   │
+│                                      and keys                                │
+│ --host     -h                 <str>  Target remote cluster host IP or        │
+│                                      hostname                                │
+│ --user     -u                 <str>  SSH login user (administrative,         │
+│                                      default: ubuntu)                        │
+│ --key      -i                 <str>  Path to SSH private key identity file   │
+│ --lines    -n                 <int>  Number of journal log lines to display  │
+│                                      [default: 50]                           │
+│            -f  --no-follow           Continuously follow journal stream      │
+│                                      [default: f]                            │
+│ --help                               Show this message and exit.             │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq cluster over`
+
+```text
+Usage: hq cluster [OPTIONS] COMMAND [ARGS]...
+Try 'hq cluster --help' for help.
+╭─ Error ──────────────────────────────────────────────────────────────────────╮
+│ No such command 'over'. Did you mean 'discover'?                             │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
 #### `hq cluster ping`
 
 ```text
@@ -250,6 +299,39 @@ Usage: hq cluster ping [OPTIONS]
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
 │ --profile  -p      <str>  Profile name to target                             │
 │ --url      -u      <str>  Explicit Hexaqueue controller URL override         │
+│ --help                    Show this message and exit.                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq cluster pool`
+
+```text
+Usage: hq cluster pool [OPTIONS]
+
+ Inspect cloud compute worker pool scaling status and instance health.
+
+ Args:
+     profile: Runner profile specifying target host and keys.
+     host: Target remote cluster host IP or hostname.
+     user: Administrative SSH user.
+     pool_id: Explicit cloud instance pool identifier override.
+     local: Whether to execute pool inspection locally.
+     format_type: Chosen serialization output format.
+
+ Notes/Architectural Intent:
+     Exposes low-level CSP instance pool elasticity, pending instance boots,
+     and private IP topology directly through the unified hq CLI.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --profile  -p      <str>  Runner profile specifying target host and keys     │
+│ --host     -h      <str>  Target remote cluster host IP or hostname          │
+│ --user     -u      <str>  SSH login user (administrative, default: ubuntu)   │
+│ --pool-id          <str>  Explicit OCI instance pool OCID override           │
+│ --local                   Query local OCI SDK instead of delegating to       │
+│                           remote host via SSH                                │
+│ --format   -f      <str>  Output presentation format (table, json, markdown, │
+│                           rich, plain, auto).                                │
+│                           [default: table]                                   │
 │ --help                    Show this message and exit.                        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
@@ -687,23 +769,33 @@ Usage: hq node ssh [OPTIONS] {node_id}
  Open an administrative bastion terminal session on a worker node.
 
  Args:
-     node_id: Target compute node worker ID.
+     node_id: Target compute node worker ID or private IP.
      admin: Explicit administrative elevation confirmation.
      user: Requesting user identity.
+     direct: Whether to connect directly via SSH jump host.
+     jump_host: Public IP/hostname of jump host.
+     jump_user: Administrative user on jump host.
 
  Notes/Architectural Intent:
      Enforces least privilege: connecting to worker node underlying
  infrastructure
-     requires explicit administrative elevation (--admin).
+     requires explicit administrative elevation (--admin). Direct mode allows
+     out-of-band rescue when the in-band controller API is unreachable.
 
 ╭─ Arguments ──────────────────────────────────────────────────────────────────╮
-│ *    node_id      <str>  Target worker node ID to attach to [required]       │
+│ *    node_id      <str>  Target worker node ID or private IP to attach to    │
+│                          [required]                                          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --admin                 Assert explicit administrative elevation for bastion │
-│                         shell access                                         │
-│ --user   -u      <str>  Requesting user identity [default: default]          │
-│ --help                  Show this message and exit.                          │
+│ --admin                     Assert explicit administrative elevation for     │
+│                             bastion shell access                             │
+│ --user       -u      <str>  Requesting user identity [default: default]      │
+│ --direct                    Connect directly via SSH jump-host through       │
+│                             controller instead of controller API session     │
+│ --jump-host          <str>  Jump host public IP/hostname for direct          │
+│                             connection                                       │
+│ --jump-user          <str>  Jump host SSH user [default: ubuntu]             │
+│ --help                      Show this message and exit.                      │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
