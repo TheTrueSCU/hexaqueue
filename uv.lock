@@ -1305,7 +1305,7 @@ wheels = [
 
 [[package]]
 name = "hexaqual"
-version = "0.10.2"
+version = "0.10.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "complexipy" },
@@ -1322,9 +1322,9 @@ dependencies = [
     { name = "rich" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/85/ab/1203b96b3921f5fa2caf5d6ca8490ddd26ca219a7dbb3ef8761e0c964cf0/hexaqual-0.10.2.tar.gz", hash = "sha256:ec19604ec5023461a22652537f03988ebed063845b2934defffcc42a40a859ec", size = 6582061, upload-time = "2026-11-09T18:42:39.821Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/65/80/4108a6e3b9d03e10cbe5294171b9453cd71c03ca020a124965b3a30a52a7/hexaqual-0.10.5.tar.gz", hash = "sha256:11f566c1c29c291f51b30360515318e998b73b836f0d3f71cf450bf955e1484b", size = 8428988, upload-time = "2026-11-10T23:50:32.22Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/63/c6/ca99ed57afa943eb7d8f02c402c7cd9de09df9057785691d921d3b87f778/hexaqual-0.10.2-py3-none-any.whl", hash = "sha256:e7b1bd9f0c6ebcc1af827487e4dd5acc75d7873e22ea42dca2740dd4ef01747e", size = 316383, upload-time = "2026-11-09T18:42:38.4Z" },
+    { url = "https://files.pythonhosted.org/packages/29/45/68fd5ea32e5ed9b47fc6abf5299929794bfa65e0fdf49936e78029684d5b/hexaqual-0.10.5-py3-none-any.whl", hash = "sha256:f8777c9d6330a8ffe00f4d83c60203af74c13c953b1ed644bbb6954d6436358e", size = 319943, upload-time = "2026-11-10T23:50:29.75Z" },
 ]
 
 [package.optional-dependencies]
@@ -1333,6 +1333,7 @@ all = [
     { name = "pydeps" },
     { name = "pytest-benchmark" },
     { name = "pytest-gremlins" },
+    { name = "pytest-hexaqueue" },
     { name = "pytest-xdist" },
     { name = "rope" },
 ]
@@ -1753,7 +1754,7 @@ dev = [
     { name = "detect-secrets", specifier = ">=1.5.0" },
     { name = "diagrams", specifier = ">=0.23.0" },
     { name = "faker", specifier = ">=33.0.0" },
-    { name = "hexaqual", extras = ["all"], specifier = ">=0.10.2" },
+    { name = "hexaqual", extras = ["all"], specifier = ">=0.10.5" },
     { name = "hexastack-cli", specifier = ">=0.11.0" },
     { name = "hypothesis", specifier = ">=6.120.0" },
     { name = "import-linter", specifier = ">=2.13" },
