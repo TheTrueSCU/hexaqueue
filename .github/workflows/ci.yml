@@ -312,11 +312,11 @@ jobs:
         if: needs.cluster-probe.outputs.cluster_ready == 'true'
         env:
           HEXAQUEUE_TIMEOUT: "3600"
-        run: uv run hexaqual mutate run -A -e gremlins -w auto --batch-size 10 -n auto --cluster hexaqueue
+        run: uv run hexaqual mutate run -A --direct-only -e gremlins -w auto --batch-size 10 -n auto --cluster hexaqueue
 
       - name: Run Affected Mutation Testing Locally (Fallback)
         if: needs.cluster-probe.outputs.cluster_ready != 'true'
-        run: uv run hexaqual mutate run -A -e gremlins -w auto --batch-size 10 -n auto
+        run: uv run hexaqual mutate run -A --direct-only -e gremlins -w auto --batch-size 10 -n auto
 
       - name: Disconnect Hexaqueue Cluster Tunnel
         if: always() && needs.cluster-probe.outputs.cluster_ready == 'true'
