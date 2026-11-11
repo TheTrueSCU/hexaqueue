@@ -76,6 +76,10 @@ uv run hq logs stage1-extract
 ## 🏗️ Server Topologies & Deployment Patterns
 
 Hexaqueue features modular operational roles and granular interface toggles, allowing operators to deploy purpose-built nodes with zero configuration drift:
+- [**Environment & Configuration Reference**](guides/environment-and-configuration.md): Precedence hierarchy, plane secrets isolation, control-plane vs compute-plane variables, and complete `.env.example` mapping.
+- [**OCI Always-Free Tier Production Runbook**](guides/oci-deployment-guide.md): Provisioning, hardening, systemd automation (`hexaqueue.service` and `hexaqueue-worker.service`), and Object Storage CAS for Ampere A1 ARM64 infrastructure.
+- [**Workload Submission & Execution Guide**](guides/workload-submission.md): Hands-on workflows for `pytest-hexaqueue` test slicing, `hexaqual mutate --cluster` mutation offloading, and custom JobSpec DAG submission.
+- [**Quickstart: 5-Minute Local Cluster**](tutorials/00-quickstart-local-cluster.md): Zero-cloud-spend local deployment and first DAG run.
 - [**Server Topologies & Configuration Guide**](guides/server-topologies.md): Full visual architecture diagrams, interface matrices, TOML schemas, and mix-and-match CLI commands for public ingress gateways, private worker coordinators, FinOps analytics engines, and sandboxed AI coding assistant (MCP) nodes.
 - [**GitHub Actions Dynamic Runner Autoscaler Guide**](guides/github-actions-runner.md): High-performance self-hosted runner autoscaler with single-job isolation, JIT token minting, and dynamic hardware claims.
 - [**Distributed Pytest Execution & Slicing Guide**](guides/pytest-distributed-execution.md): Distributed test execution, intelligent test suite slicing, and multi-cloud free-tier bursting with `pytest-hexaqueue` (used in place of or alongside `pytest-xdist`).
