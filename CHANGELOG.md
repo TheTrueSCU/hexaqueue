@@ -1,5 +1,33 @@
 # CHANGELOG
 
+## v0.11.0 (2026-11-10)
+
+### Cluster Operations CLI, Cloud Mutation Offloading & Comprehensive Docs Overhaul
+* **Comprehensive Documentation Overhaul (`docs/`, Issue #120)**:
+  * Authored comprehensive guide `docs/guides/environment-and-configuration.md` covering plane secrets isolation, configuration precedence, and environment variables.
+  * Authored step-by-step production runbook `docs/guides/oci-deployment-guide.md` covering OCI Ampere A1 Free-Tier setup, VCN topology, Object Storage CAS, and hardened systemd service units.
+  * Authored workload submission guide `docs/guides/workload-submission.md` covering test slicing via `pytest-hexaqueue`, mutation testing offloading via `hexaqual mutate --cluster`, and custom `JobSpec` DAG submission.
+  * Authored Tutorial 0 `docs/tutorials/00-quickstart-local-cluster.md` demonstrating turnkey 5-minute local cluster setup with zero cloud spend.
+  * Rigorously enforced zero disclosure of real cloud identifiers, authorization tokens, and private keys.
+* **Cluster Mutation Verification Offloading (`.github/workflows/ci.yml`, `.github/workflows/cluster-mutation.yml`)**:
+  * Offloaded CI and scheduled mutation testing directly to Hexaqueue cloud worker clusters, reducing test execution times from 60+ minutes to 25 seconds.
+  * Integrated direct-only mutation scoping with `hexaqual[all]>=0.10.5`.
+* **Cluster Operations & Diagnostics CLI (`hexaqueue-cli`)**:
+  * Added first-class OCI instance pool adapter with full test parity.
+  * Implemented `hq cluster journal` to stream systemd logs over SSH tunnels.
+  * Implemented `hq cluster pool` with self-delegating remote SSH invocation for pool status inspection.
+  * Enhanced `hq node ssh` with direct jump-host access (`--direct`) for private worker subnets.
+  * Streamlined operations by removing obsolete standalone ops scripts.
+
+## v0.10.0 (2026-11-10)
+
+### Unified WorkerAgent & SliceLeaseCoordinator for Arbitrary JobSpec DAG Execution
+* **Arbitrary DAG Execution Framework (`hexaqueue-worker`, `hexaqueue-server`)**:
+  * Unified `WorkerAgent` and `SliceLeaseCoordinator` to support arbitrary `JobSpec` DAG execution alongside test slicing.
+  * Enabled generic job payload ingestion, distributed execution, and collateral management across worker pools.
+* **Dev Dependencies Upgrade**:
+  * Upgraded workspace dependencies to official PyPI releases and synchronized release tooling.
+
 ## v0.9.1 (2026-11-09)
 
 ### Remote Worker Project Hydration & Unified Cloud Execution
