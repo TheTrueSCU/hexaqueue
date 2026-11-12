@@ -14,6 +14,7 @@ from diagrams.generic.compute import Rack
 from diagrams.generic.os import LinuxGeneral
 from diagrams.generic.storage import Storage
 from diagrams.oci.compute import VM, Autoscale, InstancePools
+from diagrams.oci.database import ADB
 from diagrams.oci.storage import ObjectStorage
 from diagrams.onprem.ci import GithubActions, GitlabCI
 from diagrams.onprem.client import Client, User, Users
@@ -59,8 +60,8 @@ def generate_single_node_diagram() -> None:
                 )
 
         with Cluster("Cluster State & Storage"):
-            db = Postgresql("PostgreSQL /\nSQLite")
-            cas = Storage("CAS Artifacts\n(S3/GCS/FS)")
+            db = Postgresql("PostgreSQL / SQLite /\nOracle ADB")
+            cas = Storage("CAS Artifacts\n(S3/GCS/OCI/FS)")
 
         with Cluster("Compute Fleet"):
             workers = [
@@ -193,7 +194,7 @@ def generate_analytics_diagram() -> None:
                 )
 
         with Cluster("Data Sources"):
-            db = Postgresql("PostgreSQL Ledger &\nDead-Letter Records")
+            db = Postgresql("PostgreSQL / Oracle ADB\nLedger & Dead-Letter Records")
 
         finops >> Edge(label="Export Parquet/CSV") >> node
         grafana >> Edge(label="JSON Aggregates") >> node
@@ -277,7 +278,7 @@ def generate_distributed_cluster_diagram() -> None:
             analytics = Server("Analytics Engine\n(role=analytics, :8002)")
 
         with Cluster("Shared Infrastructure & Persistence"):
-            db = Postgresql("PostgreSQL HA Cluster\n(Runs, Jobs, Budgets)")
+            db = Postgresql("PostgreSQL HA / Oracle ADB\n(Runs, Jobs, Budgets)")
             storage = Storage("Object Storage / S3\n(CAS Collateral & Logs)")
 
         with Cluster("HPC Compute Fleet (Autoscaling Pools)"):
@@ -334,9 +335,12 @@ def generate_ephemeral_cloud_slicing_diagram() -> None:
             daemon - coordinator
             coordinator - autoscaler
 
-        with Cluster("Content-Addressed Storage"):
+        with Cluster("Content-Addressed & Cold-Tier Storage"):
             cas = ObjectStorage(
                 "OCI Object Storage\n(hexaqueue-collateral Bucket\n24h Lifecycle Deletion)"
+            )
+            adb = ADB(
+                "Oracle Autonomous DB\n(Always-Free Serverless 20GB\nWrite-Behind Outbox)"
             )
 
         with Cluster("Private Worker Subnet (10.0.2.0/24 - 0 Public IPs)"):
@@ -353,6 +357,13 @@ def generate_ephemeral_cloud_slicing_diagram() -> None:
             slicer
             >> Edge(label="Upload Collateral (PAR)", color="darkorange", style="dashed")
             >> cas
+        )
+        (
+            daemon
+            >> Edge(
+                label="Async Write-Behind Outbox", color="darkorchid", style="dashed"
+            )
+            >> adb
         )
 
         autoscaler >> Edge(label="Scale 0 -> N", color="blue") >> pool
