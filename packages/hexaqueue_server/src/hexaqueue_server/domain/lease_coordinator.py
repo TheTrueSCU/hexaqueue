@@ -354,7 +354,19 @@ class SliceLeaseCoordinator:
             )
             self._active_leases[lease.lease_id] = lease
             self._worker_last_seen[worker_id] = now
-            return lease
+
+        if (
+            task.task_type == "job"
+            and self._controller is not None
+            and hasattr(self._controller, "mark_job_running")
+        ):
+            with contextlib.suppress(Exception):
+                await self._controller.mark_job_running(
+                    job_id=task.slice_id,
+                    worker_id=worker_id,
+                )
+
+        return lease
 
     async def report_slice_outcome(self, report: SliceReportPayload) -> bool:
         """Process worker slice outcome report and record completed telemetry.
@@ -456,6 +468,7 @@ class SliceLeaseCoordinator:
             List of reclaimed lease IDs.
         """
         reclaimed: list[str] = []
+        reclaimed_job_ids: list[str] = []
         async with self._condition:
             now = datetime.now(UTC)
             expired_ids = [
@@ -466,10 +479,25 @@ class SliceLeaseCoordinator:
             for l_id in expired_ids:
                 lease = self._active_leases.pop(l_id)
                 reclaimed.append(l_id)
+                if lease.task.task_type == "job":
+                    reclaimed_job_ids.append(lease.task.slice_id)
                 # Re-enqueue at the front of the queue
                 self._pending_tasks.appendleft(lease.task)
             if reclaimed:
                 self._condition.notify_all()
+
+        if (
+            reclaimed_job_ids
+            and self._controller is not None
+            and hasattr(self._controller, "mark_job_pending")
+        ):
+            for job_id in reclaimed_job_ids:
+                with contextlib.suppress(Exception):
+                    await self._controller.mark_job_pending(
+                        job_id=job_id,
+                        reason="Lease expired; reclaimed for re-execution",
+                    )
+
         return reclaimed
 
     async def get_session_reports(

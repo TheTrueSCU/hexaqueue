@@ -408,6 +408,48 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
         async with self._lock:
             return list(self._jobs.values())
 
+    async def mark_job_running(self, job_id: str, worker_id: str) -> None:
+        """Transition a leased job from PENDING to RUNNING and assign worker_id.
+
+        Args:
+            job_id: Unique job identifier.
+            worker_id: Worker node identifier holding the lease.
+        """
+        async with self._lock:
+            current_job = self._jobs.get(job_id)
+            if current_job is None or current_job.state == JobState.DONE:
+                return
+            await self._queue.remove(job_id)
+            running_job = current_job.model_copy(
+                update={
+                    "assigned_worker_id": worker_id,
+                    "status": JobStatus(state=JobState.RUNNING),
+                    "updated_at": datetime.now(UTC),
+                }
+            )
+            self._jobs[job_id] = running_job
+
+    async def mark_job_pending(self, job_id: str, reason: str | None = None) -> None:
+        """Transition a reclaimed job back from RUNNING to PENDING.
+
+        Args:
+            job_id: Unique job identifier.
+            reason: Optional reclamation reason.
+        """
+        async with self._lock:
+            current_job = self._jobs.get(job_id)
+            if current_job is None or current_job.state == JobState.DONE:
+                return
+            pending_job = current_job.model_copy(
+                update={
+                    "assigned_worker_id": None,
+                    "status": JobStatus(state=JobState.PENDING, reason=reason),
+                    "updated_at": datetime.now(UTC),
+                }
+            )
+            self._jobs[job_id] = pending_job
+            await self._queue.enqueue(pending_job)
+
     async def update_job_outcome(
         self,
         job_id: str,
