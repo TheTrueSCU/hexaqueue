@@ -3,6 +3,10 @@
 from hexaqueue_server.adapters.storage.in_memory import (
     InMemorySchedulerStorageAdapter,
 )
+from hexaqueue_server.adapters.storage.leader import (
+    DatabaseLeaderElectionAdapter,
+    HexaqueueLeaderLeaseModel,
+)
 from hexaqueue_server.adapters.storage.oracle import (
     HexaqueueJobModel,
     HexaqueueNodeModel,
@@ -12,7 +16,9 @@ from hexaqueue_server.adapters.storage.oracle import (
 )
 
 __all__ = [
+    "DatabaseLeaderElectionAdapter",
     "HexaqueueJobModel",
+    "HexaqueueLeaderLeaseModel",
     "HexaqueueNodeModel",
     "HexaqueueRunModel",
     "HexaqueueTelemetryPulseModel",

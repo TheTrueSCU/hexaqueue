@@ -14,6 +14,7 @@ from hexaqueue_server.adapters.mcp import (
 )
 from hexaqueue_server.adapters.runner import run_hexaqueue_server
 from hexaqueue_server.adapters.storage import (
+    DatabaseLeaderElectionAdapter,
     InMemorySchedulerStorageAdapter,
     OciAutonomousDatabaseStorageAdapter,
 )
@@ -23,6 +24,7 @@ __all__ = [
     "create_mcp_server",
     "create_server_api_router",
     "create_server_app",
+    "DatabaseLeaderElectionAdapter",
     "InMemorySchedulerStorageAdapter",
     "LocalSchedulerControllerAdapter",
     "mount_mcp_server",
