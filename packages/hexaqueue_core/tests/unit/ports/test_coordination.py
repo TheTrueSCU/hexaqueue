@@ -45,26 +45,18 @@ def test_leader_election_port_is_abstract() -> None:
 
 @pytest.mark.asyncio
 async def test_leader_election_port_renew_lease_and_callbacks() -> None:
-    """Verify renew_lease alias and sync/async lifecycle callbacks on LeaderElectionPort."""
+    """Verify renew_lease alias and lifecycle callbacks on LeaderElectionPort."""
     port = _StubLeaderPort()
     events: list[tuple[str, str]] = []
 
     def sync_elected(cid: str) -> None:
         events.append(("sync_elected", cid))
 
-    async def async_elected(cid: str) -> None:
-        events.append(("async_elected", cid))
-
     def sync_deposed(cid: str) -> None:
         events.append(("sync_deposed", cid))
 
-    async def async_deposed(cid: str) -> None:
-        events.append(("async_deposed", cid))
-
     port.on_elected(sync_elected)
-    port.on_elected(async_elected)
     port.on_deposed(sync_deposed)
-    port.on_deposed(async_deposed)
 
     renewed = await port.renew_lease("node-1", lease_duration_seconds=20.0)
     assert renewed is True
@@ -75,7 +67,5 @@ async def test_leader_election_port_renew_lease_and_callbacks() -> None:
 
     assert events == [
         ("sync_elected", "node-1"),
-        ("async_elected", "node-1"),
         ("sync_deposed", "node-1"),
-        ("async_deposed", "node-1"),
     ]

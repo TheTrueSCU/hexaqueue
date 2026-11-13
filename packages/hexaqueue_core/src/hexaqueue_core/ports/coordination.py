@@ -8,11 +8,11 @@ Notes/Architectural Intent:
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 
 from hexaqueue_core.domain.coordination import LeaderLease
 
-LeaderLifecycleCallback = Callable[[str], None | Awaitable[None]]
+LeaderLifecycleCallback = Callable[[str], None]
 
 
 class LeaderElectionPort(ABC):
@@ -130,9 +130,7 @@ class LeaderElectionPort(ABC):
             self, "_elected_callbacks", []
         )
         for cb in callbacks:
-            res = cb(candidate_id)
-            if res is not None and hasattr(res, "__await__"):
-                await res
+            cb(candidate_id)
 
     async def _notify_deposed(self, candidate_id: str) -> None:
         """Invoke all registered on_deposed callbacks."""
@@ -140,9 +138,7 @@ class LeaderElectionPort(ABC):
             self, "_deposed_callbacks", []
         )
         for cb in callbacks:
-            res = cb(candidate_id)
-            if res is not None and hasattr(res, "__await__"):
-                await res
+            cb(candidate_id)
 
 
 __all__ = [
