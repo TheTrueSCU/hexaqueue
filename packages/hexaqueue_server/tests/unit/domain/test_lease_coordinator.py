@@ -264,8 +264,10 @@ async def test_autoscaler_reconciliation_lifecycle() -> None:
 
 @pytest.mark.asyncio
 async def test_enqueue_and_lease_job_spec() -> None:
-    """Verify coordinator enqueues JobSpec and updates controller upon completion."""
+    """Verify coordinator enqueues JobSpec, marks RUNNING on lease, and updates controller upon completion."""
     mock_ctrl = AsyncMock()
+    mock_ctrl.mark_job_running = AsyncMock()
+    mock_ctrl.mark_job_pending = AsyncMock()
     mock_ctrl.update_job_outcome = AsyncMock()
 
     coord = SliceLeaseCoordinator(controller=mock_ctrl)
@@ -284,6 +286,11 @@ async def test_enqueue_and_lease_job_spec() -> None:
 
     lease = await coord.lease_slice("worker-oci-01")
     assert lease is not None
+    running_called = mock_ctrl.mark_job_running.called
+    assert running_called is True
+    running_kwargs = mock_ctrl.mark_job_running.call_args[1]
+    assert running_kwargs["job_id"] == "job-mut-001"
+    assert running_kwargs["worker_id"] == "worker-oci-01"
     task = lease.task
     assert task.task_type == "job"
     assert task.slice_id == "job-mut-001"
@@ -307,6 +314,40 @@ async def test_enqueue_and_lease_job_spec() -> None:
     assert call_kwargs["job_id"] == "job-mut-001"
     assert call_kwargs["outcome"] == TerminalOutcome.COMPLETED
     assert call_kwargs["walltime_seconds"] == 12.5
+
+
+@pytest.mark.asyncio
+async def test_reclaim_expired_job_lease_marks_pending() -> None:
+    """Verify reclaiming an expired job lease transitions controller job back to PENDING."""
+    mock_ctrl = AsyncMock()
+    mock_ctrl.mark_job_running = AsyncMock()
+    mock_ctrl.mark_job_pending = AsyncMock()
+
+    coord = SliceLeaseCoordinator(controller=mock_ctrl, default_lease_ttl_seconds=1)
+    job = JobSpec(
+        id="job-exp-001",
+        run_id="run-exp",
+        name="exp-job",
+        command="pytest",
+    )
+    await coord.enqueue_job(job)
+
+    lease = await coord.lease_slice("worker-oci-02")
+    assert lease is not None
+
+    expired_lease = lease.model_copy(
+        update={"expires_at": datetime.now(UTC) - timedelta(seconds=10)}
+    )
+    async with coord._lock:
+        coord._active_leases[lease.lease_id] = expired_lease
+
+    reclaimed = await coord.reclaim_expired_leases()
+    reclaimed_len = len(reclaimed)
+    assert reclaimed_len == 1
+    pending_called = mock_ctrl.mark_job_pending.called
+    assert pending_called is True
+    pending_kwargs = mock_ctrl.mark_job_pending.call_args[1]
+    assert pending_kwargs["job_id"] == "job-exp-001"
 
 
 @pytest.mark.asyncio

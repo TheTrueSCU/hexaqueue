@@ -1426,6 +1426,25 @@ async def test_local_controller_integrated_with_lease_coordinator() -> None:
     assert lease1.task.slice_id == "job-1"
     assert lease1.task.command == "echo 1"
 
+    # While leased, job1 is RUNNING and run_status reports running_jobs == 1
+    j1_leased = await controller.get_job("job-1")
+    assert j1_leased.state == JobState.RUNNING
+    assert j1_leased.assigned_worker_id == "worker-w1"
+    mid_status = await controller.get_run_status("run-pipeline")
+    assert mid_status.running_jobs == 1
+    assert mid_status.pending_jobs == 1
+
+    # Verify mark_job_pending transitions back to PENDING
+    await controller.mark_job_pending("job-1", reason="reclaimed")
+    j1_reclaimed = await controller.get_job("job-1")
+    assert j1_reclaimed.state == JobState.PENDING
+    assert j1_reclaimed.assigned_worker_id is None
+    await controller.mark_job_running("job-1", "worker-w1")
+
+    # Calling mark_job_running / mark_job_pending on missing job is a safe no-op
+    await controller.mark_job_running("job-missing", "worker-w1")
+    await controller.mark_job_pending("job-missing")
+
     # Worker reports completion of job1
     report1 = SliceReportPayload(
         lease_id=lease1.lease_id,
