@@ -9,6 +9,7 @@ This guide provides a comprehensive, production-grade runbook for provisioning, 
 Oracle Cloud Infrastructure provides a generous Always-Free Tier suitable for running high-throughput distributed test and mutation crunching:
 - **Compute**: 4 OCPUs and 24 GB RAM across Ampere A1 ARM64 architecture (`VM.Standard.A1.Flex`).
 - **Storage**: 200 GB total Block Volume capacity (shared across boot and block volumes) and 10 GB Always-Free Object Storage.
+- **Database**: 2 Always-Free Oracle Autonomous Databases (ADB Serverless, 20 GB storage each) for durable cold-tier run history, job specifications, and telemetry persistence via an asynchronous write-behind outbox.
 - **Networking**: 1 VCN with public and private subnets, internet gateway, and NAT gateway.
 
 ```mermaid
@@ -30,6 +31,7 @@ flowchart TD
     end
 
     Devs["Developers / CI Runners"] -->|HTTPS / SSH Tunnel| BastionController
+    BastionController -->|Async Write-Behind Outbox| ADB["Oracle Autonomous Database<br/>(Always-Free ADB 20 GB)"]
     WorkerPool["Worker Nodes"] -->|Pull Collateral Tarballs| CAS["OCI Object Storage (CAS Bucket)"]
 
     classDef pub fill:#e0f2fe,stroke:#0369a1,stroke-width:2px;
@@ -37,7 +39,7 @@ flowchart TD
     classDef ext fill:#f3f4f6,stroke:#4b5563,stroke-width:2px;
     class BastionController pub;
     class Worker1,Worker2,Worker3,WorkerN priv;
-    class Devs,CAS ext;
+    class Devs,CAS,ADB ext;
 ```
 
 ---

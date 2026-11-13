@@ -33,6 +33,9 @@ github = [
 oci = [
     "oci>=2.120.0",
 ]
+oracle = [
+    "oracledb>=2.4.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.12.3,<0.14.0"]

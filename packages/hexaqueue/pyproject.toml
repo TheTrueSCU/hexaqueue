@@ -39,6 +39,9 @@ oci = [
     "hexaqueue-core[oci]",
     "hexaqueue-server[oci]",
 ]
+oracle = [
+    "hexaqueue-server[oracle]",
+]
 pytest = [
     "pytest-hexaqueue",
 ]

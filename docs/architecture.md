@@ -126,7 +126,11 @@ Hexaqueue includes native, zero-trust cloud test acceleration via `pytest-hexaqu
    - Client workspaces snapshot uncommitted diffs and repository files into a deterministic `.tar.gz` archive and stage them directly via OCI Object Storage bucket (`hexaqueue-collateral`).
    - Workers download collateral directly from Object Storage using secure, short-lived Pre-Authenticated Request (PAR) URLs with automated 24-hour lifecycle bucket expiration.
 
-4. **Hermetic Virtualenv Isolation & Clean Reporting**:
+4. **Cold-Tier Durable Persistence via Oracle Autonomous Database (`OciAutonomousDatabaseStorageAdapter`)**:
+   - While millisecond-latency task leasing executes against the hot in-memory tier (`SliceLeaseCoordinator`), completed run histories, job specifications, node registrations, and worker telemetry pulses are asynchronously flushed via a write-behind outbox to an OCI Always-Free Autonomous Database (20 GB Serverless) using `python-oracledb` Thin Mode.
+   - Automatic exponential retry and connection pre-ping resilience gracefully absorb OCI Free Tier 7-day inactivity auto-pause wake cycles without blocking active scheduling loops.
+
+5. **Hermetic Virtualenv Isolation & Clean Reporting**:
    - Each distributed test slice executes inside an isolated workspace virtualenv (`workspace_dir/.venv/bin/python -m pytest`).
    - Results (JUnit XML and coverage artifacts) stream back in real time and are seamlessly merged on the client.
 

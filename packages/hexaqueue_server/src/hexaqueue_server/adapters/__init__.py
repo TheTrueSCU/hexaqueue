@@ -13,14 +13,20 @@ from hexaqueue_server.adapters.mcp import (
     run_mcp_stdio_async,
 )
 from hexaqueue_server.adapters.runner import run_hexaqueue_server
+from hexaqueue_server.adapters.storage import (
+    InMemorySchedulerStorageAdapter,
+    OciAutonomousDatabaseStorageAdapter,
+)
 
 __all__ = [
     "ColumnarAnalyticsAdapter",
     "create_mcp_server",
     "create_server_api_router",
     "create_server_app",
+    "InMemorySchedulerStorageAdapter",
     "LocalSchedulerControllerAdapter",
     "mount_mcp_server",
+    "OciAutonomousDatabaseStorageAdapter",
     "run_hexaqueue_server",
     "run_mcp_stdio",
     "run_mcp_stdio_async",
