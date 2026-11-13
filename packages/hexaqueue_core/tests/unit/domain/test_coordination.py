@@ -1,10 +1,16 @@
 """Unit tests for LeaderLease coordination domain entity."""
 
+import asyncio
+import concurrent.futures
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from hexaqueue_core.domain.coordination import LeaderLease
+from hexaqueue_core.domain.coordination import (
+    CrossLoopAsyncCondition,
+    CrossLoopAsyncLock,
+    LeaderLease,
+)
 
 
 def test_leader_lease_creation_and_expiration() -> None:
@@ -68,3 +74,42 @@ def test_leader_lease_validation_errors() -> None:
             leader_id="controller-1",
             lease_duration_seconds=10.0,
         )
+
+
+@pytest.mark.asyncio
+async def test_cross_loop_async_lock_and_condition() -> None:
+    """Verify CrossLoopAsyncLock and CrossLoopAsyncCondition work across multiple event loops."""
+    lock = CrossLoopAsyncLock()
+    initial_locked = lock.locked()
+    assert initial_locked is False
+
+    async with lock:
+        inside_locked = lock.locked()
+        assert inside_locked is True
+
+    after_locked = lock.locked()
+    assert after_locked is False
+
+    cond = CrossLoopAsyncCondition(lock=lock)
+    acq = await cond.acquire()
+    assert acq is True
+    cond.notify(0)
+    cond.notify(1)
+    cond.release()
+
+    def notify_from_worker_loop() -> bool:
+        async def _notify() -> bool:
+            await asyncio.sleep(0.01)
+            async with cond:
+                cond.notify_all()
+            return True
+
+        return asyncio.run(_notify())
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        fut = pool.submit(notify_from_worker_loop)
+        async with cond:
+            waited = await asyncio.wait_for(cond.wait(), timeout=1.0)
+            assert waited is True
+        worker_done = fut.result()
+        assert worker_done is True

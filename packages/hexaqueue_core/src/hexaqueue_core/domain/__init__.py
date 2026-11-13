@@ -33,6 +33,8 @@ from hexaqueue_core.domain.container import (
     ContainerSpec,
 )
 from hexaqueue_core.domain.coordination import (
+    CrossLoopAsyncCondition,
+    CrossLoopAsyncLock,
     LeaderLease,
 )
 from hexaqueue_core.domain.cqrs import (
@@ -287,6 +289,8 @@ __all__ = [
     "ControlledPreemptionEngine",
     "CreateBastionSessionCommand",
     "CreatePtySessionCommand",
+    "CrossLoopAsyncCondition",
+    "CrossLoopAsyncLock",
     "CspFreeTierProfile",
     "CspProvider",
     "DeadLetterQueueReport",

@@ -12,7 +12,7 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
-from hexaqueue_core.domain.coordination import LeaderLease
+from hexaqueue_core.domain.coordination import CrossLoopAsyncLock, LeaderLease
 from hexaqueue_core.ports.coordination import LeaderElectionPort
 
 
@@ -86,7 +86,7 @@ class KubernetesLeaseLeaderAdapter(LeaderElectionPort):
         self._lease_name = lease_name
         self._namespace = namespace
         self._client: KubernetesLeaseClientProtocol = client or _InMemoryK8sLeaseStore()
-        self._lock = asyncio.Lock()
+        self._lock = CrossLoopAsyncLock()
 
     @staticmethod
     def _parse_lease_doc(doc: dict[str, Any] | None) -> LeaderLease | None:

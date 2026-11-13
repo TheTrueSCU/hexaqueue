@@ -16,7 +16,7 @@ from sqlalchemy import DateTime, Engine, Float, Integer, String, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from hexaqueue_core.domain.coordination import LeaderLease
+from hexaqueue_core.domain.coordination import CrossLoopAsyncLock, LeaderLease
 from hexaqueue_core.ports.coordination import LeaderElectionPort
 
 
@@ -82,7 +82,7 @@ class DatabaseLeaderElectionAdapter(LeaderElectionPort):
         self._sessionmaker = sessionmaker(self._engine, expire_on_commit=False)
         self._lease_key = lease_key
         self._schema_initialized = False
-        self._lock = asyncio.Lock()
+        self._lock = CrossLoopAsyncLock()
 
     async def _ensure_schema(self) -> None:
         """Create leader lease table if not already initialized."""

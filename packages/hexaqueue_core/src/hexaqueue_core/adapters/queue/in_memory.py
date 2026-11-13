@@ -1,7 +1,6 @@
 """In-memory priority and FIFO job queue adapter."""
 
-import asyncio
-
+from hexaqueue_core.domain.coordination import CrossLoopAsyncLock
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.ports.queue import JobQueuePort
 
@@ -11,7 +10,7 @@ class InMemoryJobQueueAdapter(JobQueuePort):
 
     def __init__(self) -> None:
         self._queue: list[JobSpec] = []
-        self._lock = asyncio.Lock()
+        self._lock = CrossLoopAsyncLock()
 
     async def enqueue(self, job: JobSpec) -> None:
         """Enqueue job in FIFO sequence."""

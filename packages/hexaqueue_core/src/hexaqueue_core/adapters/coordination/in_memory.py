@@ -6,10 +6,9 @@ Notes/Architectural Intent:
     failover testing, including on_elected and on_deposed event notifications.
 """
 
-import asyncio
 from datetime import UTC, datetime, timedelta
 
-from hexaqueue_core.domain.coordination import LeaderLease
+from hexaqueue_core.domain.coordination import CrossLoopAsyncLock, LeaderLease
 from hexaqueue_core.ports.coordination import LeaderElectionPort
 
 
@@ -19,7 +18,7 @@ class InMemoryLeaderElectionAdapter(LeaderElectionPort):
     def __init__(self) -> None:
         """Initialize in-memory coordinator with an empty lease and lock."""
         self._current_lease: LeaderLease | None = None
-        self._lock = asyncio.Lock()
+        self._lock = CrossLoopAsyncLock()
 
     async def acquire_leadership(
         self,

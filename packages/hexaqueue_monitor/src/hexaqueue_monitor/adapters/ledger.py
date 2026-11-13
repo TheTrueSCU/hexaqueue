@@ -6,7 +6,6 @@ Notes/Architectural Intent:
     expiration. Mathematically guarantees balance conservation and prevents double counting.
 """
 
-import asyncio
 from collections import defaultdict
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -16,6 +15,7 @@ from hexaqueue_core.domain.budget import (
     ReservationState,
     TenantAccount,
 )
+from hexaqueue_core.domain.coordination import CrossLoopAsyncLock
 from hexaqueue_core.domain.exceptions import HexaqueueError, QuotaExceededError
 from hexaqueue_core.ports.budget import BudgetAccountingPort
 
@@ -33,7 +33,7 @@ class InMemoryBudgetLedgerAdapter(BudgetAccountingPort):
             self._deposits.update(initial_balances)
         self._reservations: dict[str, BudgetReservation] = {}
         self._settled_by_tenant: dict[str, float] = defaultdict(float)
-        self._lock = asyncio.Lock()
+        self._lock = CrossLoopAsyncLock()
 
     async def reserve_budget(
         self, tenant_id: str, job_id: str, estimated_credits: float

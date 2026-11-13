@@ -5,7 +5,6 @@ Notes/Architectural Intent:
     in-process without requiring external database or cluster daemon overhead.
 """
 
-import asyncio
 import contextlib
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -13,6 +12,7 @@ from typing import Any
 
 from hexaqueue_collateral.ports.service import CollateralServicePort
 from hexaqueue_core.domain.config import CspProvider, ExecutionMode
+from hexaqueue_core.domain.coordination import CrossLoopAsyncLock
 from hexaqueue_core.domain.dag import JobDagEngine, TriggerCondition
 from hexaqueue_core.domain.exceptions import (
     FreeTierLimitExceededError,
@@ -126,7 +126,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
         self._dag_engines: dict[str, JobDagEngine] = {}
         self._nodes: dict[str, ComputeNodeProfile] = {}
         self._dead_letters: list[DeadLetterRecord] = []
-        self._lock = asyncio.Lock()
+        self._lock = CrossLoopAsyncLock()
 
     def set_lease_coordinator(self, coordinator: Any) -> None:
         """Attach or update the cluster SliceLeaseCoordinator."""

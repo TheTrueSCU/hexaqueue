@@ -14,6 +14,10 @@ from collections import deque
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from hexaqueue_core.domain.coordination import (
+    CrossLoopAsyncCondition,
+    CrossLoopAsyncLock,
+)
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lease import (
     SliceLease,
@@ -59,8 +63,8 @@ class SliceLeaseCoordinator:
         self._pool_id = pool_id
         self._controller = controller
 
-        self._lock = asyncio.Lock()
-        self._condition = asyncio.Condition(lock=self._lock)
+        self._lock = CrossLoopAsyncLock()
+        self._condition = CrossLoopAsyncCondition(lock=self._lock)
 
         # Worker tracking
         self._registered_workers: dict[str, WorkerRegistration] = {}

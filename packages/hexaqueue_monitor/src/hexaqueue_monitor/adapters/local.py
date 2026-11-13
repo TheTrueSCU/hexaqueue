@@ -6,9 +6,9 @@ Notes/Architectural Intent:
     cluster-wide capacity metrics into real-time health reports.
 """
 
-import asyncio
 from datetime import UTC, datetime
 
+from hexaqueue_core.domain.coordination import CrossLoopAsyncLock
 from hexaqueue_monitor.domain.config import MonitorConfig
 from hexaqueue_monitor.domain.models import (
     ClusterHealthReport,
@@ -29,7 +29,7 @@ class LocalClusterMonitorAdapter(ClusterMonitorPort):
         self._pulses: dict[str, NodeTelemetryPulse] = {}
         self._last_seen: dict[str, datetime] = {}
         self._dead_nodes: set[str] = set()
-        self._lock = asyncio.Lock()
+        self._lock = CrossLoopAsyncLock()
 
     async def record_pulse(self, pulse: NodeTelemetryPulse) -> None:
         """Record an incoming telemetry pulse from a compute worker node.
