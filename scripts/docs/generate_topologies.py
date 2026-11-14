@@ -10,6 +10,7 @@ import logging
 from pathlib import Path
 
 from diagrams import Cluster, Diagram, Edge
+from diagrams.gcp.compute import GCE
 from diagrams.generic.compute import Rack
 from diagrams.generic.os import LinuxGeneral
 from diagrams.generic.storage import Storage
@@ -351,6 +352,11 @@ def generate_ephemeral_cloud_slicing_diagram() -> None:
                 VM("Worker Node N\n(WorkerAgent :8001)"),
             ]
 
+        with Cluster("GCP Always-Free Spillover (us-central1)"):
+            gcp_micro = GCE(
+                "Subordinate GCP e2-micro\n(x86_64 Spillover / Scale 0->1\nWireGuard/Tailscale Tunnel)"
+            )
+
         slicer >> Edge(label="Encrypted SSH Tunnel", color="darkgreen") >> tunnel
         tunnel >> Edge(label="Dispatch /test/runs", color="darkgreen") >> daemon
         (
@@ -367,6 +373,11 @@ def generate_ephemeral_cloud_slicing_diagram() -> None:
         )
 
         autoscaler >> Edge(label="Scale 0 -> N", color="blue") >> pool
+        (
+            autoscaler
+            >> Edge(label="x86_64 / OCI Spillover (0->1)", color="teal")
+            >> gcp_micro
+        )
         pool - workers
 
         for w in workers:
@@ -381,6 +392,15 @@ def generate_ephemeral_cloud_slicing_diagram() -> None:
                 >> w
             )
             w >> Edge(label="Report Outcome & Coverage", color="purple") >> coordinator
+
+        gcp_micro >> Edge(label="WireGuard Lease (:8001)", color="teal") >> coordinator
+        (
+            cas
+            >> Edge(
+                label="Download Collateral (PAR)", color="darkorange", style="dotted"
+            )
+            >> gcp_micro
+        )
 
         (
             coordinator

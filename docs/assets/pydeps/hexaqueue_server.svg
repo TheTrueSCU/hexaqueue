@@ -484,7 +484,7 @@
 <!-- hexaqueue_server_adapters_cloud_gcp -->
 <g id="node25" class="node">
 <title>hexaqueue_server_adapters_cloud_gcp</title><style>.edge>path:hover{stroke-width:8}</style>
-<ellipse fill="#5a8320" stroke="black" cx="270.78" cy="-1531.39" rx="77.15" ry="36.54"/>
+<ellipse fill="#547a1e" stroke="black" cx="270.78" cy="-1531.39" rx="77.15" ry="36.54"/>
 <text text-anchor="middle" x="270.78" y="-1545.39" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#ffffff">hexaqueue_server.</text>
 <text text-anchor="middle" x="270.78" y="-1534.39" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#ffffff">adapters.</text>
 <text text-anchor="middle" x="270.78" y="-1523.39" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#ffffff">cloud.</text>
@@ -1174,7 +1174,7 @@
 <g id="edge116" class="edge">
 <title>hexaqueue_server_adapters_cloud_gcp&#45;&gt;hexaqueue_server_adapters_cloud_factory</title><style>.edge>path:hover{stroke-width:8}</style>
 <path fill="none" stroke="black" d="M274.1,-1494.63C274.88,-1486.22 275.72,-1477.27 276.5,-1468.89"/>
-<polygon fill="#5a8320" stroke="black" points="280.01,-1468.94 277.45,-1458.66 273.04,-1468.29 280.01,-1468.94"/>
+<polygon fill="#547a1e" stroke="black" points="280.01,-1468.94 277.45,-1458.66 273.04,-1468.29 280.01,-1468.94"/>
 </g>
 <!-- hexaqueue_server_adapters_cloud_oci&#45;&gt;hexaqueue_server_adapters_cloud -->
 <g id="edge117" class="edge">

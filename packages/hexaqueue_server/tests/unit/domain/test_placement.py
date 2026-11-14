@@ -186,3 +186,71 @@ def test_placement_excludes_unhealthy_or_dead_nodes() -> None:
     sel_id = decision.selected_node_id
     assert sel_id is None
     assert decision.should_burst_ephemeral is False
+
+
+def test_placement_routes_x86_64_to_gcp_e2_micro_and_handles_oci_spillover() -> None:
+    """Verify x86_64 jobs route to GCP e2-micro and OCI exhaustion spills over."""
+    engine = WarmCachePlacementEngine()
+
+    oci_a1 = ComputeNodeProfile(
+        node_id="oci-a1-node-01",
+        arch="arm64",
+        provider="oci",
+        tier=NodeProvisioningTier.STATIC,
+        capacity=NodeCapacity(
+            node_id="oci-a1-node-01",
+            total_cpus=4,
+            available_cpus=4,
+            total_ram_mb=24576,
+            available_ram_mb=24576,
+        ),
+    )
+    gcp_e2 = ComputeNodeProfile(
+        node_id="gcp-e2-micro-01",
+        arch="x86_64",
+        provider="gcp",
+        tier=NodeProvisioningTier.EPHEMERAL,
+        capacity=NodeCapacity(
+            node_id="gcp-e2-micro-01",
+            total_cpus=2,
+            available_cpus=2,
+            total_ram_mb=1024,
+            available_ram_mb=1024,
+        ),
+    )
+
+    x86_job = JobSpec(
+        id="job-x86",
+        run_id="run-1",
+        name="x86-wheel-build",
+        command="pytest",
+        requires_arch="x86_64",
+    )
+    dec_x86 = engine.evaluate_placement(job=x86_job, nodes=[oci_a1, gcp_e2])
+    sel_x86 = dec_x86.selected_node_id
+    assert sel_x86 == "gcp-e2-micro-01"
+
+    arm_job = JobSpec(
+        id="job-arm",
+        run_id="run-1",
+        name="arm-mutation",
+        command="pytest",
+        requires_arch="aarch64",
+    )
+    dec_arm = engine.evaluate_placement(job=arm_job, nodes=[oci_a1, gcp_e2])
+    sel_arm = dec_arm.selected_node_id
+    assert sel_arm == "oci-a1-node-01"
+
+    generic_job = JobSpec(
+        id="job-generic",
+        run_id="run-1",
+        name="spillover-job",
+        command="pytest",
+    )
+    dec_spill = engine.evaluate_placement(
+        job=generic_job,
+        nodes=[oci_a1, gcp_e2],
+        primary_pool_exhausted=True,
+    )
+    sel_spill = dec_spill.selected_node_id
+    assert sel_spill == "gcp-e2-micro-01"

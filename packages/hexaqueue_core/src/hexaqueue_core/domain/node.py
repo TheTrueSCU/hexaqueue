@@ -62,6 +62,10 @@ class ComputeNodeProfile(BaseModel):
     active_job_ids: frozenset[str] = Field(
         default_factory=frozenset, description="Active job identifiers on this node"
     )
+    arch: str = Field(
+        default="arm64",
+        description="Node CPU architecture (e.g. 'arm64', 'x86_64')",
+    )
     cached_collateral_hashes: frozenset[str] = Field(
         default_factory=frozenset,
         description="CAS SHA-256 hashes present in local disk cache",
@@ -77,6 +81,10 @@ class ComputeNodeProfile(BaseModel):
         description="Most recent heartbeat timestamp in UTC",
     )
     node_id: str = Field(description="Unique node identifier")
+    provider: str = Field(
+        default="oci",
+        description="Cloud or infrastructure provider (e.g. 'oci', 'gcp', 'local')",
+    )
     registered_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
         description="Registration timestamp in UTC",
