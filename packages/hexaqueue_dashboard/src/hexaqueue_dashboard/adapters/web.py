@@ -8,7 +8,7 @@ Notes/Architectural Intent:
 """
 
 import os
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
@@ -44,6 +44,12 @@ from hexaqueue_core.domain.explainability import (
 )
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.ports.logging import LogChunk
+from hexaqueue_dashboard.adapters.auth import (
+    create_auth_router,
+    enforce_https_transport,
+    extract_bearer_or_cookie_token,
+    get_auth_manager,
+)
 from hexaqueue_dashboard.domain.models import (
     DashboardBastionRequest,
     DashboardCollateralRequest,
@@ -83,23 +89,43 @@ def get_auth_context(
     elevate: Annotated[bool, Query()] = False,
     x_hexaqueue_admin_token: Annotated[str | None, Header()] = None,
     admin_token: Annotated[str | None, Query()] = None,
+    request: Request = cast("Request", None),
 ) -> tuple[str, bool]:
-    """Resolve requesting user identity and elevation status.
+    """Resolve requesting user identity and elevation status via `hexastack-auth`.
 
     Args:
-        x_hexaqueue_user: User identity from header.
-        user: User identity from query parameter.
-        x_hexaqueue_elevate: Elevation flag from header.
-        elevate: Elevation flag from query string.
-        x_hexaqueue_admin_token: Administrative elevation token from header.
-        admin_token: Administrative elevation token from query string.
+        request: Active incoming HTTP request (optional for direct unit calls).
+        x_hexaqueue_user: Legacy user identity header (only when anonymous mode enabled).
+        user: Legacy user identity query param (only when anonymous mode enabled).
+        x_hexaqueue_elevate: Legacy elevation header.
+        elevate: Legacy elevation query param.
+        x_hexaqueue_admin_token: Legacy administrative elevation token header.
+        admin_token: Legacy administrative elevation token query param.
 
     Returns:
         Tuple of (user_id, is_elevated).
 
+    Raises:
+        HTTPException: 401 if unauthenticated, or 403 if HTTPS/elevation check fails.
+
     Notes/Architectural Intent:
-        Centralized authentication resolution dependency for Web Dashboard endpoints.
+        Prefers signed `hexastack-auth` JWTs (via Bearer header or HttpOnly session
+        cookie) and enforces HTTPS for non-loopback requests. Only falls back to
+        header identity when `HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN=1` is explicitly set.
     """
+    if request is not None:
+        enforce_https_transport(request)
+        token = extract_bearer_or_cookie_token(request)
+        if token is not None:
+            identity = get_auth_manager(request).verify_token(token)
+            return identity.user_id, "admin" in identity.roles
+
+        if os.environ.get("HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN", "0") != "1":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required: provide a valid Bearer token or session cookie.",
+            )
+
     user_id = x_hexaqueue_user or user or "default"
     requested_elevation = bool(x_hexaqueue_elevate or elevate)
     if requested_elevation:
@@ -111,17 +137,51 @@ def get_auth_context(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Invalid or missing administrative elevation token.",
                 )
-            is_elevated = True
         elif os.environ.get("HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN", "0") != "1":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Administrative elevation requires HEXAQUEUE_ADMIN_TOKEN to be configured.",
             )
-        else:
-            is_elevated = True
+        is_elevated = True
     else:
         is_elevated = False
     return user_id, is_elevated
+
+
+def _allow_body_elevation(request: Request | None) -> tuple[bool, bool]:
+    """Determine whether a request carries a JWT and whether body elevation is permitted."""
+    has_jwt = (
+        request is not None and extract_bearer_or_cookie_token(request) is not None
+    )
+    allow_body = request is None or (
+        os.environ.get("HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN", "0") == "1" and not has_jwt
+    )
+    return has_jwt, allow_body
+
+
+def _resolve_action_elevation(
+    action_req: DashboardJobAction,
+    header_elevate: bool,
+    request: Request | None,
+) -> bool:
+    """Resolve effective elevation flag for job lifecycle actions without RBAC bypass."""
+    if not action_req.elevate or header_elevate:
+        return header_elevate
+    has_jwt, _ = _allow_body_elevation(request)
+    configured_token = os.environ.get("HEXAQUEUE_ADMIN_TOKEN")
+    if configured_token is not None and not has_jwt:
+        if action_req.admin_token != configured_token:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Invalid or missing administrative elevation token.",
+            )
+        return True
+    if os.environ.get("HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN", "0") == "1" and not has_jwt:
+        return True
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Administrative role ('admin') is required for elevation.",
+    )
 
 
 def _dispatch[T](pipeline: ExecutionPipeline, msg: Any) -> T:
@@ -169,6 +229,7 @@ def create_dashboard_router(
         Dashboard console, routing each request to the shared CQRS pipeline.
     """
     router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+    router.include_router(create_auth_router())
 
     # 1. Cluster Overview
     @router.get(
@@ -351,28 +412,10 @@ def create_dashboard_router(
         action_req: DashboardJobAction,
         pip: Annotated[ExecutionPipeline, Depends(get_pipeline)],
         auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
+        request: Request = cast("Request", None),
     ) -> JobSpec:
         user_id, header_elevate = auth
-        if action_req.elevate:
-            configured_token = os.environ.get("HEXAQUEUE_ADMIN_TOKEN")
-            if configured_token is not None:
-                provided_token = action_req.admin_token
-                if provided_token != configured_token and not header_elevate:
-                    raise HTTPException(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        detail="Invalid or missing administrative elevation token.",
-                    )
-            elif (
-                os.environ.get("HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN", "0") != "1"
-                and not header_elevate
-            ):
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Administrative elevation requires HEXAQUEUE_ADMIN_TOKEN to be configured.",
-                )
-            is_elevated = True
-        else:
-            is_elevated = header_elevate
+        is_elevated = _resolve_action_elevation(action_req, header_elevate, request)
         action = action_req.action.lower()
 
         if action == "hold":
@@ -405,14 +448,18 @@ def create_dashboard_router(
         cmd: CreatePtySessionCommand,
         pip: Annotated[ExecutionPipeline, Depends(get_pipeline)],
         auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
+        request: Request = cast("Request", None),
     ) -> PtySessionInfo:
         user_id, is_elevated = auth
+        has_jwt, allow_body_elevate = _allow_body_elevation(request)
         effective_cmd = CreatePtySessionCommand(
             job_id=job_id,
             session_id=cmd.session_id or f"pty-{uuid4().hex[:8]}",
             command=cmd.command,
-            user_id=cmd.user_id if cmd.user_id != "default" else user_id,
-            elevate=bool(is_elevated or cmd.elevate),
+            user_id=user_id
+            if has_jwt
+            else (cmd.user_id if cmd.user_id != "default" else user_id),
+            elevate=bool(is_elevated or (allow_body_elevate and cmd.elevate)),
             rows=cmd.rows,
             cols=cmd.cols,
             term_type=cmd.term_type,
@@ -454,9 +501,11 @@ def create_dashboard_router(
         req: DashboardBastionRequest,
         pip: Annotated[ExecutionPipeline, Depends(get_pipeline)],
         auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
+        request: Request = cast("Request", None),
     ) -> PtySessionInfo:
         user_id, header_elevate = auth
-        is_elevated = bool(req.elevate or header_elevate)
+        _, allow_body_elevate = _allow_body_elevation(request)
+        is_elevated = bool(header_elevate or (allow_body_elevate and req.elevate))
         session_id = req.session_id or f"bastion-{uuid4().hex[:8]}"
         cmd = CreateBastionSessionCommand(
             node_id=node_id,

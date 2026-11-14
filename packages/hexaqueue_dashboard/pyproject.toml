@@ -17,6 +17,7 @@ dependencies = [
     "hexastack-cqrs>=0.11.0",
     "hexastack-fastapi>=0.11.0",
     "hexastack-grpc>=0.11.0",
+    "hexastack-ui[nicegui]>=0.11.0",
 ]
 
 [build-system]
