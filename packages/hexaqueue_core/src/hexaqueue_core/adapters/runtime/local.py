@@ -82,7 +82,7 @@ class LocalSubprocessExecutionRuntimeAdapter(ExecutionRuntimePort):
         env = os.environ.copy()
         if environment:
             env.update(environment)
-        cwd = env.get("HEXAQUEUE_CWD") or (
+        cwd = (environment or {}).get("HEXAQUEUE_CWD") or (
             scratch_volume.mount_path if scratch_volume else None
         )
 
