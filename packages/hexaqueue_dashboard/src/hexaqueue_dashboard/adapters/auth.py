@@ -19,7 +19,11 @@ from hexastack_auth.adapters.jwt import JwtSecurityAdapter
 from hexastack_auth.adapters.password import Pbkdf2PasswordHasher
 from hexastack_auth.domain.exceptions import AuthError
 from hexastack_auth.domain.models import Identity
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
+
+from hexaqueue_dashboard.adapters.rbac_store import create_rbac_policy_store
+from hexaqueue_dashboard.domain.rbac import RbacPrincipal
+from hexaqueue_dashboard.ports.rbac import RbacPolicyPort
 
 SESSION_COOKIE_NAME = "hexaqueue_session"
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost", "testclient"})
@@ -29,14 +33,48 @@ class LoginRequest(BaseModel):
     """Dashboard credential login payload.
 
     Notes/Architectural Intent:
-        Accepts username and password/token for exchange into a signed JWT
-        and HttpOnly session cookie.
+        Uses `SecretStr` so credentials are redacted in repr/logs and only
+        unwrapped transiently during constant-time hash verification.
     """
 
     username: str = Field(
         ..., min_length=1, description="Principal username (e.g. rjdw)"
     )
-    password: str = Field(..., min_length=1, description="Web/API credential secret")
+    password: SecretStr = Field(
+        ..., min_length=1, description="Web/API credential secret (redacted in logs)"
+    )
+
+
+class PrincipalUpsertRequest(BaseModel):
+    """Admin request payload to create or update an RBAC principal in the policy store.
+
+    Notes/Architectural Intent:
+        Requires a pre-derived PBKDF2 hash (`hashed_secret`) so plaintext
+        secrets are never transmitted to or logged by RBAC management endpoints.
+    """
+
+    principal_id: str = Field(..., min_length=1, description="Unique principal name")
+    hashed_secret: str = Field(
+        ..., min_length=1, description="Pre-derived PBKDF2 password or token hash"
+    )
+    roles: list[str] = Field(
+        default_factory=lambda: ["guest"],
+        description="Assigned RBAC roles (defaults to ['guest'])",
+    )
+    permissions: list[str] = Field(
+        default_factory=list,
+        description="Optional fine-grained permission grants",
+    )
+    is_active: bool = Field(default=True, description="Whether principal is active")
+
+
+class PrincipalSummaryResponse(BaseModel):
+    """Sanitized RBAC principal summary (never exposes credential hashes)."""
+
+    principal_id: str
+    roles: list[str]
+    permissions: list[str]
+    is_active: bool
 
 
 class AuthStatusResponse(BaseModel):
@@ -121,6 +159,7 @@ class DashboardAuthManager:
         self,
         *,
         jwt_secret: str | None = None,
+        rbac_store: RbacPolicyPort | None = None,
         admin_user: str | None = None,
         admin_password_hash: str | None = None,
         ci_user: str | None = None,
@@ -131,10 +170,11 @@ class DashboardAuthManager:
 
         Args:
             jwt_secret: HMAC secret for signing/verifying JWTs.
-            admin_user: Primary admin principal name (default 'rjdw').
-            admin_password_hash: PBKDF2 password hash for admin user.
-            ci_user: Subordinate CI principal name (default 'hexaqueue-ci').
-            ci_token_hash: PBKDF2 hash for CI principal credential.
+            rbac_store: Port-backed RBAC policy store (Oracle ADB, SQLite, or memory).
+            admin_user: Optional bootstrap admin principal name.
+            admin_password_hash: Optional PBKDF2 password hash for bootstrap admin.
+            ci_user: Optional bootstrap CI principal name.
+            ci_token_hash: Optional PBKDF2 hash for bootstrap CI credential.
             ttl_seconds: Issued JWT lifetime in seconds.
         """
         effective_secret = (
@@ -148,12 +188,42 @@ class DashboardAuthManager:
             issuer="hexaqueue",
         )
         self._hasher = Pbkdf2PasswordHasher()
-        self.admin_user = admin_user or os.environ.get("HEXAQUEUE_ADMIN_USER", "rjdw")
-        self.admin_password_hash = admin_password_hash or os.environ.get(
-            "HEXAQUEUE_ADMIN_PASSWORD_HASH"
+        self._rbac_store = rbac_store or create_rbac_policy_store()
+        self._seed_bootstrap_principal(
+            principal_id=admin_user or os.environ.get("HEXAQUEUE_ADMIN_USER", "rjdw"),
+            hashed_secret=admin_password_hash
+            or os.environ.get("HEXAQUEUE_ADMIN_PASSWORD_HASH"),
+            roles=frozenset({"admin"}),
         )
-        self.ci_user = ci_user or os.environ.get("HEXAQUEUE_CI_USER", "hexaqueue-ci")
-        self.ci_token_hash = ci_token_hash or os.environ.get("HEXAQUEUE_CI_TOKEN_HASH")
+        self._seed_bootstrap_principal(
+            principal_id=ci_user or os.environ.get("HEXAQUEUE_CI_USER", "hexaqueue-ci"),
+            hashed_secret=ci_token_hash or os.environ.get("HEXAQUEUE_CI_TOKEN_HASH"),
+            roles=frozenset({"ci"}),
+        )
+
+    def _seed_bootstrap_principal(
+        self,
+        *,
+        principal_id: str,
+        hashed_secret: str | None,
+        roles: frozenset[str],
+    ) -> None:
+        """Seed an env-configured principal if not already present in the policy store."""
+        if not hashed_secret:
+            return
+        if self._rbac_store.get_principal(principal_id) is None:
+            self._rbac_store.upsert_principal(
+                RbacPrincipal(
+                    principal_id=principal_id,
+                    hashed_secret=hashed_secret,
+                    roles=roles,
+                )
+            )
+
+    @property
+    def rbac_store(self) -> RbacPolicyPort:
+        """Return the underlying RbacPolicyPort store."""
+        return self._rbac_store
 
     def hash_secret(self, plaintext: str) -> str:
         """Hash a plaintext password or CI token using PBKDF2-HMAC-SHA256.
@@ -167,37 +237,28 @@ class DashboardAuthManager:
         return self._hasher.hash_password(plaintext)
 
     def authenticate_user(self, username: str, password: str) -> Identity:
-        """Verify username and secret against configured RBAC principals.
+        """Verify username and secret against the configured RbacPolicyPort store.
 
         Args:
             username: Submitted principal name.
-            password: Submitted web password or CI API token.
+            password: Submitted credential unwrapped transiently for verification.
 
         Returns:
-            Authenticated Identity with assigned RBAC roles.
+            Authenticated Identity with assigned RBAC roles and permissions.
 
         Raises:
-            HTTPException: 401 Unauthorized if credentials are invalid or unconfigured.
+            HTTPException: 401 Unauthorized if credentials are invalid or inactive.
         """
-        normalized = username.strip()
+        principal = self._rbac_store.get_principal(username.strip())
         if (
-            normalized == self.admin_user
-            and self.admin_password_hash
-            and self._hasher.verify_password(password, self.admin_password_hash)
+            principal is not None
+            and principal.is_active
+            and self._hasher.verify_password(password, principal.hashed_secret)
         ):
             return Identity(
-                user_id=self.admin_user,
-                roles=frozenset({"admin"}),
-                is_authenticated=True,
-            )
-        if (
-            normalized == self.ci_user
-            and self.ci_token_hash
-            and self._hasher.verify_password(password, self.ci_token_hash)
-        ):
-            return Identity(
-                user_id=self.ci_user,
-                roles=frozenset({"ci"}),
+                user_id=principal.principal_id,
+                roles=principal.roles,
+                permissions=principal.permissions,
                 is_authenticated=True,
             )
 
@@ -294,7 +355,9 @@ def create_auth_router() -> APIRouter:
         manager: Annotated[DashboardAuthManager, Depends(get_auth_manager)],
     ) -> AuthStatusResponse:
         enforce_https_transport(request)
-        identity = manager.authenticate_user(payload.username, payload.password)
+        identity = manager.authenticate_user(
+            payload.username, payload.password.get_secret_value()
+        )
         token = manager.issue_token(identity)
         response.set_cookie(
             key=SESSION_COOKIE_NAME,
@@ -344,6 +407,84 @@ def create_auth_router() -> APIRouter:
             is_admin="admin" in identity.roles,
         )
 
+    def _require_admin(
+        request: Request,
+        manager: DashboardAuthManager,
+    ) -> Identity:
+        enforce_https_transport(request)
+        token = extract_bearer_or_cookie_token(request)
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required.",
+            )
+        identity = manager.verify_token(token)
+        if "admin" not in identity.roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin role required to manage RBAC principals.",
+            )
+        return identity
+
+    @router.get(
+        "/principals",
+        response_model=list[PrincipalSummaryResponse],
+        summary="List RBAC principals (admin only)",
+    )
+    def list_principals(
+        request: Request,
+        manager: Annotated[DashboardAuthManager, Depends(get_auth_manager)],
+    ) -> list[PrincipalSummaryResponse]:
+        _require_admin(request, manager)
+        return [
+            PrincipalSummaryResponse(
+                principal_id=p.principal_id,
+                roles=sorted(p.roles),
+                permissions=sorted(p.permissions),
+                is_active=p.is_active,
+            )
+            for p in manager.rbac_store.list_principals()
+        ]
+
+    @router.post(
+        "/principals",
+        response_model=PrincipalSummaryResponse,
+        summary="Create or update an RBAC principal using a pre-derived hash (admin only)",
+    )
+    def upsert_principal(
+        payload: PrincipalUpsertRequest,
+        request: Request,
+        manager: Annotated[DashboardAuthManager, Depends(get_auth_manager)],
+    ) -> PrincipalSummaryResponse:
+        _require_admin(request, manager)
+        principal = RbacPrincipal(
+            principal_id=payload.principal_id.strip(),
+            hashed_secret=payload.hashed_secret,
+            roles=frozenset(payload.roles) if payload.roles else frozenset({"guest"}),
+            permissions=frozenset(payload.permissions),
+            is_active=payload.is_active,
+        )
+        manager.rbac_store.upsert_principal(principal)
+        return PrincipalSummaryResponse(
+            principal_id=principal.principal_id,
+            roles=sorted(principal.roles),
+            permissions=sorted(principal.permissions),
+            is_active=principal.is_active,
+        )
+
+    @router.delete(
+        "/principals/{principal_id}",
+        summary="Delete an RBAC principal (admin only)",
+    )
+    def delete_principal(
+        principal_id: str,
+        request: Request,
+        manager: Annotated[DashboardAuthManager, Depends(get_auth_manager)],
+    ) -> dict[str, Any]:
+        _require_admin(request, manager)
+        deleted = manager.rbac_store.delete_principal(principal_id)
+        return {"deleted": deleted, "principal_id": principal_id}
+
     return router
 
 
@@ -357,5 +498,7 @@ __all__ = [
     "is_https_request",
     "is_loopback_request",
     "LoginRequest",
+    "PrincipalSummaryResponse",
+    "PrincipalUpsertRequest",
     "SESSION_COOKIE_NAME",
 ]

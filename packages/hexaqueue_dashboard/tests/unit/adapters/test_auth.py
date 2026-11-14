@@ -14,7 +14,10 @@ from hexaqueue_core.domain.run import RunSpec
 from hexaqueue_dashboard.adapters.auth import (
     SESSION_COOKIE_NAME,
     DashboardAuthManager,
+    LoginRequest,
 )
+from hexaqueue_dashboard.adapters.rbac_store import SqliteRbacPolicyAdapter
+from hexaqueue_dashboard.domain.rbac import RbacPrincipal
 from hexaqueue_dashboard.infra.app import create_dashboard_app
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
 from hexaqueue_server.domain.models import RunSubmission
@@ -64,13 +67,25 @@ def _build_seeded_client(
         )
     )
     pipeline = create_hexaqueue_execution_pipeline(controller=controller)
+    rbac_store = SqliteRbacPolicyAdapter(":memory:")
     auth_manager = DashboardAuthManager(
         jwt_secret="test-jwt-secret-key-at-least-32-bytes-long",
-        admin_user="rjdw",
-        ci_user="hexaqueue-ci",
+        rbac_store=rbac_store,
     )
-    auth_manager.admin_password_hash = auth_manager.hash_secret("rjdw-web-secret")
-    auth_manager.ci_token_hash = auth_manager.hash_secret("ci-api-secret")
+    rbac_store.upsert_principal(
+        RbacPrincipal(
+            principal_id="rjdw",
+            hashed_secret=auth_manager.hash_secret("rjdw-web-secret"),
+            roles=frozenset({"admin"}),
+        )
+    )
+    rbac_store.upsert_principal(
+        RbacPrincipal(
+            principal_id="hexaqueue-ci",
+            hashed_secret=auth_manager.hash_secret("ci-api-secret"),
+            roles=frozenset({"ci"}),
+        )
+    )
 
     monkeypatch.setenv("HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN", "0")
     monkeypatch.setenv("HEXAQUEUE_REQUIRE_HTTPS", "1")
@@ -155,3 +170,10 @@ def test_dashboard_rejects_non_https_non_loopback(
         )
         code = resp.status_code
         assert code == 403
+
+
+def test_login_request_redacts_secret_in_repr() -> None:
+    """Verify LoginRequest SecretStr never leaks raw credentials in logs/repr."""
+    req = LoginRequest(username="rjdw", password="super-secret-value")
+    rendered = repr(req)
+    assert "super-secret-value" not in rendered
