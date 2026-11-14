@@ -373,6 +373,25 @@ class SliceLeaseCoordinator:
 
         return lease
 
+    @staticmethod
+    def _format_failure_reason(report: SliceReportPayload) -> str | None:
+        """Build a concise failure reason including stderr/stdout tail on non-zero exit."""
+        reason = report.error_message
+        if report.exit_code == 0:
+            return reason
+        if not reason:
+            reason = f"Command failed with exit code {report.exit_code}"
+        out_tail = report.stderr or (
+            str(report.outcomes[0].get("stderr") or "") if report.outcomes else ""
+        )
+        if not out_tail:
+            out_tail = report.stdout or (
+                str(report.outcomes[0].get("stdout") or "") if report.outcomes else ""
+            )
+        if out_tail.strip():
+            reason = f"{reason}\n{out_tail.strip()[-1000:]}"
+        return reason
+
     async def report_slice_outcome(self, report: SliceReportPayload) -> bool:
         """Process worker slice outcome report and record completed telemetry.
 
@@ -453,9 +472,7 @@ class SliceLeaseCoordinator:
                 if report.exit_code == 0
                 else TerminalOutcome.FAILED
             )
-            reason = report.error_message
-            if not reason and report.exit_code != 0:
-                reason = f"Command failed with exit code {report.exit_code}"
+            reason = self._format_failure_reason(report)
             with contextlib.suppress(Exception):
                 await self._controller.update_job_outcome(
                     job_id=lease.task.slice_id,

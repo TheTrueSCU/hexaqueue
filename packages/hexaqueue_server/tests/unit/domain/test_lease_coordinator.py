@@ -397,3 +397,20 @@ async def test_lease_slice_auto_reclaims_expired_lease() -> None:
     assert recovered_job_id == "job-auto-reclaim-001"
     recovered_worker = recovered_lease.worker_id
     assert recovered_worker == "worker-fresh"
+
+
+def test_format_failure_reason_includes_stderr_tail() -> None:
+    """Verify _format_failure_reason appends stderr/stdout tail for failed jobs."""
+    payload = SliceReportPayload(
+        lease_id="lse-err-1",
+        slice_id="sl-err-1",
+        worker_id="worker-1",
+        exit_code=1,
+        outcomes=[
+            {"nodeid": "pytest", "outcome": "failed", "stderr": "ImportError: boom"}
+        ],
+    )
+    reason = SliceLeaseCoordinator._format_failure_reason(payload)
+    assert reason is not None
+    assert "Command failed with exit code 1" in reason
+    assert "ImportError: boom" in reason
