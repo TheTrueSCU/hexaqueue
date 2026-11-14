@@ -82,12 +82,46 @@ class WarmCachePlacementEngine:
         """Configured backlog threshold for ephemeral bursting."""
         return self._burst_threshold
 
+    @staticmethod
+    def _normalize_arch(arch: str | None) -> str | None:
+        """Normalize architecture aliases (amd64 -> x86_64, aarch64 -> arm64)."""
+        if arch is None:
+            return None
+        lowered = arch.strip().lower()
+        if lowered == "amd64":
+            return "x86_64"
+        if lowered == "aarch64":
+            return "arm64"
+        return lowered
+
+    @classmethod
+    def _is_node_eligible(
+        cls,
+        node: ComputeNodeProfile,
+        job: JobSpec,
+        primary_pool_exhausted: bool,
+    ) -> bool:
+        """Return True if node satisfies health, capacity, architecture, and spillover rules."""
+        if node.health_state != NodeHealthState.HEALTHY:
+            return False
+        if primary_pool_exhausted and node.provider.lower() == "oci":
+            return False
+        req_arch = cls._normalize_arch(job.requires_arch)
+        if req_arch is not None and cls._normalize_arch(node.arch) != req_arch:
+            return False
+        if node.capacity is not None:
+            needed_cpus = max(1, job.resources.cpus)
+            if node.capacity.available_cpus < needed_cpus:
+                return False
+        return True
+
     def evaluate_placement(
         self,
         job: JobSpec,
         nodes: Sequence[ComputeNodeProfile],
         collateral_hash_map: dict[str, str] | None = None,
         backlog_size: int = 0,
+        primary_pool_exhausted: bool = False,
     ) -> PlacementDecision:
         """Evaluate candidate nodes and determine optimal placement for a job.
 
@@ -96,6 +130,8 @@ class WarmCachePlacementEngine:
             nodes: Sequence of currently registered ComputeNodeProfile records.
             collateral_hash_map: Optional mapping of collateral IDs to CAS SHA-256 hashes.
             backlog_size: Number of waiting jobs currently queued in the backlog.
+            primary_pool_exhausted: Whether primary OCI pool reports capacity exhaustion,
+                triggering subordinate GCP e2-micro spillover.
 
         Returns:
             PlacementDecision indicating selected node or burst recommendation.
@@ -103,17 +139,14 @@ class WarmCachePlacementEngine:
         Notes/Architectural Intent:
             Ensures deterministic, zero-copy scheduling favoring permanent nodes
             with pre-warmed disk caches before spending cloud budget on ephemeral VMs.
+            Enforces CPU architecture affinity (arm64 vs x86_64) and OCI spillover.
         """
-        # 1. Filter healthy candidate nodes with available slot capacity
-        eligible: list[ComputeNodeProfile] = []
-        for node in nodes:
-            if node.health_state != NodeHealthState.HEALTHY:
-                continue
-            if node.capacity is not None:
-                needed_cpus = max(1, job.resources.cpus)
-                if node.capacity.available_cpus < needed_cpus:
-                    continue
-            eligible.append(node)
+        # 1. Filter healthy candidate nodes matching architecture, capacity, and spillover rules
+        eligible = [
+            node
+            for node in nodes
+            if self._is_node_eligible(node, job, primary_pool_exhausted)
+        ]
 
         # 2. Resolve required collateral bundle hashes
         hash_map = collateral_hash_map or {}

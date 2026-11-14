@@ -224,28 +224,40 @@ class MultiCspFreeTierGovernor(FederatedFreeTierGovernorPort):
         if preferred and preferred in self._mesh.profiles:
             order.append(preferred)
 
-        # Affinity heuristics: ARM64 or high memory claims prefer OCI
+        # Affinity heuristics: x86_64 routes to GCP e2-micro; ARM64 or high RAM prefers OCI
         tags_lower = [t.lower() for t in job.tags]
-        is_arm = "arm64" in tags_lower or "aarch64" in tags_lower
+        req_arch = (job.requires_arch or "").lower()
+        is_x86 = req_arch in ("x86_64", "amd64") or "x86_64" in tags_lower
+        is_arm = (
+            req_arch in ("arm64", "aarch64")
+            or "arm64" in tags_lower
+            or "aarch64" in tags_lower
+        )
         high_ram = job.resources.ram_mb > 2048
 
-        priority_order = (
-            [
+        if is_x86:
+            priority_order = [
+                CspProvider.GCP,
+                CspProvider.LOCAL,
+                CspProvider.AWS,
+                CspProvider.AZURE,
+            ]
+        elif is_arm or high_ram:
+            priority_order = [
                 CspProvider.OCI,
                 CspProvider.LOCAL,
                 CspProvider.GCP,
                 CspProvider.AWS,
                 CspProvider.AZURE,
             ]
-            if (is_arm or high_ram)
-            else [
+        else:
+            priority_order = [
                 CspProvider.LOCAL,
                 CspProvider.GCP,
                 CspProvider.AWS,
                 CspProvider.AZURE,
                 CspProvider.OCI,
             ]
-        )
 
         for p in priority_order:
             if p not in order and p in self._mesh.profiles:

@@ -27,6 +27,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+gcp = [
+    "google-cloud-compute>=1.15.0",
+]
 github = [
     "hexaqueue-github-runner",
 ]

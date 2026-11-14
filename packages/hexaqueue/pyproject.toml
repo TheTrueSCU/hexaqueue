@@ -32,6 +32,9 @@ hexaqueue = "hexaqueue_cli.main:app"
 dotenv = [
     "hexaqueue-core[dotenv]",
 ]
+gcp = [
+    "hexaqueue-server[gcp]",
+]
 github = [
     "hexaqueue-server[github]",
 ]

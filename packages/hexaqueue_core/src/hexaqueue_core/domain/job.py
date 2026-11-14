@@ -84,6 +84,10 @@ class JobSpec(BaseModel):
     retry_count: int = Field(
         default=0, ge=0, description="Total execution attempts executed"
     )
+    requires_arch: str | None = Field(
+        default=None,
+        description="Required CPU architecture (e.g. 'arm64', 'x86_64')",
+    )
     assigned_worker_id: str | None = Field(
         default=None, description="Worker node identifier currently assigned"
     )

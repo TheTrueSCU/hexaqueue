@@ -9,13 +9,17 @@ Notes/Architectural Intent:
 from hexaqueue_server.adapters.cloud.aws import AwsAutoScalingGroupAdapter
 from hexaqueue_server.adapters.cloud.azure import AzureScaleSetAdapter
 from hexaqueue_server.adapters.cloud.factory import create_cloud_governors
-from hexaqueue_server.adapters.cloud.gcp import GcpManagedInstanceGroupAdapter
+from hexaqueue_server.adapters.cloud.gcp import (
+    GcpInstancePoolAdapter,
+    GcpManagedInstanceGroupAdapter,
+)
 from hexaqueue_server.adapters.cloud.oci import OciInstancePoolAdapter
 
 __all__ = [
     "AwsAutoScalingGroupAdapter",
     "AzureScaleSetAdapter",
     "create_cloud_governors",
+    "GcpInstancePoolAdapter",
     "GcpManagedInstanceGroupAdapter",
     "OciInstancePoolAdapter",
 ]

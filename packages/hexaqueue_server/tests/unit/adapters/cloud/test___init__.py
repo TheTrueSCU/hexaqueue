@@ -9,6 +9,7 @@ def test_cloud_adapters_exports() -> None:
         "AwsAutoScalingGroupAdapter",
         "AzureScaleSetAdapter",
         "create_cloud_governors",
+        "GcpInstancePoolAdapter",
         "GcpManagedInstanceGroupAdapter",
         "OciInstancePoolAdapter",
     ]
