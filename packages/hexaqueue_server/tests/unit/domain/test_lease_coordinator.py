@@ -368,3 +368,49 @@ async def test_cancel_task_from_coordinator() -> None:
     assert cancelled is True
     pending_after = coord.pending_count
     assert pending_after == 0
+
+
+@pytest.mark.asyncio
+async def test_lease_slice_auto_reclaims_expired_lease() -> None:
+    """Verify lease_slice automatically reclaims expired leases before pulling."""
+    coord = SliceLeaseCoordinator(default_lease_ttl_seconds=1)
+    job = JobSpec(
+        id="job-auto-reclaim-001",
+        run_id="run-auto-reclaim",
+        name="auto-reclaim-job",
+        command="pytest",
+    )
+    await coord.enqueue_job(job)
+
+    first_lease = await coord.lease_slice("worker-stale")
+    assert first_lease is not None
+
+    expired_lease = first_lease.model_copy(
+        update={"expires_at": datetime.now(UTC) - timedelta(seconds=5)}
+    )
+    async with coord._lock:
+        coord._active_leases[first_lease.lease_id] = expired_lease
+
+    recovered_lease = await coord.lease_slice("worker-fresh")
+    assert recovered_lease is not None
+    recovered_job_id = recovered_lease.task.slice_id
+    assert recovered_job_id == "job-auto-reclaim-001"
+    recovered_worker = recovered_lease.worker_id
+    assert recovered_worker == "worker-fresh"
+
+
+def test_format_failure_reason_includes_stderr_tail() -> None:
+    """Verify _format_failure_reason appends stderr/stdout tail for failed jobs."""
+    payload = SliceReportPayload(
+        lease_id="lse-err-1",
+        slice_id="sl-err-1",
+        worker_id="worker-1",
+        exit_code=1,
+        outcomes=[
+            {"nodeid": "pytest", "outcome": "failed", "stderr": "ImportError: boom"}
+        ],
+    )
+    reason = SliceLeaseCoordinator._format_failure_reason(payload)
+    assert reason is not None
+    assert "Command failed with exit code 1" in reason
+    assert "ImportError: boom" in reason

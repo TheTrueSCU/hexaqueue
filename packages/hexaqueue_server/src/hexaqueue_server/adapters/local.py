@@ -5,7 +5,6 @@ Notes/Architectural Intent:
     in-process without requiring external database or cluster daemon overhead.
 """
 
-import asyncio
 import contextlib
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -13,6 +12,7 @@ from typing import Any
 
 from hexaqueue_collateral.ports.service import CollateralServicePort
 from hexaqueue_core.domain.config import CspProvider, ExecutionMode
+from hexaqueue_core.domain.coordination import CrossLoopAsyncLock
 from hexaqueue_core.domain.dag import JobDagEngine, TriggerCondition
 from hexaqueue_core.domain.exceptions import (
     FreeTierLimitExceededError,
@@ -110,6 +110,10 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
         )
         self._leader_election = leader_election
         self._controller_id = controller_id
+        self._is_active_leader = leader_election is None
+        if self._leader_election is not None:
+            self._leader_election.on_elected(self._handle_leader_elected)
+            self._leader_election.on_deposed(self._handle_leader_deposed)
         self._placement_engine = placement_engine or WarmCachePlacementEngine()
         self._collateral_service = collateral_service
         self._budget_port = budget_port
@@ -122,11 +126,26 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
         self._dag_engines: dict[str, JobDagEngine] = {}
         self._nodes: dict[str, ComputeNodeProfile] = {}
         self._dead_letters: list[DeadLetterRecord] = []
-        self._lock = asyncio.Lock()
+        self._lock = CrossLoopAsyncLock()
 
     def set_lease_coordinator(self, coordinator: Any) -> None:
         """Attach or update the cluster SliceLeaseCoordinator."""
         self._lease_coordinator = coordinator
+
+    @property
+    def is_active_leader(self) -> bool:
+        """Return whether this controller is currently in active leader mode."""
+        return self._is_active_leader
+
+    def _handle_leader_elected(self, candidate_id: str) -> None:
+        """Transition controller to active leader mode when elected."""
+        if candidate_id == self._controller_id:
+            self._is_active_leader = True
+
+    def _handle_leader_deposed(self, candidate_id: str) -> None:
+        """Transition controller to warm-standby follower mode when deposed."""
+        if candidate_id == self._controller_id:
+            self._is_active_leader = False
 
     def has_job(self, job_id: str) -> bool:
         """Check if job_id is registered in this controller."""

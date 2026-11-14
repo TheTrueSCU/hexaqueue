@@ -417,6 +417,7 @@ class WorkerAgent:
         env["PYTHONPATH"] = os.pathsep.join(src_paths)
         env["PYTHONUNBUFFERED"] = "1"
         env.update(task_env)
+        env.pop("HEXAQUEUE_CWD", None)
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,

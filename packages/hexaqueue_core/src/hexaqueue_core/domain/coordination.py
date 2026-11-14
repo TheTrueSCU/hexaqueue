@@ -1,14 +1,151 @@
 """Distributed leader election and lease coordination domain models.
 
 Notes/Architectural Intent:
-    Defines time-bounded leader leases used by active/standby central controllers
-    to coordinate cluster operations and prevent split-brain execution.
+    Defines time-bounded leader leases and event-loop-agnostic async concurrency
+    primitives (`CrossLoopAsyncLock`, `CrossLoopAsyncCondition`) used by active/standby
+    central controllers and slice coordinators to synchronize state across concurrent
+    worker threads and asyncio event loops without loop-binding errors.
 """
 
+import asyncio
+import threading
 from datetime import UTC, datetime, timedelta
-from typing import Self
+from types import TracebackType
+from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+class CrossLoopAsyncLock:
+    """Event-loop-agnostic async mutex safe across multiple event loops and threads.
+
+    Notes/Architectural Intent:
+        Standard library `asyncio.Lock` inherits from `_LoopBoundMixin`, which permanently
+        binds `_loop` to the first event loop that experiences lock contention. When
+        synchronous CQRS buses (`run_coro_sync`) and asynchronous FastAPI/Uvicorn routes
+        interact with shared singleton adapters, a loop-bound lock raises
+        `RuntimeError: <Lock> is bound to a different event loop`. `CrossLoopAsyncLock`
+        uses a non-reentrant `threading.Lock` with cooperative async polling so it never
+        binds to any single event loop.
+    """
+
+    def __init__(self) -> None:
+        self._mutex = threading.Lock()
+
+    def locked(self) -> bool:
+        """Return True if the mutex is currently held.
+
+        Returns:
+            True if locked, False otherwise.
+        """
+        return self._mutex.locked()
+
+    async def acquire(self) -> Literal[True]:
+        """Acquire the mutex without blocking the caller's active event loop.
+
+        Returns:
+            True once the mutex is acquired.
+        """
+        while not self._mutex.acquire(blocking=False):
+            await asyncio.sleep(0.0005)
+        return True
+
+    def release(self) -> None:
+        """Release the underlying mutex."""
+        self._mutex.release()
+
+    async def __aenter__(self) -> Self:
+        """Enter the async context manager by acquiring the mutex.
+
+        Returns:
+            Self instance.
+        """
+        await self.acquire()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        """Exit the async context manager by releasing the mutex."""
+        self.release()
+
+
+class CrossLoopAsyncCondition:
+    """Event-loop-agnostic async condition variable safe across multiple event loops.
+
+    Args:
+        lock: Optional underlying `CrossLoopAsyncLock` instance.
+
+    Notes/Architectural Intent:
+        Uses a monotonic generation counter paired with `CrossLoopAsyncLock` so that
+        `notify_all()` / `notify()` called from a synchronous CQRS worker thread's event
+        loop cleanly wakes `wait()` coroutines suspended on the main ASGI event loop.
+    """
+
+    def __init__(self, lock: CrossLoopAsyncLock | None = None) -> None:
+        self._lock = lock or CrossLoopAsyncLock()
+        self._generation = 0
+
+    async def acquire(self) -> Literal[True]:
+        """Acquire the underlying lock.
+
+        Returns:
+            True once acquired.
+        """
+        return await self._lock.acquire()
+
+    def release(self) -> None:
+        """Release the underlying lock."""
+        self._lock.release()
+
+    def notify_all(self) -> None:
+        """Wake all coroutines waiting on this condition across any event loop."""
+        self._generation += 1
+
+    def notify(self, n: int = 1) -> None:
+        """Wake waiting coroutines by advancing the condition generation.
+
+        Args:
+            n: Number of waiters to wake (positive values advance generation).
+        """
+        if n > 0:
+            self._generation += 1
+
+    async def wait(self) -> Literal[True]:
+        """Release the lock, wait until notified on any loop, and re-acquire the lock.
+
+        Returns:
+            True once awakened and lock is re-acquired.
+        """
+        gen = self._generation
+        self._lock.release()
+        try:
+            while self._generation == gen:
+                await asyncio.sleep(0.002)
+        finally:
+            await self._lock.acquire()
+        return True
+
+    async def __aenter__(self) -> Self:
+        """Acquire the condition lock on context entry.
+
+        Returns:
+            Self instance.
+        """
+        await self._lock.acquire()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        """Release the condition lock on context exit."""
+        self._lock.release()
 
 
 class LeaderLease(BaseModel):
@@ -89,5 +226,7 @@ class LeaderLease(BaseModel):
 
 
 __all__ = [
+    "CrossLoopAsyncCondition",
+    "CrossLoopAsyncLock",
     "LeaderLease",
 ]

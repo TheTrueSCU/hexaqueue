@@ -17,7 +17,9 @@ from hexaqueue_core.adapters.budget import (
     ZeroCostRateModelAdapter,
 )
 from hexaqueue_core.adapters.coordination import (
+    InMemoryLeaderAdapter,
     InMemoryLeaderElectionAdapter,
+    KubernetesLeaseLeaderAdapter,
 )
 from hexaqueue_core.adapters.freetier import (
     MultiCspFreeTierGovernor,
@@ -50,9 +52,11 @@ __all__ = [
     "freetier",
     "InMemoryBudgetAccountingAdapter",
     "InMemoryJobQueueAdapter",
+    "InMemoryLeaderAdapter",
     "InMemoryLeaderElectionAdapter",
     "InMemoryLogStreamAdapter",
     "InMemoryStorageVolumeAdapter",
+    "KubernetesLeaseLeaderAdapter",
     "LocalComputeResourceAdapter",
     "LocalDiskStorageVolumeAdapter",
     "LocalSubprocessExecutionRuntimeAdapter",

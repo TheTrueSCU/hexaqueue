@@ -13,6 +13,7 @@ from hexaqueue_core.ports.budget import (
 )
 from hexaqueue_core.ports.coordination import (
     LeaderElectionPort,
+    LeaderLifecycleCallback,
 )
 from hexaqueue_core.ports.explainability import (
     SchedulerExplainabilityPort,
@@ -79,6 +80,7 @@ __all__ = [
     "InstancePoolGovernorPort",
     "JobQueuePort",
     "LeaderElectionPort",
+    "LeaderLifecycleCallback",
     "LogChunk",
     "LogStreamPort",
     "NodeCapacity",

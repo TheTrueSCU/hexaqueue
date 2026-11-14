@@ -33,6 +33,25 @@ async def test_local_subprocess_execution() -> None:
 
 
 @pytest.mark.asyncio
+async def test_local_subprocess_ignores_ambient_hexaqueue_cwd(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify ambient HEXAQUEUE_CWD in os.environ does not override subprocess cwd."""
+    monkeypatch.setenv("HEXAQUEUE_CWD", "nonexistent/nested/dir")
+    runtime = LocalSubprocessExecutionRuntimeAdapter()
+    job = JobSpec(
+        id="job-cwd-isolated",
+        run_id="run-1",
+        name="cwd-isolated",
+        command="echo 'isolated'",
+        resources=ResourceRequirements(walltime_seconds=10),
+    )
+    result = await runtime.execute(job)
+    code = result.exit_code
+    assert code == 0
+
+
+@pytest.mark.asyncio
 async def test_local_subprocess_failure() -> None:
     """Verify failed subprocess execution exit code capture."""
     log_port = InMemoryLogStreamAdapter()

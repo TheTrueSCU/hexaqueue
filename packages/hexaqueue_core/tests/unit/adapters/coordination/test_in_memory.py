@@ -5,14 +5,19 @@ import asyncio
 import pytest
 
 from hexaqueue_core.adapters.coordination.in_memory import (
+    InMemoryLeaderAdapter,
     InMemoryLeaderElectionAdapter,
 )
 
 
 @pytest.mark.asyncio
 async def test_acquire_and_release_leadership() -> None:
-    """Verify leadership acquisition, leader check, and voluntary release."""
-    adapter = InMemoryLeaderElectionAdapter()
+    """Verify leadership acquisition, leader check, callbacks, and voluntary release."""
+    adapter = InMemoryLeaderAdapter()
+    elected_events: list[str] = []
+    deposed_events: list[str] = []
+    adapter.on_elected(elected_events.append)
+    adapter.on_deposed(deposed_events.append)
 
     # Initial state: no leader
     initial_leader = await adapter.get_current_leader()
@@ -21,6 +26,7 @@ async def test_acquire_and_release_leadership() -> None:
     # Candidate 1 acquires leadership for 10 seconds
     acquired_1 = await adapter.acquire_leadership("ctrl-1", lease_duration_seconds=10.0)
     assert acquired_1 is True
+    assert elected_events == ["ctrl-1"]
 
     is_c1 = await adapter.is_leader("ctrl-1")
     is_c2 = await adapter.is_leader("ctrl-2")
@@ -37,6 +43,7 @@ async def test_acquire_and_release_leadership() -> None:
 
     # Candidate 1 voluntarily releases leadership
     await adapter.release_leadership("ctrl-1")
+    assert deposed_events == ["ctrl-1"]
 
     released_leader = await adapter.get_current_leader()
     assert released_leader is None
@@ -46,22 +53,27 @@ async def test_acquire_and_release_leadership() -> None:
         "ctrl-2", lease_duration_seconds=10.0
     )
     assert acquired_2_after is True
+    assert elected_events == ["ctrl-1", "ctrl-2"]
     is_c2_now = await adapter.is_leader("ctrl-2")
     assert is_c2_now is True
 
 
 @pytest.mark.asyncio
 async def test_renew_leadership() -> None:
-    """Verify renewal behavior for leader vs non-leader."""
+    """Verify renewal behavior for leader vs non-leader and expired leases."""
     adapter = InMemoryLeaderElectionAdapter()
+    deposed: list[str] = []
+    adapter.on_deposed(deposed.append)
+
+    # Renewing when no lease exists returns False
+    renew_none = await adapter.renew_leadership("ctrl-1", lease_duration_seconds=5.0)
+    assert renew_none is False
 
     # Acquire initial lease
     await adapter.acquire_leadership("ctrl-1", lease_duration_seconds=5.0)
 
-    # Leader renews successfully
-    renew_success = await adapter.renew_leadership(
-        "ctrl-1", lease_duration_seconds=15.0
-    )
+    # Leader renews successfully via renew_lease alias
+    renew_success = await adapter.renew_lease("ctrl-1", lease_duration_seconds=15.0)
     assert renew_success is True
 
     leader = await adapter.get_current_leader()
@@ -80,11 +92,22 @@ async def test_renew_leadership() -> None:
     assert updated_leader is not None
     assert updated_leader.renewal_count == 2
 
+    # Expired lease fails renewal and fires deposed callback
+    await adapter.acquire_leadership("ctrl-1", lease_duration_seconds=0.01)
+    await asyncio.sleep(0.02)
+    renew_expired = await adapter.renew_leadership("ctrl-1", lease_duration_seconds=5.0)
+    assert renew_expired is False
+    assert deposed == ["ctrl-1"]
+
 
 @pytest.mark.asyncio
 async def test_lease_expiration_allows_new_leader() -> None:
     """Verify that an expired lease automatically allows another candidate to assume leadership."""
     adapter = InMemoryLeaderElectionAdapter()
+    deposed: list[str] = []
+    elected: list[str] = []
+    adapter.on_deposed(deposed.append)
+    adapter.on_elected(elected.append)
 
     # Acquire very short lease
     await adapter.acquire_leadership("ctrl-1", lease_duration_seconds=0.01)
@@ -92,20 +115,22 @@ async def test_lease_expiration_allows_new_leader() -> None:
     # Wait for expiration
     await asyncio.sleep(0.02)
 
-    # Lease should now be detected as expired
-    active_leader = await adapter.get_current_leader()
-    assert active_leader is None
-
-    is_c1 = await adapter.is_leader("ctrl-1")
-    assert is_c1 is False
-
-    # Candidate 2 acquires the expired lease
+    # Candidate 2 directly acquires expired lease (triggering deposed for ctrl-1)
     acquired_2 = await adapter.acquire_leadership("ctrl-2", lease_duration_seconds=10.0)
     assert acquired_2 is True
+    assert deposed == ["ctrl-1"]
+    assert elected == ["ctrl-1", "ctrl-2"]
 
     new_leader = await adapter.get_current_leader()
     assert new_leader is not None
     assert new_leader.leader_id == "ctrl-2"
+
+    # Let ctrl-2 expire and verify get_current_leader detects expiration
+    await adapter.acquire_leadership("ctrl-2", lease_duration_seconds=0.01)
+    await asyncio.sleep(0.02)
+    active_leader = await adapter.get_current_leader()
+    assert active_leader is None
+    assert deposed == ["ctrl-1", "ctrl-2"]
 
 
 @pytest.mark.asyncio

@@ -14,6 +14,10 @@ from collections import deque
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from hexaqueue_core.domain.coordination import (
+    CrossLoopAsyncCondition,
+    CrossLoopAsyncLock,
+)
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lease import (
     SliceLease,
@@ -59,8 +63,8 @@ class SliceLeaseCoordinator:
         self._pool_id = pool_id
         self._controller = controller
 
-        self._lock = asyncio.Lock()
-        self._condition = asyncio.Condition(lock=self._lock)
+        self._lock = CrossLoopAsyncLock()
+        self._condition = CrossLoopAsyncCondition(lock=self._lock)
 
         # Worker tracking
         self._registered_workers: dict[str, WorkerRegistration] = {}
@@ -329,6 +333,7 @@ class SliceLeaseCoordinator:
             A SliceLease instance if a slice was granted, or None if queue is empty.
         """
         deadline = datetime.now(UTC) + timedelta(seconds=max(0.0, timeout_seconds))
+        await self.reclaim_expired_leases()
 
         async with self._condition:
             while not self._pending_tasks:
@@ -367,6 +372,27 @@ class SliceLeaseCoordinator:
                 )
 
         return lease
+
+    @staticmethod
+    def _format_failure_reason(report: SliceReportPayload) -> str | None:
+        """Build a concise failure reason including stderr/stdout tail on non-zero exit."""
+        reason = report.error_message
+        if report.exit_code == 0:
+            return reason
+        if not reason:
+            reason = f"Command failed with exit code {report.exit_code}"
+        stdout_tail = report.stdout or (
+            str(report.outcomes[0].get("stdout") or "") if report.outcomes else ""
+        )
+        stderr_tail = report.stderr or (
+            str(report.outcomes[0].get("stderr") or "") if report.outcomes else ""
+        )
+        parts: list[str] = [reason]
+        if stdout_tail.strip():
+            parts.append(f"stdout: {stdout_tail.strip()[-800:]}")
+        if stderr_tail.strip():
+            parts.append(f"stderr: {stderr_tail.strip()[-400:]}")
+        return "\n".join(parts)
 
     async def report_slice_outcome(self, report: SliceReportPayload) -> bool:
         """Process worker slice outcome report and record completed telemetry.
@@ -448,9 +474,7 @@ class SliceLeaseCoordinator:
                 if report.exit_code == 0
                 else TerminalOutcome.FAILED
             )
-            reason = report.error_message
-            if not reason and report.exit_code != 0:
-                reason = f"Command failed with exit code {report.exit_code}"
+            reason = self._format_failure_reason(report)
             with contextlib.suppress(Exception):
                 await self._controller.update_job_outcome(
                     job_id=lease.task.slice_id,

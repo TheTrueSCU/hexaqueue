@@ -1,5 +1,6 @@
 """Unit tests for OciAutonomousDatabaseStorageAdapter."""
 
+import sys
 from datetime import UTC, datetime
 from unittest.mock import patch
 
@@ -33,8 +34,11 @@ def sync_engine():
 
 
 @pytest.mark.anyio
-async def test_oracle_adapter_requires_dependency_on_oracle_url():
+async def test_oracle_adapter_requires_dependency_on_oracle_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Verify require_dependency is invoked when oracle+oracledb URL is supplied."""
+    monkeypatch.setitem(sys.modules, "oracledb", None)
     with pytest.raises(MissingDependencyError, match="oracledb"):
         OciAutonomousDatabaseStorageAdapter(
             database_url="oracle+oracledb://user:pwd@adb_high"
