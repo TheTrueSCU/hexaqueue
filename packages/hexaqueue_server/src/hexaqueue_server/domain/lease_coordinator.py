@@ -381,16 +381,18 @@ class SliceLeaseCoordinator:
             return reason
         if not reason:
             reason = f"Command failed with exit code {report.exit_code}"
-        out_tail = report.stderr or (
+        stdout_tail = report.stdout or (
+            str(report.outcomes[0].get("stdout") or "") if report.outcomes else ""
+        )
+        stderr_tail = report.stderr or (
             str(report.outcomes[0].get("stderr") or "") if report.outcomes else ""
         )
-        if not out_tail:
-            out_tail = report.stdout or (
-                str(report.outcomes[0].get("stdout") or "") if report.outcomes else ""
-            )
-        if out_tail.strip():
-            reason = f"{reason}\n{out_tail.strip()[-1000:]}"
-        return reason
+        parts: list[str] = [reason]
+        if stdout_tail.strip():
+            parts.append(f"stdout: {stdout_tail.strip()[-800:]}")
+        if stderr_tail.strip():
+            parts.append(f"stderr: {stderr_tail.strip()[-400:]}")
+        return "\n".join(parts)
 
     async def report_slice_outcome(self, report: SliceReportPayload) -> bool:
         """Process worker slice outcome report and record completed telemetry.
