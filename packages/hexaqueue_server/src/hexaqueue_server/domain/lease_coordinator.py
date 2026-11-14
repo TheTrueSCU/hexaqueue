@@ -333,6 +333,7 @@ class SliceLeaseCoordinator:
             A SliceLease instance if a slice was granted, or None if queue is empty.
         """
         deadline = datetime.now(UTC) + timedelta(seconds=max(0.0, timeout_seconds))
+        await self.reclaim_expired_leases()
 
         async with self._condition:
             while not self._pending_tasks:

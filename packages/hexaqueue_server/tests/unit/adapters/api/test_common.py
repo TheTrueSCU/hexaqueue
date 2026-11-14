@@ -83,3 +83,43 @@ async def test_generate_run_status_events_stream() -> None:
     event_cnt = len(events)
     assert event_cnt >= 1
     assert any("event: run_status" in e for e in events)
+
+
+@pytest.mark.asyncio
+async def test_generate_run_status_events_heartbeat_on_unchanged_state() -> None:
+    """Verify SSE generator emits heartbeat pulses when state is unchanged past heartbeat_interval."""
+    from datetime import UTC, datetime
+
+    mock_request = MagicMock()
+    mock_request.is_disconnected = AsyncMock(return_value=False)
+
+    report_running = RunStatusReport(
+        completed_jobs=0,
+        created_at=datetime.now(UTC),
+        failed_jobs=0,
+        pending_jobs=0,
+        run_id="run-hb",
+        running_jobs=1,
+        state=RunState.RUNNING,
+        total_jobs=1,
+    )
+    pipeline = MagicMock(spec=ExecutionPipeline)
+    pipeline.execute.return_value = report_running
+
+    events = [
+        event
+        async for event in _generate_run_status_events(
+            request=mock_request,
+            pipeline=pipeline,
+            run_id="run-hb",
+            user_id="default",
+            is_elevated=False,
+            poll_interval=0.02,
+            max_events=2,
+            timeout=1.0,
+            heartbeat_interval=0.01,
+        )
+    ]
+    status_events = [e for e in events if "event: run_status" in e]
+    status_count = len(status_events)
+    assert status_count == 2

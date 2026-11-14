@@ -47,6 +47,16 @@ def _dispatch(pipeline: ExecutionPipeline, message: Any) -> Any:
         ) from exc
 
 
+def _is_terminal_status(status_report: RunStatusReport) -> bool:
+    """Return True when the run has reached a terminal SSE state."""
+    return status_report.state == RunState.DONE or (
+        status_report.state == RunState.BLOCKED
+        and status_report.running_jobs == 0
+        and status_report.failed_jobs > 0
+        and status_report.outcome is not None
+    )
+
+
 async def _generate_run_status_events(
     request: Request,
     pipeline: ExecutionPipeline,
@@ -56,6 +66,7 @@ async def _generate_run_status_events(
     poll_interval: float,
     max_events: int | None,
     timeout: float | None,
+    heartbeat_interval: float = 30.0,
 ) -> AsyncIterator[str]:
     """Generate Server-Sent Events for run status progression until completion or termination.
 
@@ -68,6 +79,7 @@ async def _generate_run_status_events(
         poll_interval: Poll frequency in seconds.
         max_events: Optional maximum events count before closing.
         timeout: Optional duration timeout in seconds.
+        heartbeat_interval: Maximum seconds between status pulses when unchanged.
 
     Yields:
         SSE text/event-stream chunks.
@@ -78,12 +90,14 @@ async def _generate_run_status_events(
     last_running = -1
     events_sent = 0
     start_time = time.monotonic()
+    last_sent_time = start_time
     while True:
         if await request.is_disconnected():
             break
         if max_events is not None and events_sent >= max_events:
             break
-        if timeout is not None and (time.monotonic() - start_time) >= timeout:
+        now = time.monotonic()
+        if timeout is not None and (now - start_time) >= timeout:
             break
 
         try:
@@ -99,21 +113,17 @@ async def _generate_run_status_events(
             or status_report.failed_jobs != last_failed
             or status_report.running_jobs != last_running
         )
-        if is_progress:
+        is_heartbeat = events_sent > 0 and (now - last_sent_time) >= heartbeat_interval
+        if is_progress or is_heartbeat:
             last_state = status_report.state
             last_completed = status_report.completed_jobs
             last_failed = status_report.failed_jobs
             last_running = status_report.running_jobs
+            last_sent_time = now
             yield f"event: run_status\ndata: {status_report.model_dump_json()}\n\n"
             events_sent += 1
 
-        is_terminal = status_report.state == RunState.DONE or (
-            status_report.state == RunState.BLOCKED
-            and status_report.running_jobs == 0
-            and status_report.failed_jobs > 0
-            and status_report.outcome is not None
-        )
-        if is_terminal:
+        if _is_terminal_status(status_report):
             if max_events is None or events_sent < max_events:
                 yield f"event: run_done\ndata: {status_report.model_dump_json()}\n\n"
             break
