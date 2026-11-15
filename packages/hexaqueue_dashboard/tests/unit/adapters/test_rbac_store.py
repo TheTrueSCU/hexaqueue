@@ -180,7 +180,7 @@ def test_create_rbac_policy_store_selection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify store factory selects Oracle ADB -> SQLite -> InMemory."""
-    monkeypatch.delenv("HEXAQUEUE_ORACLE_DSN", raising=False)
+    monkeypatch.delenv("HEXAQUEUE_ORACLE_ADB_DSN", raising=False)
     monkeypatch.delenv("HEXAQUEUE_RBAC_DB_PATH", raising=False)
 
     mem_store = create_rbac_policy_store()

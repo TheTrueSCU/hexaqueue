@@ -231,10 +231,12 @@ class OracleAdbRbacPolicyAdapter(RbacPolicyPort):
             wallet_dir: Optional Oracle mTLS wallet directory.
             connection_factory: Optional callable returning an open DB-API connection.
         """
-        self._dsn = dsn or os.environ.get("HEXAQUEUE_ORACLE_DSN", "")
-        self._user = user or os.environ.get("HEXAQUEUE_ORACLE_USER", "ADMIN")
-        self._password = password or os.environ.get("HEXAQUEUE_ORACLE_PASSWORD", "")
-        self._wallet_dir = wallet_dir or os.environ.get("HEXAQUEUE_ORACLE_WALLET_DIR")
+        self._dsn = dsn or os.environ.get("HEXAQUEUE_ORACLE_ADB_DSN", "")
+        self._user = user or os.environ.get("HEXAQUEUE_ORACLE_ADB_USER", "ADMIN")
+        self._password = password or os.environ.get("HEXAQUEUE_ORACLE_ADB_PASSWORD", "")
+        self._wallet_dir = wallet_dir or os.environ.get(
+            "HEXAQUEUE_ORACLE_ADB_WALLET_DIR"
+        )
         self._connection_factory = connection_factory
         self._schema_initialized = False
 
@@ -482,7 +484,7 @@ def create_rbac_policy_store(
     Returns:
         Configured RbacPolicyPort adapter instance.
     """
-    effective_dsn = oracle_dsn or os.environ.get("HEXAQUEUE_ORACLE_DSN")
+    effective_dsn = oracle_dsn or os.environ.get("HEXAQUEUE_ORACLE_ADB_DSN")
     if effective_dsn:
         return OracleAdbRbacPolicyAdapter(dsn=effective_dsn)
     effective_sqlite = sqlite_path or os.environ.get("HEXAQUEUE_RBAC_DB_PATH")
