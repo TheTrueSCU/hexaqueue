@@ -103,7 +103,8 @@ class HttpSchedulerControllerAdapter(SchedulerControllerPort):
                 if isinstance(payload, dict) and "detail" in payload:
                     detail = str(payload["detail"])
             except ValueError:
-                pass
+                # Non-JSON error bodies fall back to raw response.text above.
+                detail = response.text
             raise HexaqueueError(
                 f"Controller HTTP {response.status_code} on {method} {path}: {detail}",
             )

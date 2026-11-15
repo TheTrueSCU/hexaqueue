@@ -2,7 +2,7 @@
 
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 import httpx
 import pytest
@@ -16,10 +16,8 @@ from hexaqueue_core.domain.run import RunSpec
 from hexaqueue_dashboard.adapters.remote_controller import (
     HttpSchedulerControllerAdapter,
 )
+from hexaqueue_server.domain.memento import SchedulerMemento
 from hexaqueue_server.domain.models import RunStatusReport, RunSubmission
-
-if TYPE_CHECKING:
-    from hexaqueue_server.domain.memento import SchedulerMemento
 
 
 def _sample_job(job_id: str = "job-1") -> JobSpec:
