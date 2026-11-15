@@ -10,6 +10,7 @@ Notes/Architectural Intent:
 from __future__ import annotations
 
 import importlib.resources
+import logging
 import os
 import secrets
 from pathlib import Path
@@ -131,6 +132,9 @@ async def _render_jobs_section(
             ).props(f'aria-label="Kill job {job.id}"').tooltip(f"Cancel job {job.id}")
 
 
+_logger = logging.getLogger(__name__)
+
+
 def _resolve_static_dir() -> Path | None:
     """Resolve the static asset directory using PEP 451/616 importlib.resources.
 
@@ -147,8 +151,10 @@ def _resolve_static_dir() -> Path | None:
             candidate = Path(str(traversable))
             if candidate.is_dir():
                 return candidate
-    except (TypeError, FileNotFoundError, ModuleNotFoundError):
-        pass
+    except (TypeError, FileNotFoundError, ModuleNotFoundError) as exc:
+        _logger.debug(
+            "Could not resolve dashboard static dir via importlib.resources: %s", exc
+        )
     fallback = Path(__file__).parent / "static"
     return fallback if fallback.is_dir() else None
 
