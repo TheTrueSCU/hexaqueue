@@ -7,6 +7,8 @@ Notes/Architectural Intent:
 
 import asyncio
 import os
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
@@ -34,6 +36,8 @@ from hexaqueue_server.adapters.api.worker_pool import create_worker_pool_router
 from hexaqueue_server.adapters.mcp import mount_mcp_server
 from hexaqueue_server.domain.config import ServerConfig, ServerInterfaceConfig
 from hexaqueue_server.infra.bootstrap import bootstrap_server_container
+from hexaqueue_server.ports.controller import SchedulerControllerPort
+from hexaqueue_server.ports.storage import SchedulerStoragePort
 
 
 def create_server_api_router(
@@ -153,7 +157,37 @@ def create_server_app(
         app.state.worker_semaphore = asyncio.Semaphore(max(1, total_cores))
 
     app.add_middleware(ZeroTrustBoundaryMiddleware)
+    _attach_server_lifespan(app, di)
     return app
+
+
+def _attach_server_lifespan(app: FastAPI, di: ContainerPort) -> None:
+    """Attach startup hydration and graceful shutdown storage flush to app."""
+    original_lifespan = app.router.lifespan_context
+
+    @asynccontextmanager
+    async def _server_lifespan(fastapi_app: FastAPI) -> AsyncGenerator[None]:
+        async with original_lifespan(fastapi_app):
+            ctrl = (
+                di.resolve(SchedulerControllerPort)
+                if SchedulerControllerPort in di
+                else None
+            )
+            hydrate_fn: Any = getattr(ctrl, "hydrate_from_storage", None)
+            if callable(hydrate_fn):
+                await hydrate_fn()
+            try:
+                yield
+            finally:
+                scheduler_storage = (
+                    di.resolve(SchedulerStoragePort)
+                    if SchedulerStoragePort in di
+                    else None
+                )
+                if scheduler_storage is not None:
+                    await scheduler_storage.close()
+
+    app.router.lifespan_context = _server_lifespan
 
 
 __all__ = [

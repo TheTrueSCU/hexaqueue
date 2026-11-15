@@ -13,20 +13,24 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
+import os
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
 from hexastack_core.utils.imports import require_dependency
 from sqlalchemy import (
-    JSON,
     Boolean,
     DateTime,
+    Dialect,
     Engine,
     Float,
     Integer,
     String,
+    Text,
+    TypeDecorator,
     create_engine,
     select,
 )
@@ -40,6 +44,11 @@ from hexaqueue_core.domain.telemetry import NodeTelemetryPulse
 from hexaqueue_server.domain.models import RunStatusReport
 from hexaqueue_server.ports.storage import SchedulerStoragePort
 
+try:
+    import oracledb
+except ImportError:  # pragma: no cover
+    oracledb = None  # type: ignore[assignment]
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -49,6 +58,31 @@ __all__ = [
     "HexaqueueTelemetryPulseModel",
     "OciAutonomousDatabaseStorageAdapter",
 ]
+
+
+class JsonPayloadType(TypeDecorator[dict[str, Any]]):
+    """Cross-dialect JSON column storing serialized dicts as TEXT/CLOB."""
+
+    impl = Text
+    cache_ok = True
+
+    def process_bind_param(
+        self, value: dict[str, Any] | None, dialect: Dialect
+    ) -> str | None:
+        """Serialize dict payload to JSON string for storage."""
+        if value is None:
+            return None
+        return json.dumps(value)
+
+    def process_result_value(
+        self, value: str | dict[str, Any] | None, dialect: Dialect
+    ) -> dict[str, Any] | None:
+        """Deserialize JSON string from storage back into dict."""
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            return value
+        return json.loads(value)
 
 
 class Base(DeclarativeBase):
@@ -72,7 +106,7 @@ class HexaqueueRunModel(Base):
     free_tier_active: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    payload: Mapped[dict[str, Any]] = mapped_column(JSON)
+    payload: Mapped[dict[str, Any]] = mapped_column(JsonPayloadType)
 
 
 class HexaqueueJobModel(Base):
@@ -88,7 +122,7 @@ class HexaqueueJobModel(Base):
     assigned_worker_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    payload: Mapped[dict[str, Any]] = mapped_column(JSON)
+    payload: Mapped[dict[str, Any]] = mapped_column(JsonPayloadType)
 
 
 class HexaqueueNodeModel(Base):
@@ -103,7 +137,7 @@ class HexaqueueNodeModel(Base):
     last_heartbeat_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), index=True
     )
-    payload: Mapped[dict[str, Any]] = mapped_column(JSON)
+    payload: Mapped[dict[str, Any]] = mapped_column(JsonPayloadType)
 
 
 class HexaqueueTelemetryPulseModel(Base):
@@ -118,7 +152,7 @@ class HexaqueueTelemetryPulseModel(Base):
     memory_used_mb: Mapped[int] = mapped_column(Integer)
     memory_total_mb: Mapped[int] = mapped_column(Integer)
     load_average_1m: Mapped[float] = mapped_column(Float, default=0.0)
-    payload: Mapped[dict[str, Any]] = mapped_column(JSON)
+    payload: Mapped[dict[str, Any]] = mapped_column(JsonPayloadType)
 
 
 class OciAutonomousDatabaseStorageAdapter(SchedulerStoragePort):
@@ -170,6 +204,122 @@ class OciAutonomousDatabaseStorageAdapter(SchedulerStoragePort):
         self._worker_task: asyncio.Task[None] | None = None
         self._closing = False
         self._schema_initialized = not auto_create_schema
+
+    @classmethod
+    def is_adb_configured(cls) -> bool:
+        """Return True if Oracle Autonomous Database or database URL env vars are set.
+
+        Returns:
+            True when ``HEXAQUEUE_ORACLE_ADB_DSN`` (with password) or
+            ``HEXAQUEUE_DATABASE_URL`` is present in the environment.
+
+        Notes/Architectural Intent:
+            Allows the composition root to select durable ADB persistence when
+            configured while remaining hermetic with in-memory defaults in tests.
+        """
+        has_adb = bool(
+            os.environ.get("HEXAQUEUE_ORACLE_ADB_DSN")
+            and os.environ.get("HEXAQUEUE_ORACLE_ADB_PASSWORD")
+        )
+        return has_adb or bool(os.environ.get("HEXAQUEUE_DATABASE_URL"))
+
+    @classmethod
+    def from_env(
+        cls,
+        max_buffer_size: int = 10_000,
+        batch_size: int = 100,
+        flush_interval_seconds: float = 0.5,
+        max_retries: int = 5,
+        auto_create_schema: bool = True,
+    ) -> OciAutonomousDatabaseStorageAdapter:
+        """Construct an ADB storage adapter from environment configuration.
+
+        Reads ``HEXAQUEUE_ORACLE_ADB_DSN``, ``HEXAQUEUE_ORACLE_ADB_USER``,
+        ``HEXAQUEUE_ORACLE_ADB_PASSWORD``, ``HEXAQUEUE_ORACLE_ADB_WALLET_DIR``,
+        ``HEXAQUEUE_ORACLE_ADB_WALLET_PASSWORD``, or falls back to
+        ``HEXAQUEUE_DATABASE_URL``.
+
+        Args:
+            max_buffer_size: Maximum items in write-behind memory queue.
+            batch_size: Maximum records written per database flush batch.
+            flush_interval_seconds: Polling interval for write-behind worker loop.
+            max_retries: Maximum reconnection attempts during database wake-up.
+            auto_create_schema: If True, creates tables during initialization.
+
+        Returns:
+            Configured OciAutonomousDatabaseStorageAdapter instance.
+
+        Raises:
+            HexaqueueError: If no Oracle ADB or database URL environment variables are set.
+
+        Notes/Architectural Intent:
+            Mirrors ``OracleAdbRbacPolicyAdapter`` mTLS wallet connection semantics
+            by passing an explicit ``oracledb.connect`` creator to SQLAlchemy so
+            wallet directories and PEM/SSO passwords work without DSN string hacks.
+        """
+        dsn = os.environ.get("HEXAQUEUE_ORACLE_ADB_DSN", "")
+        password = os.environ.get("HEXAQUEUE_ORACLE_ADB_PASSWORD", "")
+        if dsn and password:
+            if oracledb is None:
+                require_dependency(
+                    "oracledb",
+                    extra="oracle",
+                    package="hexaqueue-server",
+                    feature_name="Oracle Autonomous Database storage",
+                )
+                msg = "oracledb is required for Oracle Autonomous Database storage"
+                raise HexaqueueError(msg)
+
+            user = os.environ.get("HEXAQUEUE_ORACLE_ADB_USER", "ADMIN")
+            wallet_dir = os.environ.get("HEXAQUEUE_ORACLE_ADB_WALLET_DIR")
+            wallet_password = os.environ.get("HEXAQUEUE_ORACLE_ADB_WALLET_PASSWORD")
+
+            oracledb_mod = oracledb
+
+            def _connect() -> Any:
+                kwargs: dict[str, Any] = {
+                    "user": user,
+                    "password": password,
+                    "dsn": dsn,
+                }
+                if wallet_dir:
+                    kwargs["config_dir"] = wallet_dir
+                    kwargs["wallet_location"] = wallet_dir
+                    if wallet_password:
+                        kwargs["wallet_password"] = wallet_password
+                if oracledb_mod is None:
+                    msg = "oracledb is required for Oracle Autonomous Database storage"
+                    raise HexaqueueError(msg)
+                return oracledb_mod.connect(**kwargs)
+
+            engine = create_engine(
+                "oracle+oracledb://",
+                creator=_connect,
+                pool_pre_ping=True,
+                echo=False,
+            )
+            return cls(
+                engine=engine,
+                max_buffer_size=max_buffer_size,
+                batch_size=batch_size,
+                flush_interval_seconds=flush_interval_seconds,
+                max_retries=max_retries,
+                auto_create_schema=auto_create_schema,
+            )
+
+        database_url = os.environ.get("HEXAQUEUE_DATABASE_URL")
+        if database_url:
+            return cls(
+                database_url=database_url,
+                max_buffer_size=max_buffer_size,
+                batch_size=batch_size,
+                flush_interval_seconds=flush_interval_seconds,
+                max_retries=max_retries,
+                auto_create_schema=auto_create_schema,
+            )
+
+        msg = "Oracle Autonomous Database environment variables are not configured"
+        raise HexaqueueError(msg)
 
     @classmethod
     def _resolve_engine(cls, database_url: str | None, engine: Engine | None) -> Engine:

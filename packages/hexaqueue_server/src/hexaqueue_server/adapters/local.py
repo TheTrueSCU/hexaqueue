@@ -39,6 +39,7 @@ from hexaqueue_core.domain.notification import (
     map_lifecycle_to_trigger,
 )
 from hexaqueue_core.domain.retry import DeadLetterRecord
+from hexaqueue_core.domain.run import RunSpec
 from hexaqueue_core.domain.telemetry import NodeTelemetryPulse
 from hexaqueue_core.infra.notification import NotificationDispatcher
 from hexaqueue_core.ports.budget import BudgetAccountingPort, CostRateModelPort
@@ -57,6 +58,7 @@ from hexaqueue_server.domain.placement import (
     WarmCachePlacementEngine,
 )
 from hexaqueue_server.ports.controller import SchedulerControllerPort
+from hexaqueue_server.ports.storage import SchedulerStoragePort
 
 
 class LocalSchedulerControllerAdapter(SchedulerControllerPort):
@@ -76,6 +78,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
         cost_model: CostRateModelPort | None = None,
         cluster_monitor: ClusterMonitorPort | None = None,
         lease_coordinator: Any = None,
+        storage: SchedulerStoragePort | None = None,
     ) -> None:
         """Initialize controller with task queue and optional notification dispatcher.
 
@@ -92,6 +95,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             cost_model: Optional CostRateModelPort for translating job resource requirements to credit estimates.
             cluster_monitor: Optional ClusterMonitorPort for hardware telemetry pulses.
             lease_coordinator: Optional SliceLeaseCoordinator for unified cluster pull-leasing.
+            storage: Optional SchedulerStoragePort for durable run, job, node, and telemetry persistence.
 
         Notes/Architectural Intent:
             When operating under Free-Tier Safety Mode (`mode == ExecutionMode.FREE_TIER`
@@ -120,6 +124,9 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
         self._cost_model = cost_model
         self._cluster_monitor = cluster_monitor
         self._lease_coordinator = lease_coordinator
+        self._storage = storage
+        self._hydrated = storage is None
+        self._persisted_runs: dict[str, RunStatusReport] = {}
         self._job_reservations: dict[str, str] = {}
         self._runs: dict[str, RunSubmission] = {}
         self._jobs: dict[str, JobSpec] = {}
@@ -151,6 +158,72 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
         """Check if job_id is registered in this controller."""
         return job_id in self._jobs
 
+    async def hydrate_from_storage(self) -> None:
+        """Hydrate in-memory controller state from durable storage if configured."""
+        if self._storage is None or self._hydrated:
+            return
+        async with self._lock:
+            if self._hydrated:
+                return
+            runs = await self._storage.list_runs(limit=1000)
+            jobs = await self._storage.list_jobs(limit=1000)
+            nodes = await self._storage.list_nodes(limit=1000)
+
+            jobs_by_run: dict[str, list[JobSpec]] = {}
+            for job in jobs:
+                if job.id not in self._jobs:
+                    self._jobs[job.id] = job
+                jobs_by_run.setdefault(job.run_id, []).append(job)
+
+            for run in runs:
+                run_id = run.id or run.run_id
+                if run_id in self._runs:
+                    continue
+                run_jobs = jobs_by_run.get(run_id, [])
+                if run_jobs:
+                    self._runs[run_id] = RunSubmission(
+                        run_spec=RunSpec(
+                            id=run_id, name=run_id, created_at=run.created_at
+                        ),
+                        jobs=run_jobs,
+                    )
+                    self._dag_engines.setdefault(run_id, JobDagEngine())
+                else:
+                    self._persisted_runs[run_id] = run
+
+            for node in nodes:
+                if node.node_id not in self._nodes:
+                    self._nodes[node.node_id] = node
+
+            self._hydrated = True
+
+    async def _ensure_hydrated(self) -> None:
+        """Lazily hydrate state from storage on first async controller operation."""
+        if not self._hydrated and self._storage is not None:
+            await self.hydrate_from_storage()
+
+    async def _persist_job(self, job: JobSpec) -> None:
+        """Write-through a job record to durable storage when configured."""
+        if self._storage is not None:
+            await self._storage.record_job(job)
+
+    async def _persist_node(self, node: ComputeNodeProfile) -> None:
+        """Write-through a compute node profile to durable storage when configured."""
+        if self._storage is not None:
+            await self._storage.record_node(node)
+
+    async def _persist_run_unlocked(self, run_id: str) -> None:
+        """Persist current run status report and its jobs (caller holds self._lock)."""
+        if self._storage is None or run_id not in self._runs:
+            return
+        submission = self._runs[run_id]
+        for job in submission.jobs:
+            current_job = self._jobs.get(job.id)
+            if current_job is not None:
+                await self._storage.record_job(current_job)
+        report = self._build_run_status_unlocked(run_id)
+        await self._storage.record_run(report)
+
     async def _check_leadership(self) -> None:
         """Verify that this controller holds active leadership before mutating state.
 
@@ -169,6 +242,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
     async def submit_run(self, submission: RunSubmission) -> RunStatusReport:
         """Submit a DAG pipeline run for scheduling."""
         await self._check_leadership()
+        await self._ensure_hydrated()
         run_id = submission.run_spec.id
 
         async with self._lock:
@@ -200,6 +274,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
 
             # Register jobs and enqueue root jobs (no prerequisites)
             await self._enqueue_initial_jobs(submission, dag)
+            await self._persist_run_unlocked(run_id)
 
         await self._dispatcher.async_dispatch_run_event(
             submission.run_spec, NotificationTrigger.SUBMITTED
@@ -349,73 +424,77 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             await self._advance_dependents(submission, dag)
             await self._check_and_notify_run_completion(submission)
 
+    def _build_run_status_unlocked(self, run_id: str) -> RunStatusReport:
+        """Build aggregated RunStatusReport for a run (caller holds self._lock)."""
+        submission = self._runs[run_id]
+        run_jobs = [self._jobs[j.id] for j in submission.jobs]
+
+        job_states = [j.state for j in run_jobs]
+        run_state = compute_run_state(job_states)
+
+        job_outcomes = [j.outcome for j in run_jobs if j.outcome is not None]
+        if run_state == RunState.DONE:
+            run_outcome = compute_run_outcome(job_outcomes)
+        elif run_state == RunState.BLOCKED:
+            run_outcome = RunOutcome.FAILED
+        else:
+            run_outcome = None
+
+        completed = sum(1 for j in run_jobs if j.outcome == TerminalOutcome.COMPLETED)
+        failed = sum(
+            1
+            for j in run_jobs
+            if j.outcome in (TerminalOutcome.FAILED, TerminalOutcome.TIMED_OUT)
+            or j.state == JobState.BLOCKED
+        )
+        running = sum(
+            1
+            for j in run_jobs
+            if j.state in (JobState.PROVISIONING, JobState.RUNNING, JobState.CLEANUP)
+        )
+        pending = sum(
+            1 for j in run_jobs if j.state in (JobState.SUBMITTED, JobState.PENDING)
+        )
+
+        free_tier_active = self._mode == ExecutionMode.FREE_TIER
+        burn_report = None
+        if free_tier_active and self._governor is not None:
+            active_jobs = [
+                j
+                for j in self._jobs.values()
+                if j.state
+                in (JobState.RUNNING, JobState.PROVISIONING, JobState.PENDING)
+            ]
+            burn_report = self._governor.compute_burn_meter(active_jobs)
+
+        return RunStatusReport(
+            burn_report=burn_report,
+            completed_jobs=completed,
+            created_at=submission.run_spec.created_at,
+            failed_jobs=failed,
+            free_tier_active=free_tier_active,
+            outcome=run_outcome,
+            pending_jobs=pending,
+            run_id=run_id,
+            running_jobs=running,
+            state=run_state,
+            total_jobs=len(run_jobs),
+        )
+
     async def get_run_status(self, run_id: str) -> RunStatusReport:
         """Retrieve aggregated run status."""
+        await self._ensure_hydrated()
         async with self._lock:
-            if run_id not in self._runs:
-                msg = f"Run with ID '{run_id}' not found"
-                raise HexaqueueError(msg)
-
-            submission = self._runs[run_id]
-            run_jobs = [self._jobs[j.id] for j in submission.jobs]
-
-            job_states = [j.state for j in run_jobs]
-            run_state = compute_run_state(job_states)
-
-            job_outcomes = [j.outcome for j in run_jobs if j.outcome is not None]
-            if run_state == RunState.DONE:
-                run_outcome = compute_run_outcome(job_outcomes)
-            elif run_state == RunState.BLOCKED:
-                run_outcome = RunOutcome.FAILED
-            else:
-                run_outcome = None
-
-            completed = sum(
-                1 for j in run_jobs if j.outcome == TerminalOutcome.COMPLETED
-            )
-            failed = sum(
-                1
-                for j in run_jobs
-                if j.outcome in (TerminalOutcome.FAILED, TerminalOutcome.TIMED_OUT)
-                or j.state == JobState.BLOCKED
-            )
-            running = sum(
-                1
-                for j in run_jobs
-                if j.state
-                in (JobState.PROVISIONING, JobState.RUNNING, JobState.CLEANUP)
-            )
-            pending = sum(
-                1 for j in run_jobs if j.state in (JobState.SUBMITTED, JobState.PENDING)
-            )
-
-            free_tier_active = self._mode == ExecutionMode.FREE_TIER
-            burn_report = None
-            if free_tier_active and self._governor is not None:
-                active_jobs = [
-                    j
-                    for j in self._jobs.values()
-                    if j.state
-                    in (JobState.RUNNING, JobState.PROVISIONING, JobState.PENDING)
-                ]
-                burn_report = self._governor.compute_burn_meter(active_jobs)
-
-            return RunStatusReport(
-                burn_report=burn_report,
-                completed_jobs=completed,
-                created_at=submission.run_spec.created_at,
-                failed_jobs=failed,
-                free_tier_active=free_tier_active,
-                outcome=run_outcome,
-                pending_jobs=pending,
-                run_id=run_id,
-                running_jobs=running,
-                state=run_state,
-                total_jobs=len(run_jobs),
-            )
+            if run_id in self._runs:
+                return self._build_run_status_unlocked(run_id)
+            if run_id in self._persisted_runs:
+                return self._persisted_runs[run_id]
+            msg = f"Run with ID '{run_id}' not found"
+            raise HexaqueueError(msg)
 
     async def get_job(self, job_id: str) -> JobSpec:
         """Retrieve current metadata and status for an individual job."""
+        await self._ensure_hydrated()
         async with self._lock:
             if job_id not in self._jobs:
                 msg = f"Job with ID '{job_id}' not found"
@@ -424,6 +503,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
 
     async def list_jobs(self) -> list[JobSpec]:
         """Retrieve all currently registered jobs across runs."""
+        await self._ensure_hydrated()
         async with self._lock:
             return list(self._jobs.values())
 
@@ -434,6 +514,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             job_id: Unique job identifier.
             worker_id: Worker node identifier holding the lease.
         """
+        await self._ensure_hydrated()
         async with self._lock:
             current_job = self._jobs.get(job_id)
             if current_job is None or current_job.state == JobState.DONE:
@@ -447,6 +528,8 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                 }
             )
             self._jobs[job_id] = running_job
+            await self._persist_job(running_job)
+            await self._persist_run_unlocked(running_job.run_id)
 
     async def mark_job_pending(self, job_id: str, reason: str | None = None) -> None:
         """Transition a reclaimed job back from RUNNING to PENDING.
@@ -455,6 +538,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             job_id: Unique job identifier.
             reason: Optional reclamation reason.
         """
+        await self._ensure_hydrated()
         async with self._lock:
             current_job = self._jobs.get(job_id)
             if current_job is None or current_job.state == JobState.DONE:
@@ -468,6 +552,8 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             )
             self._jobs[job_id] = pending_job
             await self._queue.enqueue(pending_job)
+            await self._persist_job(pending_job)
+            await self._persist_run_unlocked(pending_job.run_id)
 
     async def update_job_outcome(
         self,
@@ -528,6 +614,9 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                 dag = self._dag_engines[run_id]
                 await self._advance_dependents(submission, dag)
                 await self._check_and_notify_run_completion(submission)
+                await self._persist_run_unlocked(run_id)
+            else:
+                await self._persist_job(terminal_job)
 
     async def _advance_dependents(
         self,
@@ -607,6 +696,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
     async def cancel_run(self, run_id: str) -> RunStatusReport:
         """Cancel run and all active / pending jobs."""
         await self._check_leadership()
+        await self._ensure_hydrated()
         async with self._lock:
             if run_id not in self._runs:
                 msg = f"Run with ID '{run_id}' not found"
@@ -652,6 +742,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             await self._dispatcher.async_dispatch_run_event(
                 submission.run_spec, NotificationTrigger.CANCELLED
             )
+            await self._persist_run_unlocked(run_id)
 
         if self._lease_coordinator is not None:
             await self._lease_coordinator.cancel_task(run_id)
@@ -671,6 +762,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             HexaqueueError: If job is not registered.
         """
         await self._check_leadership()
+        await self._ensure_hydrated()
         if self._lease_coordinator is not None:
             await self._lease_coordinator.cancel_task(job_id)
         async with self._lock:
@@ -722,6 +814,9 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                 if submission and dag:
                     await self._advance_dependents(submission, dag)
                     await self._check_and_notify_run_completion(submission)
+                    await self._persist_run_unlocked(cancelled_job.run_id)
+                else:
+                    await self._persist_job(cancelled_job)
 
             return self._jobs[job_id]
 
@@ -738,6 +833,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             HexaqueueError: If job is not registered.
         """
         await self._check_leadership()
+        await self._ensure_hydrated()
         async with self._lock:
             if job_id not in self._jobs:
                 msg = f"Job with ID '{job_id}' not found"
@@ -755,6 +851,8 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                     }
                 )
                 self._jobs[job_id] = held_job
+                await self._persist_job(held_job)
+                await self._persist_run_unlocked(held_job.run_id)
 
             return self._jobs[job_id]
 
@@ -771,6 +869,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             HexaqueueError: If job is not registered.
         """
         await self._check_leadership()
+        await self._ensure_hydrated()
         async with self._lock:
             if job_id not in self._jobs:
                 msg = f"Job with ID '{job_id}' not found"
@@ -791,6 +890,8 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                 )
                 self._jobs[job_id] = released_job
                 await self._queue.enqueue(released_job)
+                await self._persist_job(released_job)
+                await self._persist_run_unlocked(released_job.run_id)
 
             return self._jobs[job_id]
 
@@ -803,6 +904,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
         await self._check_leadership()
         async with self._lock:
             self._nodes[profile.node_id] = profile
+            await self._persist_node(profile)
 
     async def heartbeat_node(
         self,
@@ -845,21 +947,22 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                     }
                 )
             self._nodes[worker_id] = updated
+            await self._persist_node(updated)
+
+            active_pulse = pulse or NodeTelemetryPulse(
+                active_jobs=len(active_job_ids or []),
+                cpu_utilization_pct=0.0,
+                memory_total_mb=8192,
+                memory_used_mb=1024,
+                scratch_total_mb=10000,
+                scratch_used_mb=100,
+                worker_id=worker_id,
+            )
+            if self._storage is not None:
+                await self._storage.record_telemetry_pulse(active_pulse)
 
             if self._cluster_monitor is not None:
-                if pulse is not None:
-                    await self._cluster_monitor.record_pulse(pulse)
-                else:
-                    synth_pulse = NodeTelemetryPulse(
-                        active_jobs=len(active_job_ids or []),
-                        cpu_utilization_pct=0.0,
-                        memory_total_mb=8192,
-                        memory_used_mb=1024,
-                        scratch_total_mb=10000,
-                        scratch_used_mb=100,
-                        worker_id=worker_id,
-                    )
-                    await self._cluster_monitor.record_pulse(synth_pulse)
+                await self._cluster_monitor.record_pulse(active_pulse)
 
             return updated
 
@@ -869,6 +972,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
         Returns:
             List of ComputeNodeProfile instances.
         """
+        await self._ensure_hydrated()
         async with self._lock:
             return list(self._nodes.values())
 

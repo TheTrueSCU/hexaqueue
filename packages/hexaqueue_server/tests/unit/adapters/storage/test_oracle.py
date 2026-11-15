@@ -2,7 +2,8 @@
 
 import sys
 from datetime import UTC, datetime
-from unittest.mock import patch
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 from hexastack_core.exceptions import MissingDependencyError
@@ -335,3 +336,92 @@ async def test_oracle_adapter_retry_exhaustion(sync_engine):
         await adapter.flush()
 
     await adapter.close()
+
+
+def test_oracle_adapter_is_adb_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify is_adb_configured detects ADB DSN+password or database URL."""
+    monkeypatch.delenv("HEXAQUEUE_ORACLE_ADB_DSN", raising=False)
+    monkeypatch.delenv("HEXAQUEUE_ORACLE_ADB_PASSWORD", raising=False)
+    monkeypatch.delenv("HEXAQUEUE_DATABASE_URL", raising=False)
+
+    unconfigured = OciAutonomousDatabaseStorageAdapter.is_adb_configured()
+    assert unconfigured is False
+
+    monkeypatch.setenv("HEXAQUEUE_DATABASE_URL", "sqlite:///:memory:")
+    url_configured = OciAutonomousDatabaseStorageAdapter.is_adb_configured()
+    assert url_configured is True
+
+    monkeypatch.delenv("HEXAQUEUE_DATABASE_URL", raising=False)
+    monkeypatch.setenv("HEXAQUEUE_ORACLE_ADB_DSN", "hexaqueue_tp")
+    monkeypatch.setenv("HEXAQUEUE_ORACLE_ADB_PASSWORD", "test-secret")
+    adb_configured = OciAutonomousDatabaseStorageAdapter.is_adb_configured()
+    assert adb_configured is True
+
+
+@pytest.mark.anyio
+async def test_oracle_adapter_from_env_database_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify from_env constructs adapter from HEXAQUEUE_DATABASE_URL."""
+    monkeypatch.delenv("HEXAQUEUE_ORACLE_ADB_DSN", raising=False)
+    monkeypatch.delenv("HEXAQUEUE_ORACLE_ADB_PASSWORD", raising=False)
+    monkeypatch.setenv("HEXAQUEUE_DATABASE_URL", "sqlite:///:memory:")
+
+    adapter = OciAutonomousDatabaseStorageAdapter.from_env()
+    assert adapter is not None
+    await adapter.close()
+
+
+def test_oracle_adapter_from_env_unconfigured_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify from_env raises HexaqueueError when no env vars are set."""
+    monkeypatch.delenv("HEXAQUEUE_ORACLE_ADB_DSN", raising=False)
+    monkeypatch.delenv("HEXAQUEUE_ORACLE_ADB_PASSWORD", raising=False)
+    monkeypatch.delenv("HEXAQUEUE_DATABASE_URL", raising=False)
+
+    with pytest.raises(HexaqueueError, match="not configured"):
+        OciAutonomousDatabaseStorageAdapter.from_env()
+
+
+@pytest.mark.anyio
+async def test_oracle_adapter_from_env_mtls_wallet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify from_env wires oracledb mTLS wallet creator when ADB env vars are set."""
+    monkeypatch.setenv("HEXAQUEUE_ORACLE_ADB_DSN", "hexaqueue_tp")
+    monkeypatch.setenv("HEXAQUEUE_ORACLE_ADB_USER", "ADMIN")
+    monkeypatch.setenv("HEXAQUEUE_ORACLE_ADB_PASSWORD", "test-secret")
+    monkeypatch.setenv("HEXAQUEUE_ORACLE_ADB_WALLET_DIR", "/tmp/wallet")
+    monkeypatch.setenv("HEXAQUEUE_ORACLE_ADB_WALLET_PASSWORD", "wallet-secret")
+
+    mock_oracledb = MagicMock()
+    captured_creator: dict[str, Any] = {}
+
+    def _fake_create_engine(url: str, **kwargs: Any) -> MagicMock:
+        captured_creator["url"] = url
+        captured_creator["creator"] = kwargs["creator"]
+        return MagicMock()
+
+    with (
+        patch(
+            "hexaqueue_server.adapters.storage.oracle.oracledb",
+            mock_oracledb,
+        ),
+        patch(
+            "hexaqueue_server.adapters.storage.oracle.create_engine",
+            side_effect=_fake_create_engine,
+        ),
+    ):
+        adapter = OciAutonomousDatabaseStorageAdapter.from_env()
+        assert adapter is not None
+        assert captured_creator["url"] == "oracle+oracledb://"
+        captured_creator["creator"]()
+        mock_oracledb.connect.assert_called_once_with(
+            user="ADMIN",
+            password="test-secret",
+            dsn="hexaqueue_tp",
+            config_dir="/tmp/wallet",
+            wallet_location="/tmp/wallet",
+            wallet_password="wallet-secret",
+        )
