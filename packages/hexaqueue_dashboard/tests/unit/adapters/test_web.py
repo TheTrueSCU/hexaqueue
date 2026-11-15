@@ -591,3 +591,12 @@ def test_dashboard_command_elevation_and_user_mapping() -> None:
     )
     dispatched = mock_pip.execute.call_args[0][0]
     assert dispatched.elevate is True
+
+
+def test_dashboard_health_endpoint(hermetic_dashboard_client: TestClient) -> None:
+    """Verify lightweight `/dashboard/health` heartbeat returns live status."""
+    resp = hermetic_dashboard_client.get("/dashboard/health")
+    status_code = resp.status_code
+    assert status_code == 200
+    payload = resp.json()
+    assert payload == {"status": "live"}
