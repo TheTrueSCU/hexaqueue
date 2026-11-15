@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import secrets
+from collections.abc import Callable
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -335,6 +336,49 @@ def get_auth_manager(request: Request) -> DashboardAuthManager:
     return manager
 
 
+def require_roles(
+    *roles: str,
+    match_all: bool = False,
+) -> Callable[..., Identity]:
+    """Create a FastAPI dependency requiring an authenticated principal with given role(s).
+
+    Args:
+        *roles: Allowed or required role names. If empty, any authenticated user passes.
+        match_all: If True, caller must hold all specified roles; if False, any one suffices.
+
+    Returns:
+        FastAPI dependency callable resolving to the verified Identity.
+    """
+    required = frozenset(roles)
+
+    def _dependency(
+        request: Request,
+        manager: Annotated[DashboardAuthManager, Depends(get_auth_manager)],
+    ) -> Identity:
+        enforce_https_transport(request)
+        token = extract_bearer_or_cookie_token(request)
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required.",
+            )
+        identity = manager.verify_token(token)
+        if required:
+            authorized = (
+                required.issubset(identity.roles)
+                if match_all
+                else bool(required & identity.roles)
+            )
+            if not authorized:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Required role(s): {', '.join(sorted(required))}.",
+                )
+        return identity
+
+    return _dependency
+
+
 def create_auth_router() -> APIRouter:
     """Construct `/auth` routes for Dashboard login, logout, and identity inspection.
 
@@ -407,35 +451,15 @@ def create_auth_router() -> APIRouter:
             is_admin="admin" in identity.roles,
         )
 
-    def _require_admin(
-        request: Request,
-        manager: DashboardAuthManager,
-    ) -> Identity:
-        enforce_https_transport(request)
-        token = extract_bearer_or_cookie_token(request)
-        if not token:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication required.",
-            )
-        identity = manager.verify_token(token)
-        if "admin" not in identity.roles:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Admin role required to manage RBAC principals.",
-            )
-        return identity
-
     @router.get(
         "/principals",
         response_model=list[PrincipalSummaryResponse],
         summary="List RBAC principals (admin only)",
     )
     def list_principals(
-        request: Request,
+        _identity: Annotated[Identity, Depends(require_roles("admin"))],
         manager: Annotated[DashboardAuthManager, Depends(get_auth_manager)],
     ) -> list[PrincipalSummaryResponse]:
-        _require_admin(request, manager)
         return [
             PrincipalSummaryResponse(
                 principal_id=p.principal_id,
@@ -453,10 +477,9 @@ def create_auth_router() -> APIRouter:
     )
     def upsert_principal(
         payload: PrincipalUpsertRequest,
-        request: Request,
+        _identity: Annotated[Identity, Depends(require_roles("admin"))],
         manager: Annotated[DashboardAuthManager, Depends(get_auth_manager)],
     ) -> PrincipalSummaryResponse:
-        _require_admin(request, manager)
         principal = RbacPrincipal(
             principal_id=payload.principal_id.strip(),
             hashed_secret=payload.hashed_secret,
@@ -478,10 +501,9 @@ def create_auth_router() -> APIRouter:
     )
     def delete_principal(
         principal_id: str,
-        request: Request,
+        _identity: Annotated[Identity, Depends(require_roles("admin"))],
         manager: Annotated[DashboardAuthManager, Depends(get_auth_manager)],
     ) -> dict[str, Any]:
-        _require_admin(request, manager)
         deleted = manager.rbac_store.delete_principal(principal_id)
         return {"deleted": deleted, "principal_id": principal_id}
 
@@ -500,5 +522,6 @@ __all__ = [
     "LoginRequest",
     "PrincipalSummaryResponse",
     "PrincipalUpsertRequest",
+    "require_roles",
     "SESSION_COOKIE_NAME",
 ]

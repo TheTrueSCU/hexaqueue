@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Annotated
 
 import pytest
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
+from hexastack_auth.domain.models import Identity
 
 from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
 from hexaqueue_core.domain.job import JobSpec
@@ -15,6 +18,7 @@ from hexaqueue_dashboard.adapters.auth import (
     SESSION_COOKIE_NAME,
     DashboardAuthManager,
     LoginRequest,
+    require_roles,
 )
 from hexaqueue_dashboard.adapters.rbac_store import SqliteRbacPolicyAdapter
 from hexaqueue_dashboard.domain.rbac import RbacPrincipal
@@ -177,3 +181,57 @@ def test_login_request_redacts_secret_in_repr() -> None:
     req = LoginRequest(username="rjdw", password="super-secret-value")
     rendered = repr(req)
     assert "super-secret-value" not in rendered
+
+
+def test_require_roles_single_any_and_all(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify generalized require_roles dependency for single, any, and all role modes."""
+    monkeypatch.setenv("HEXAQUEUE_REQUIRE_HTTPS", "1")
+    store = SqliteRbacPolicyAdapter(":memory:")
+    manager = DashboardAuthManager(
+        jwt_secret="test-jwt-secret-key-at-least-32-bytes-long",
+        rbac_store=store,
+    )
+    app = FastAPI()
+    app.state.auth_manager = manager
+
+    @app.get("/any-op")
+    def any_op(
+        identity: Annotated[Identity, Depends(require_roles("admin", "operator"))],
+    ) -> dict[str, str]:
+        return {"user": identity.user_id}
+
+    @app.get("/all-roles")
+    def all_roles(
+        identity: Annotated[
+            Identity, Depends(require_roles("admin", "operator", match_all=True))
+        ],
+    ) -> dict[str, str]:
+        return {"user": identity.user_id}
+
+    op_token = manager.issue_token(
+        Identity(user_id="ops-1", roles=frozenset({"operator"}), is_authenticated=True)
+    )
+    both_token = manager.issue_token(
+        Identity(
+            user_id="rjdw",
+            roles=frozenset({"admin", "operator"}),
+            is_authenticated=True,
+        )
+    )
+
+    with TestClient(app, base_url="https://testserver") as client:
+        unauth_code = client.get("/any-op").status_code
+        assert unauth_code == 401
+
+        any_ok = client.get("/any-op", headers={"Authorization": f"Bearer {op_token}"})
+        assert any_ok.status_code == 200
+
+        all_denied = client.get(
+            "/all-roles", headers={"Authorization": f"Bearer {op_token}"}
+        )
+        assert all_denied.status_code == 403
+
+        all_ok = client.get(
+            "/all-roles", headers={"Authorization": f"Bearer {both_token}"}
+        )
+        assert all_ok.status_code == 200
