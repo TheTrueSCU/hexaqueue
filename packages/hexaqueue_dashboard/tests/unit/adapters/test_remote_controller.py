@@ -2,7 +2,6 @@
 
 import json
 from datetime import UTC, datetime
-from typing import cast
 
 import httpx
 import pytest
@@ -221,4 +220,4 @@ async def test_remote_controller_errors_and_internal_methods() -> None:
         adapter.create_memento()
 
     with pytest.raises(NotImplementedError):
-        adapter.restore_memento(cast("SchedulerMemento", object()))
+        adapter.restore_memento(SchedulerMemento())
