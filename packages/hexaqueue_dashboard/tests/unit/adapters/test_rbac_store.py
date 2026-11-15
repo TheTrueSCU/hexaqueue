@@ -95,12 +95,20 @@ def test_oracle_adb_rbac_store_with_hermetic_connection() -> None:
             self._results: list[Any] = []
             self.rowcount = 0
 
-        def execute(self, sql: str, params: tuple[Any, ...] = ()) -> None:
+        def execute(
+            self,
+            sql: str,
+            params: tuple[Any, ...] | dict[str, Any] = (),
+        ) -> None:
             norm = " ".join(sql.split()).upper()
             if norm.startswith("CREATE TABLE"):
                 return
             if norm.startswith("MERGE INTO HXQ_RBAC_PRINCIPALS"):
-                pid, secret, p_json, active = params
+                assert isinstance(params, dict)
+                pid = params["principal_id"]
+                secret = params["hashed_secret"]
+                p_json = params["permissions_json"]
+                active = params["is_active"]
                 if pid in principals:
                     pk = principals[pid][0]
                 else:
@@ -109,37 +117,45 @@ def test_oracle_adb_rbac_store_with_hermetic_connection() -> None:
                 principals[pid] = (pk, pid, secret, p_json, active)
                 self.rowcount = 1
             elif norm.startswith("MERGE INTO HXQ_RBAC_ROLES"):
-                (rname,) = params
+                assert isinstance(params, dict)
+                rname = params["role_name"]
                 if rname not in roles:
                     seq["r"] += 1
                     roles[rname] = (seq["r"], rname)
                 self.rowcount = 1
             elif norm.startswith("MERGE INTO HXQ_RBAC_PRINCIPAL_ROLES"):
-                links.add((int(params[0]), int(params[1])))
+                assert isinstance(params, dict)
+                links.add((int(params["principal_pk"]), int(params["role_pk"])))
                 self.rowcount = 1
             elif norm.startswith("SELECT ID FROM HXQ_RBAC_PRINCIPALS"):
+                assert isinstance(params, tuple)
                 row = principals.get(params[0])
                 self._results = [(row[0],)] if row else []
             elif norm.startswith("SELECT ID FROM HXQ_RBAC_ROLES"):
+                assert isinstance(params, tuple)
                 row = roles.get(params[0])
                 self._results = [(row[0],)] if row else []
             elif norm.startswith("SELECT R.ROLE_NAME"):
+                assert isinstance(params, tuple)
                 pk = int(params[0])
                 id_to_name = {v[0]: v[1] for v in roles.values()}
                 self._results = [
                     (id_to_name[r_pk],) for p_pk, r_pk in links if p_pk == pk
                 ]
             elif "WHERE PRINCIPAL_ID = :1" in norm and norm.startswith("SELECT"):
+                assert isinstance(params, tuple)
                 row = principals.get(params[0])
                 self._results = [row] if row else []
             elif norm.startswith("SELECT ID, PRINCIPAL_ID"):
                 self._results = [principals[k] for k in sorted(principals)]
             elif norm.startswith("DELETE FROM HXQ_RBAC_PRINCIPAL_ROLES"):
+                assert isinstance(params, tuple)
                 pk = int(params[0])
                 to_drop = {pair for pair in links if pair[0] == pk}
                 links.difference_update(to_drop)
                 self.rowcount = len(to_drop)
             elif norm.startswith("DELETE FROM HXQ_RBAC_PRINCIPALS"):
+                assert isinstance(params, tuple)
                 removed = principals.pop(params[0], None)
                 if removed is not None:
                     to_drop = {pair for pair in links if pair[0] == removed[0]}
@@ -180,7 +196,7 @@ def test_create_rbac_policy_store_selection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify store factory selects Oracle ADB -> SQLite -> InMemory."""
-    monkeypatch.delenv("HEXAQUEUE_ORACLE_DSN", raising=False)
+    monkeypatch.delenv("HEXAQUEUE_ORACLE_ADB_DSN", raising=False)
     monkeypatch.delenv("HEXAQUEUE_RBAC_DB_PATH", raising=False)
 
     mem_store = create_rbac_policy_store()

@@ -220,6 +220,7 @@ class OracleAdbRbacPolicyAdapter(RbacPolicyPort):
         user: str | None = None,
         password: str | None = None,
         wallet_dir: str | None = None,
+        wallet_password: str | None = None,
         connection_factory: Callable[[], Any] | None = None,
     ) -> None:
         """Initialize Oracle ADB RBAC store adapter.
@@ -229,12 +230,18 @@ class OracleAdbRbacPolicyAdapter(RbacPolicyPort):
             user: Oracle DB username.
             password: Oracle DB password.
             wallet_dir: Optional Oracle mTLS wallet directory.
+            wallet_password: Optional mTLS wallet PEM/SSO password.
             connection_factory: Optional callable returning an open DB-API connection.
         """
-        self._dsn = dsn or os.environ.get("HEXAQUEUE_ORACLE_DSN", "")
-        self._user = user or os.environ.get("HEXAQUEUE_ORACLE_USER", "ADMIN")
-        self._password = password or os.environ.get("HEXAQUEUE_ORACLE_PASSWORD", "")
-        self._wallet_dir = wallet_dir or os.environ.get("HEXAQUEUE_ORACLE_WALLET_DIR")
+        self._dsn = dsn or os.environ.get("HEXAQUEUE_ORACLE_ADB_DSN", "")
+        self._user = user or os.environ.get("HEXAQUEUE_ORACLE_ADB_USER", "ADMIN")
+        self._password = password or os.environ.get("HEXAQUEUE_ORACLE_ADB_PASSWORD", "")
+        self._wallet_dir = wallet_dir or os.environ.get(
+            "HEXAQUEUE_ORACLE_ADB_WALLET_DIR"
+        )
+        self._wallet_password = wallet_password or os.environ.get(
+            "HEXAQUEUE_ORACLE_ADB_WALLET_PASSWORD"
+        )
         self._connection_factory = connection_factory
         self._schema_initialized = False
 
@@ -257,6 +264,8 @@ class OracleAdbRbacPolicyAdapter(RbacPolicyPort):
         if self._wallet_dir:
             kwargs["config_dir"] = self._wallet_dir
             kwargs["wallet_location"] = self._wallet_dir
+            if self._wallet_password:
+                kwargs["wallet_password"] = self._wallet_password
         return oracledb.connect(**kwargs)
 
     def _ensure_schema(self, conn: Any) -> None:
@@ -352,22 +361,22 @@ class OracleAdbRbacPolicyAdapter(RbacPolicyPort):
                 cur.execute(
                     """
                     MERGE INTO hxq_rbac_principals dst
-                    USING (SELECT :1 AS principal_id FROM DUAL) src
+                    USING (SELECT :principal_id AS principal_id FROM DUAL) src
                     ON (dst.principal_id = src.principal_id)
                     WHEN MATCHED THEN UPDATE SET
-                        hashed_secret = :2,
-                        permissions_json = :3,
-                        is_active = :4
+                        hashed_secret = :hashed_secret,
+                        permissions_json = :permissions_json,
+                        is_active = :is_active
                     WHEN NOT MATCHED THEN INSERT
                         (principal_id, hashed_secret, permissions_json, is_active)
-                        VALUES (:1, :2, :3, :4)
+                        VALUES (:principal_id, :hashed_secret, :permissions_json, :is_active)
                     """,
-                    (
-                        principal.principal_id,
-                        principal.hashed_secret,
-                        json.dumps(sorted(principal.permissions)),
-                        1 if principal.is_active else 0,
-                    ),
+                    {
+                        "principal_id": principal.principal_id,
+                        "hashed_secret": principal.hashed_secret,
+                        "permissions_json": json.dumps(sorted(principal.permissions)),
+                        "is_active": 1 if principal.is_active else 0,
+                    },
                 )
                 cur.execute(
                     "SELECT id FROM hxq_rbac_principals WHERE principal_id = :1",
@@ -388,11 +397,11 @@ class OracleAdbRbacPolicyAdapter(RbacPolicyPort):
                     cur.execute(
                         """
                         MERGE INTO hxq_rbac_roles dst
-                        USING (SELECT :1 AS role_name FROM DUAL) src
+                        USING (SELECT :role_name AS role_name FROM DUAL) src
                         ON (dst.role_name = src.role_name)
-                        WHEN NOT MATCHED THEN INSERT (role_name) VALUES (:1)
+                        WHEN NOT MATCHED THEN INSERT (role_name) VALUES (:role_name)
                         """,
-                        (role_name,),
+                        {"role_name": role_name},
                     )
                     cur.execute(
                         "SELECT id FROM hxq_rbac_roles WHERE role_name = :1",
@@ -406,11 +415,11 @@ class OracleAdbRbacPolicyAdapter(RbacPolicyPort):
                     cur.execute(
                         """
                         MERGE INTO hxq_rbac_principal_roles dst
-                        USING (SELECT :1 AS principal_pk, :2 AS role_pk FROM DUAL) src
+                        USING (SELECT :principal_pk AS principal_pk, :role_pk AS role_pk FROM DUAL) src
                         ON (dst.principal_pk = src.principal_pk AND dst.role_pk = src.role_pk)
-                        WHEN NOT MATCHED THEN INSERT (principal_pk, role_pk) VALUES (:1, :2)
+                        WHEN NOT MATCHED THEN INSERT (principal_pk, role_pk) VALUES (:principal_pk, :role_pk)
                         """,
-                        (principal_pk, int(role_row[0])),
+                        {"principal_pk": principal_pk, "role_pk": int(role_row[0])},
                     )
                 conn.commit()
             finally:
@@ -482,7 +491,7 @@ def create_rbac_policy_store(
     Returns:
         Configured RbacPolicyPort adapter instance.
     """
-    effective_dsn = oracle_dsn or os.environ.get("HEXAQUEUE_ORACLE_DSN")
+    effective_dsn = oracle_dsn or os.environ.get("HEXAQUEUE_ORACLE_ADB_DSN")
     if effective_dsn:
         return OracleAdbRbacPolicyAdapter(dsn=effective_dsn)
     effective_sqlite = sqlite_path or os.environ.get("HEXAQUEUE_RBAC_DB_PATH")
