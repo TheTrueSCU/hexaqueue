@@ -241,6 +241,10 @@ def test_discover_and_merge_env_local_precedence(
         encoding="utf-8",
     )
 
+    # Ensure ambient CI/cloud environment variables do not leak into .env precedence test
+    monkeypatch.delenv("HEXAQUEUE_OCI_REGION", raising=False)
+    monkeypatch.delenv("HEXAQUEUE_AWS_REGION", raising=False)
+
     # os.environ overrides both
     monkeypatch.setenv("HEXAQUEUE_AWS_REGION", "eu-central-1")
 

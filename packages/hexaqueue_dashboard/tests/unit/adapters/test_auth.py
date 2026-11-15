@@ -235,3 +235,49 @@ def test_require_roles_single_any_and_all(monkeypatch: pytest.MonkeyPatch) -> No
             "/all-roles", headers={"Authorization": f"Bearer {both_token}"}
         )
         assert all_ok.status_code == 200
+
+
+def test_dashboard_rotate_password_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify POST /dashboard/auth/rotate-password verifies current secret and updates hash."""
+    client, _ = _build_seeded_client(monkeypatch)
+    with client:
+        bad_rot = client.post(
+            "/dashboard/auth/rotate-password",
+            json={
+                "username": "rjdw",
+                "current_secret": "wrong-pw",
+                "new_secret": "new-pw-123",
+            },
+            headers={"X-Forwarded-Proto": "https"},
+        )
+        bad_code = bad_rot.status_code
+        assert bad_code == 401
+
+        good_rot = client.post(
+            "/dashboard/auth/rotate-password",
+            json={
+                "username": "rjdw",
+                "current_secret": "rjdw-web-secret",
+                "new_secret": "new-pw-123",
+            },
+            headers={"X-Forwarded-Proto": "https"},
+        )
+        good_code = good_rot.status_code
+        assert good_code == 200
+        assert good_rot.json() == {"status": "rotated", "principal_id": "rjdw"}
+
+        old_login = client.post(
+            "/dashboard/auth/login",
+            json={"username": "rjdw", "password": "rjdw-web-secret"},
+            headers={"X-Forwarded-Proto": "https"},
+        )
+        old_code = old_login.status_code
+        assert old_code == 401
+
+        new_login = client.post(
+            "/dashboard/auth/login",
+            json={"username": "rjdw", "password": "new-pw-123"},
+            headers={"X-Forwarded-Proto": "https"},
+        )
+        new_code = new_login.status_code
+        assert new_code == 200

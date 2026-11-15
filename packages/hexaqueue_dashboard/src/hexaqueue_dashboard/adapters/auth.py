@@ -78,6 +78,23 @@ class PrincipalSummaryResponse(BaseModel):
     is_active: bool
 
 
+class RotatePasswordRequest(BaseModel):
+    """Request payload for self-service password rotation.
+
+    Notes/Architectural Intent:
+        Uses SecretStr for both current and new credentials so plaintext values
+        are masked in Pydantic representations and never written to logs.
+    """
+
+    username: str = Field(..., min_length=1, description="Principal username")
+    current_secret: SecretStr = Field(
+        ..., min_length=1, description="Existing password or token"
+    )
+    new_secret: SecretStr = Field(
+        ..., min_length=1, description="Replacement password or token"
+    )
+
+
 class AuthStatusResponse(BaseModel):
     """Authenticated principal metadata returned by auth endpoints.
 
@@ -268,6 +285,43 @@ class DashboardAuthManager:
             detail="Invalid username or credential.",
         )
 
+    def rotate_password(
+        self,
+        username: str,
+        current_secret: SecretStr,
+        new_secret: SecretStr,
+    ) -> RbacPrincipal:
+        """Verify existing credential and rotate a principal's PBKDF2 hash.
+
+        Args:
+            username: Principal identifier to update.
+            current_secret: Existing credential wrapped in SecretStr.
+            new_secret: Replacement credential wrapped in SecretStr.
+
+        Returns:
+            Updated RbacPrincipal with preserved roles and permissions.
+
+        Raises:
+            HTTPException: 401 Unauthorized if current credential is invalid.
+        """
+        identity = self.authenticate_user(username, current_secret.get_secret_value())
+        existing = self._rbac_store.get_principal(identity.user_id)
+        if existing is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Principal '{identity.user_id}' not found in RBAC store.",
+            )
+        new_hash = self.hash_secret(new_secret.get_secret_value())
+        updated = RbacPrincipal(
+            principal_id=existing.principal_id,
+            hashed_secret=new_hash,
+            roles=existing.roles,
+            permissions=existing.permissions,
+            is_active=existing.is_active,
+        )
+        self._rbac_store.upsert_principal(updated)
+        return updated
+
     def issue_token(self, identity: Identity) -> str:
         """Issue a signed JWT for an authenticated Identity.
 
@@ -428,6 +482,23 @@ def create_auth_router() -> APIRouter:
         response.delete_cookie(key=SESSION_COOKIE_NAME, path="/")
         return {"status": "logged_out"}
 
+    @router.post(
+        "/rotate-password",
+        summary="Verify existing credential and rotate principal password hash",
+    )
+    def rotate_password(
+        payload: RotatePasswordRequest,
+        request: Request,
+        manager: Annotated[DashboardAuthManager, Depends(get_auth_manager)],
+    ) -> dict[str, str]:
+        enforce_https_transport(request)
+        updated = manager.rotate_password(
+            payload.username,
+            payload.current_secret,
+            payload.new_secret,
+        )
+        return {"status": "rotated", "principal_id": updated.principal_id}
+
     @router.get(
         "/me",
         response_model=AuthStatusResponse,
@@ -523,5 +594,6 @@ __all__ = [
     "PrincipalSummaryResponse",
     "PrincipalUpsertRequest",
     "require_roles",
+    "RotatePasswordRequest",
     "SESSION_COOKIE_NAME",
 ]
