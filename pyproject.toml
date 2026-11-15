@@ -138,6 +138,7 @@ addopts = "-n auto --cov-report=term-missing:skip-covered"
 consider_namespace_packages = true
 markers = [
     "demo: mark a test as a CLI demo recording walk-through",
+    "e2e: mark a test as a Playwright browser end-to-end test",
     "integration: mark a test as requiring external infrastructure",
     "slow: mark a test as slow-running",
 ]

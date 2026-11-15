@@ -9,13 +9,15 @@ Notes/Architectural Intent:
 
 from __future__ import annotations
 
+import os
+import secrets
+
 from fastapi import FastAPI
 from hexastack_auth.domain.models import Identity
 from hexastack_cqrs.infra.pipeline import ExecutionPipeline
 from hexastack_ui.adapters.nicegui import (
     dispatch_command,
     dispatch_query,
-    mount_ui_app,
     ui_page,
 )
 from nicegui import app as nicegui_app
@@ -122,9 +124,9 @@ async def _render_jobs_section(
                 except Exception as exc:
                     ui.notify(f"Cancel failed: {exc}", type="negative")
 
-            ui.button("Kill", on_click=_kill_job, icon="cancel", color="red").props(
-                f'aria-label="Kill job {job.id}"'
-            ).tooltip(f"Cancel job {job.id}")
+            ui.button(
+                "Kill", on_click=_kill_job, icon="cancel", color="negative"
+            ).props(f'aria-label="Kill job {job.id}"').tooltip(f"Cancel job {job.id}")
 
 
 async def _render_console_panel(
@@ -200,13 +202,21 @@ def mount_dashboard_ui(
 
     @ui_page(mount_path, title="Hexaqueue Operator Console", dark=True)
     async def _dashboard_page() -> None:
+        ui.colors(primary="#1d4ed8", negative="#b91c1c")
         identity = _resolve_session_identity(manager)
         if identity is None:
             _render_login_panel(manager)
             return
         await _render_console_panel(pipeline, identity)
 
-    mount_ui_app(app, title="Hexaqueue Operator Console", dark=True)
+    storage_secret = os.environ.get("HEXAQUEUE_JWT_SECRET") or secrets.token_urlsafe(32)
+    ui.run_with(
+        app,
+        title="Hexaqueue Operator Console",
+        dark=True,
+        language="en-US",
+        storage_secret=storage_secret,
+    )
 
 
 __all__ = [
