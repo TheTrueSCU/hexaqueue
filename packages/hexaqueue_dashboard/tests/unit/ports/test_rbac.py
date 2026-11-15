@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+import inspect
 
 import pytest
 
@@ -11,6 +11,7 @@ from hexaqueue_dashboard.ports.rbac import RbacPolicyPort
 
 def test_rbac_policy_port_is_abstract() -> None:
     """Verify RbacPolicyPort cannot be instantiated directly."""
-    port_cls = cast("Any", RbacPolicyPort)
+    is_abs = inspect.isabstract(RbacPolicyPort)
+    assert is_abs is True
     with pytest.raises(TypeError):
-        port_cls()
+        type(RbacPolicyPort).__call__(RbacPolicyPort)
