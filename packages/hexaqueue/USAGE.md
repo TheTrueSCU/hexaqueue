@@ -61,6 +61,8 @@ Usage: hq [OPTIONS] COMMAND [ARGS]...
 │ fairshare   Inspect hierarchical fair-share tree, historical usage, and      │
 │             decay factors.                                                   │
 │ admin       Administrative operations and zero-trust session governance      │
+│ auth        Dashboard authentication and credential management               │
+│ dashboard   Manage the Hexaqueue dashboard SSH tunnel and open the UI        │
 │ cluster     Manage and monitor remote cluster nodes, SSH tunnels, and CSP    │
 │             controllers                                                      │
 │ run         Pipeline run management commands.                                │
@@ -140,6 +142,44 @@ Usage: hq attach [OPTIONS] {job_id}
 │ --user   -u      <str>  Requesting username [default: default]               │
 │ --admin                 Assert explicit administrative elevation             │
 │ --help                  Show this message and exit.                          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq auth`
+
+```text
+Usage: hq auth [OPTIONS] COMMAND [ARGS]...
+
+ Dashboard authentication and credential management
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ rotate-password  Verify existing password and rotate to a confirmed new      │
+│                  password.                                                   │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq auth rotate-password`
+
+```text
+Usage: hq auth rotate-password [OPTIONS]
+
+ Verify existing password and rotate to a confirmed new password.
+
+ Args:
+ username: Target RBAC principal username.
+ dashboard_url: Optional dashboard HTTP endpoint override.
+ offline: Skip HTTP and write directly to configured ADB/SQLite store.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --user     -u      <str>  Principal username to rotate [default: rjdw]       │
+│ --url              <str>  Dashboard base URL (defaults to                    │
+│                           HEXAQUEUE_DASHBOARD_URL)                           │
+│ --offline                 Bypass HTTP and update Oracle ADB / SQLite         │
+│                           directly                                           │
+│ --help                    Show this message and exit.                        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -545,6 +585,68 @@ Usage: hq collateral stage [OPTIONS] {file_path}
 │ --user   -u      <str>  Submitting user identity [default: default]          │
 │ --admin                 Assert explicit administrative elevation             │
 │ --help                  Show this message and exit.                          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq dashboard`
+
+```text
+Usage: hq dashboard [OPTIONS] COMMAND [ARGS]...
+
+ Manage the Hexaqueue dashboard SSH tunnel and open the UI
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ open    Ensure the SSH tunnel is up (if required) and open the dashboard in  │
+│         a browser.                                                           │
+│ tunnel  Start, inspect, or stop the dashboard SSH tunnel                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq dashboard a`
+
+```text
+Usage: hq dashboard [OPTIONS] COMMAND [ARGS]...
+Try 'hq dashboard --help' for help.
+╭─ Error ──────────────────────────────────────────────────────────────────────╮
+│ No such command 'a'.                                                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq dashboard open`
+
+```text
+Usage: hq dashboard open [OPTIONS]
+
+ Ensure the SSH tunnel is up (if required) and open the dashboard in a browser.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --host                 <str>  Remote OCI host                                │
+│ --user         -u      <str>  Remote SSH user                                │
+│ --local-port           <int>  Local loopback port [default: 8080]            │
+│ --remote-port          <int>  Remote dashboard port [default: 8080]          │
+│ --no-tunnel                   Skip starting SSH tunnel                       │
+│ --help                        Show this message and exit.                    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq dashboard tunnel`
+
+```text
+Usage: hq dashboard tunnel [OPTIONS] COMMAND [ARGS]...
+
+ Start, inspect, or stop the dashboard SSH tunnel
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ start   Start the SSH port-forward tunnel to the OCI dashboard if not        │
+│         running.                                                             │
+│ status  Report whether the dashboard SSH tunnel is currently active.         │
+│ stop    Destroy the active dashboard SSH tunnel.                             │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
