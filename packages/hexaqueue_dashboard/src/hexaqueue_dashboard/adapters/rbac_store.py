@@ -5,6 +5,10 @@ Notes/Architectural Intent:
     1. `OracleAdbRbacPolicyAdapter` for shared HA persistence in Oracle ADB.
     2. `SqliteRbacPolicyAdapter` for local single-node database persistence.
     3. `InMemoryRbacPolicyAdapter` for hermetic testing and ephemeral runs.
+    Relational backends normalize principals (`hxq_rbac_principals`), roles
+    (`hxq_rbac_roles`), and their many-to-many link (`hxq_rbac_principal_roles`)
+    with autoincrementing integer primary keys and unique `(principal_pk, role_pk)`
+    constraints.
 """
 
 from __future__ import annotations
@@ -53,10 +57,10 @@ class InMemoryRbacPolicyAdapter(RbacPolicyPort):
 
 
 class SqliteRbacPolicyAdapter(RbacPolicyPort):
-    """Local SQLite database implementation of RbacPolicyPort."""
+    """Normalized local SQLite database implementation of RbacPolicyPort."""
 
     def __init__(self, db_path: str | Path = ":memory:") -> None:
-        """Initialize local SQLite RBAC store and ensure schema exists.
+        """Initialize local SQLite RBAC tables and foreign-key constraints.
 
         Args:
             db_path: Filesystem path to SQLite DB or ':memory:'.
@@ -65,24 +69,47 @@ class SqliteRbacPolicyAdapter(RbacPolicyPort):
         if self._db_path != ":memory:":
             Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
-        self._conn.execute(
+        self._conn.execute("PRAGMA foreign_keys = ON")
+        self._conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS hxq_rbac_principals (
-                principal_id TEXT PRIMARY KEY,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                principal_id TEXT NOT NULL UNIQUE,
                 hashed_secret TEXT NOT NULL,
-                roles_json TEXT NOT NULL,
                 permissions_json TEXT NOT NULL,
                 is_active INTEGER NOT NULL
-            )
+            );
+            CREATE TABLE IF NOT EXISTS hxq_rbac_roles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                role_name TEXT NOT NULL UNIQUE
+            );
+            CREATE TABLE IF NOT EXISTS hxq_rbac_principal_roles (
+                principal_pk INTEGER NOT NULL REFERENCES hxq_rbac_principals(id) ON DELETE CASCADE,
+                role_pk INTEGER NOT NULL REFERENCES hxq_rbac_roles(id) ON DELETE CASCADE,
+                UNIQUE (principal_pk, role_pk)
+            );
             """
         )
         self._conn.commit()
 
-    def get_principal(self, principal_id: str) -> RbacPrincipal | None:
-        """Fetch an RBAC principal from SQLite."""
+    def _fetch_roles_for_pk(self, principal_pk: int) -> frozenset[str]:
         cur = self._conn.execute(
             """
-            SELECT principal_id, hashed_secret, roles_json, permissions_json, is_active
+            SELECT r.role_name
+            FROM hxq_rbac_roles r
+            JOIN hxq_rbac_principal_roles pr ON pr.role_pk = r.id
+            WHERE pr.principal_pk = ?
+            """,
+            (principal_pk,),
+        )
+        roles = {row[0] for row in cur.fetchall()}
+        return frozenset(roles) if roles else frozenset({"guest"})
+
+    def get_principal(self, principal_id: str) -> RbacPrincipal | None:
+        """Fetch an RBAC principal and its linked roles from SQLite."""
+        cur = self._conn.execute(
+            """
+            SELECT id, principal_id, hashed_secret, permissions_json, is_active
             FROM hxq_rbac_principals
             WHERE principal_id = ?
             """,
@@ -92,50 +119,81 @@ class SqliteRbacPolicyAdapter(RbacPolicyPort):
         if row is None:
             return None
         return RbacPrincipal(
-            principal_id=row[0],
-            hashed_secret=row[1],
-            roles=frozenset(json.loads(row[2])),
+            principal_id=row[1],
+            hashed_secret=row[2],
+            roles=self._fetch_roles_for_pk(int(row[0])),
             permissions=frozenset(json.loads(row[3])),
             is_active=bool(row[4]),
         )
 
     def upsert_principal(self, principal: RbacPrincipal) -> None:
-        """Insert or update an RBAC principal in SQLite."""
+        """Insert or update an RBAC principal and its normalized role links."""
         self._conn.execute(
             """
             INSERT INTO hxq_rbac_principals
-                (principal_id, hashed_secret, roles_json, permissions_json, is_active)
-            VALUES (?, ?, ?, ?, ?)
+                (principal_id, hashed_secret, permissions_json, is_active)
+            VALUES (?, ?, ?, ?)
             ON CONFLICT(principal_id) DO UPDATE SET
                 hashed_secret = excluded.hashed_secret,
-                roles_json = excluded.roles_json,
                 permissions_json = excluded.permissions_json,
                 is_active = excluded.is_active
             """,
             (
                 principal.principal_id,
                 principal.hashed_secret,
-                json.dumps(sorted(principal.roles)),
                 json.dumps(sorted(principal.permissions)),
                 1 if principal.is_active else 0,
             ),
         )
+        row = self._conn.execute(
+            "SELECT id FROM hxq_rbac_principals WHERE principal_id = ?",
+            (principal.principal_id,),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError(
+                f"Failed to resolve principal PK for '{principal.principal_id}'"
+            )
+        principal_pk = int(row[0])
+
+        self._conn.execute(
+            "DELETE FROM hxq_rbac_principal_roles WHERE principal_pk = ?",
+            (principal_pk,),
+        )
+        effective_roles = principal.roles or frozenset({"guest"})
+        for role_name in sorted(effective_roles):
+            self._conn.execute(
+                "INSERT OR IGNORE INTO hxq_rbac_roles (role_name) VALUES (?)",
+                (role_name,),
+            )
+            role_row = self._conn.execute(
+                "SELECT id FROM hxq_rbac_roles WHERE role_name = ?",
+                (role_name,),
+            ).fetchone()
+            if role_row is None:
+                raise RuntimeError(f"Failed to resolve role PK for '{role_name}'")
+            self._conn.execute(
+                """
+                INSERT OR IGNORE INTO hxq_rbac_principal_roles (principal_pk, role_pk)
+                VALUES (?, ?)
+                """,
+                (principal_pk, int(role_row[0])),
+            )
         self._conn.commit()
 
     def list_principals(self) -> list[RbacPrincipal]:
-        """List all RBAC principals from SQLite."""
+        """List all RBAC principals and their linked roles from SQLite."""
         cur = self._conn.execute(
             """
-            SELECT principal_id, hashed_secret, roles_json, permissions_json, is_active
+            SELECT id, principal_id, hashed_secret, permissions_json, is_active
             FROM hxq_rbac_principals
             ORDER BY principal_id ASC
             """
         )
         return [
             RbacPrincipal(
-                principal_id=row[0],
-                hashed_secret=row[1],
-                roles=frozenset(json.loads(row[2])),
+                principal_id=row[1],
+                hashed_secret=row[2],
+                roles=self._fetch_roles_for_pk(int(row[0])),
                 permissions=frozenset(json.loads(row[3])),
                 is_active=bool(row[4]),
             )
@@ -143,7 +201,7 @@ class SqliteRbacPolicyAdapter(RbacPolicyPort):
         ]
 
     def delete_principal(self, principal_id: str) -> bool:
-        """Delete an RBAC principal from SQLite."""
+        """Delete an RBAC principal (cascading link rows) from SQLite."""
         cur = self._conn.execute(
             "DELETE FROM hxq_rbac_principals WHERE principal_id = ?",
             (principal_id,),
@@ -153,7 +211,7 @@ class SqliteRbacPolicyAdapter(RbacPolicyPort):
 
 
 class OracleAdbRbacPolicyAdapter(RbacPolicyPort):
-    """Oracle Autonomous Database implementation of RbacPolicyPort."""
+    """Normalized Oracle Autonomous Database implementation of RbacPolicyPort."""
 
     def __init__(
         self,
@@ -209,11 +267,30 @@ class OracleAdbRbacPolicyAdapter(RbacPolicyPort):
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS hxq_rbac_principals (
-                    principal_id VARCHAR2(128) PRIMARY KEY,
+                    id NUMBER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                    principal_id VARCHAR2(128) NOT NULL UNIQUE,
                     hashed_secret VARCHAR2(512) NOT NULL,
-                    roles_json CLOB NOT NULL,
                     permissions_json CLOB NOT NULL,
                     is_active NUMBER(1) NOT NULL
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS hxq_rbac_roles (
+                    id NUMBER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                    role_name VARCHAR2(64) NOT NULL UNIQUE
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS hxq_rbac_principal_roles (
+                    principal_pk NUMBER NOT NULL
+                        REFERENCES hxq_rbac_principals(id) ON DELETE CASCADE,
+                    role_pk NUMBER NOT NULL
+                        REFERENCES hxq_rbac_roles(id) ON DELETE CASCADE,
+                    CONSTRAINT uq_hxq_principal_role UNIQUE (principal_pk, role_pk)
                 )
                 """
             )
@@ -222,8 +299,21 @@ class OracleAdbRbacPolicyAdapter(RbacPolicyPort):
             cur.close()
         self._schema_initialized = True
 
+    def _fetch_roles_for_pk(self, cur: Any, principal_pk: int) -> frozenset[str]:
+        cur.execute(
+            """
+            SELECT r.role_name
+            FROM hxq_rbac_roles r
+            JOIN hxq_rbac_principal_roles pr ON pr.role_pk = r.id
+            WHERE pr.principal_pk = :1
+            """,
+            (principal_pk,),
+        )
+        roles = {str(r[0]) for r in cur.fetchall()}
+        return frozenset(roles) if roles else frozenset({"guest"})
+
     def get_principal(self, principal_id: str) -> RbacPrincipal | None:
-        """Fetch an RBAC principal from Oracle ADB."""
+        """Fetch an RBAC principal and its linked roles from Oracle ADB."""
         conn = self._connect()
         try:
             self._ensure_schema(conn)
@@ -231,7 +321,7 @@ class OracleAdbRbacPolicyAdapter(RbacPolicyPort):
             try:
                 cur.execute(
                     """
-                    SELECT principal_id, hashed_secret, roles_json, permissions_json, is_active
+                    SELECT id, principal_id, hashed_secret, permissions_json, is_active
                     FROM hxq_rbac_principals
                     WHERE principal_id = :1
                     """,
@@ -241,9 +331,9 @@ class OracleAdbRbacPolicyAdapter(RbacPolicyPort):
                 if row is None:
                     return None
                 return RbacPrincipal(
-                    principal_id=str(row[0]),
-                    hashed_secret=str(row[1]),
-                    roles=frozenset(json.loads(str(row[2]))),
+                    principal_id=str(row[1]),
+                    hashed_secret=str(row[2]),
+                    roles=self._fetch_roles_for_pk(cur, int(row[0])),
                     permissions=frozenset(json.loads(str(row[3]))),
                     is_active=bool(row[4]),
                 )
@@ -253,7 +343,7 @@ class OracleAdbRbacPolicyAdapter(RbacPolicyPort):
             conn.close()
 
     def upsert_principal(self, principal: RbacPrincipal) -> None:
-        """Insert or update an RBAC principal in Oracle ADB."""
+        """Insert or update an RBAC principal and its normalized role links in Oracle ADB."""
         conn = self._connect()
         try:
             self._ensure_schema(conn)
@@ -266,21 +356,62 @@ class OracleAdbRbacPolicyAdapter(RbacPolicyPort):
                     ON (dst.principal_id = src.principal_id)
                     WHEN MATCHED THEN UPDATE SET
                         hashed_secret = :2,
-                        roles_json = :3,
-                        permissions_json = :4,
-                        is_active = :5
+                        permissions_json = :3,
+                        is_active = :4
                     WHEN NOT MATCHED THEN INSERT
-                        (principal_id, hashed_secret, roles_json, permissions_json, is_active)
-                        VALUES (:1, :2, :3, :4, :5)
+                        (principal_id, hashed_secret, permissions_json, is_active)
+                        VALUES (:1, :2, :3, :4)
                     """,
                     (
                         principal.principal_id,
                         principal.hashed_secret,
-                        json.dumps(sorted(principal.roles)),
                         json.dumps(sorted(principal.permissions)),
                         1 if principal.is_active else 0,
                     ),
                 )
+                cur.execute(
+                    "SELECT id FROM hxq_rbac_principals WHERE principal_id = :1",
+                    (principal.principal_id,),
+                )
+                pk_row = cur.fetchone()
+                if pk_row is None:
+                    raise RuntimeError(
+                        f"Failed to resolve principal PK for '{principal.principal_id}'"
+                    )
+                principal_pk = int(pk_row[0])
+
+                cur.execute(
+                    "DELETE FROM hxq_rbac_principal_roles WHERE principal_pk = :1",
+                    (principal_pk,),
+                )
+                for role_name in sorted(principal.roles or frozenset({"guest"})):
+                    cur.execute(
+                        """
+                        MERGE INTO hxq_rbac_roles dst
+                        USING (SELECT :1 AS role_name FROM DUAL) src
+                        ON (dst.role_name = src.role_name)
+                        WHEN NOT MATCHED THEN INSERT (role_name) VALUES (:1)
+                        """,
+                        (role_name,),
+                    )
+                    cur.execute(
+                        "SELECT id FROM hxq_rbac_roles WHERE role_name = :1",
+                        (role_name,),
+                    )
+                    role_row = cur.fetchone()
+                    if role_row is None:
+                        raise RuntimeError(
+                            f"Failed to resolve role PK for '{role_name}'"
+                        )
+                    cur.execute(
+                        """
+                        MERGE INTO hxq_rbac_principal_roles dst
+                        USING (SELECT :1 AS principal_pk, :2 AS role_pk FROM DUAL) src
+                        ON (dst.principal_pk = src.principal_pk AND dst.role_pk = src.role_pk)
+                        WHEN NOT MATCHED THEN INSERT (principal_pk, role_pk) VALUES (:1, :2)
+                        """,
+                        (principal_pk, int(role_row[0])),
+                    )
                 conn.commit()
             finally:
                 cur.close()
@@ -288,7 +419,7 @@ class OracleAdbRbacPolicyAdapter(RbacPolicyPort):
             conn.close()
 
     def list_principals(self) -> list[RbacPrincipal]:
-        """List all RBAC principals from Oracle ADB."""
+        """List all RBAC principals and their linked roles from Oracle ADB."""
         conn = self._connect()
         try:
             self._ensure_schema(conn)
@@ -296,20 +427,21 @@ class OracleAdbRbacPolicyAdapter(RbacPolicyPort):
             try:
                 cur.execute(
                     """
-                    SELECT principal_id, hashed_secret, roles_json, permissions_json, is_active
+                    SELECT id, principal_id, hashed_secret, permissions_json, is_active
                     FROM hxq_rbac_principals
                     ORDER BY principal_id ASC
                     """
                 )
+                rows = cur.fetchall()
                 return [
                     RbacPrincipal(
-                        principal_id=str(row[0]),
-                        hashed_secret=str(row[1]),
-                        roles=frozenset(json.loads(str(row[2]))),
+                        principal_id=str(row[1]),
+                        hashed_secret=str(row[2]),
+                        roles=self._fetch_roles_for_pk(cur, int(row[0])),
                         permissions=frozenset(json.loads(str(row[3]))),
                         is_active=bool(row[4]),
                     )
-                    for row in cur.fetchall()
+                    for row in rows
                 ]
             finally:
                 cur.close()

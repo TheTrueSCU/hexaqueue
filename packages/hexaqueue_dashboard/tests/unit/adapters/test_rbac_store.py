@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -23,7 +22,7 @@ def _exercise_store(store: Any) -> None:
     p_admin = RbacPrincipal(
         principal_id="rjdw",
         hashed_secret="pbkdf2$hash-admin",
-        roles=frozenset({"admin"}),
+        roles=frozenset({"admin", "ci"}),
     )
     p_guest = RbacPrincipal(
         principal_id="guest-1",
@@ -34,7 +33,7 @@ def _exercise_store(store: Any) -> None:
 
     fetched = store.get_principal("rjdw")
     assert fetched is not None
-    assert fetched.roles == frozenset({"admin"})
+    assert fetched.roles == frozenset({"admin", "ci"})
 
     fetched_guest = store.get_principal("guest-1")
     assert fetched_guest is not None
@@ -51,16 +50,45 @@ def _exercise_store(store: Any) -> None:
 
 
 def test_in_memory_and_sqlite_rbac_stores(tmp_path: Path) -> None:
-    """Verify InMemoryRbacPolicyAdapter and SqliteRbacPolicyAdapter parity."""
+    """Verify InMemoryRbacPolicyAdapter and normalized SqliteRbacPolicyAdapter."""
     _exercise_store(InMemoryRbacPolicyAdapter())
     db_file = tmp_path / "rbac.db"
-    _exercise_store(SqliteRbacPolicyAdapter(db_path=db_file))
+    sqlite_store = SqliteRbacPolicyAdapter(db_path=db_file)
+    _exercise_store(sqlite_store)
     assert db_file.exists() is True
+
+    # Verify normalized 3-table schema, autoincrement PKs, and UNIQUE(principal_pk, role_pk)
+    with sqlite3.connect(db_file) as conn:
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        assert "hxq_rbac_principals" in tables
+        assert "hxq_rbac_roles" in tables
+        assert "hxq_rbac_principal_roles" in tables
+
+        # Cascade delete removed guest-1 links; only rjdw links remain
+        links = conn.execute(
+            "SELECT principal_pk, role_pk FROM hxq_rbac_principal_roles"
+        ).fetchall()
+        assert len(links) == 2
+
+        # Duplicate (principal_pk, role_pk) tuple must raise IntegrityError
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO hxq_rbac_principal_roles (principal_pk, role_pk) VALUES (?, ?)",
+                links[0],
+            )
 
 
 def test_oracle_adb_rbac_store_with_hermetic_connection() -> None:
-    """Verify OracleAdbRbacPolicyAdapter queries via injected DB-API connection."""
-    backing_rows: dict[str, tuple[str, str, str, str, int]] = {}
+    """Verify OracleAdbRbacPolicyAdapter normalized 3-table queries via fake DB-API."""
+    principals: dict[str, tuple[int, str, str, str, int]] = {}
+    roles: dict[str, tuple[int, str]] = {}
+    links: set[tuple[int, int]] = set()
+    seq = {"p": 0, "r": 0}
 
     class _FakeCursor:
         def __init__(self) -> None:
@@ -71,18 +99,54 @@ def test_oracle_adb_rbac_store_with_hermetic_connection() -> None:
             norm = " ".join(sql.split()).upper()
             if norm.startswith("CREATE TABLE"):
                 return
-            if norm.startswith("MERGE INTO"):
-                pid, secret, r_json, p_json, active = params
-                backing_rows[pid] = (pid, secret, r_json, p_json, active)
+            if norm.startswith("MERGE INTO HXQ_RBAC_PRINCIPALS"):
+                pid, secret, p_json, active = params
+                if pid in principals:
+                    pk = principals[pid][0]
+                else:
+                    seq["p"] += 1
+                    pk = seq["p"]
+                principals[pid] = (pk, pid, secret, p_json, active)
                 self.rowcount = 1
+            elif norm.startswith("MERGE INTO HXQ_RBAC_ROLES"):
+                (rname,) = params
+                if rname not in roles:
+                    seq["r"] += 1
+                    roles[rname] = (seq["r"], rname)
+                self.rowcount = 1
+            elif norm.startswith("MERGE INTO HXQ_RBAC_PRINCIPAL_ROLES"):
+                links.add((int(params[0]), int(params[1])))
+                self.rowcount = 1
+            elif norm.startswith("SELECT ID FROM HXQ_RBAC_PRINCIPALS"):
+                row = principals.get(params[0])
+                self._results = [(row[0],)] if row else []
+            elif norm.startswith("SELECT ID FROM HXQ_RBAC_ROLES"):
+                row = roles.get(params[0])
+                self._results = [(row[0],)] if row else []
+            elif norm.startswith("SELECT R.ROLE_NAME"):
+                pk = int(params[0])
+                id_to_name = {v[0]: v[1] for v in roles.values()}
+                self._results = [
+                    (id_to_name[r_pk],) for p_pk, r_pk in links if p_pk == pk
+                ]
             elif "WHERE PRINCIPAL_ID = :1" in norm and norm.startswith("SELECT"):
-                row = backing_rows.get(params[0])
+                row = principals.get(params[0])
                 self._results = [row] if row else []
-            elif norm.startswith("SELECT"):
-                self._results = [backing_rows[k] for k in sorted(backing_rows)]
-            elif norm.startswith("DELETE"):
-                existed = backing_rows.pop(params[0], None) is not None
-                self.rowcount = 1 if existed else 0
+            elif norm.startswith("SELECT ID, PRINCIPAL_ID"):
+                self._results = [principals[k] for k in sorted(principals)]
+            elif norm.startswith("DELETE FROM HXQ_RBAC_PRINCIPAL_ROLES"):
+                pk = int(params[0])
+                to_drop = {pair for pair in links if pair[0] == pk}
+                links.difference_update(to_drop)
+                self.rowcount = len(to_drop)
+            elif norm.startswith("DELETE FROM HXQ_RBAC_PRINCIPALS"):
+                removed = principals.pop(params[0], None)
+                if removed is not None:
+                    to_drop = {pair for pair in links if pair[0] == removed[0]}
+                    links.difference_update(to_drop)
+                    self.rowcount = 1
+                else:
+                    self.rowcount = 0
 
         def fetchone(self) -> Any:
             return self._results[0] if self._results else None
@@ -105,8 +169,10 @@ def test_oracle_adb_rbac_store_with_hermetic_connection() -> None:
 
     store = OracleAdbRbacPolicyAdapter(connection_factory=_FakeConn)
     _exercise_store(store)
-    assert "rjdw" in backing_rows
-    assert json.loads(backing_rows["rjdw"][2]) == ["admin"]
+    assert "rjdw" in principals
+    assert "admin" in roles
+    assert "ci" in roles
+    assert len(links) == 2
 
 
 def test_create_rbac_policy_store_selection(
@@ -125,5 +191,3 @@ def test_create_rbac_policy_store_selection(
 
     oracle_store = create_rbac_policy_store(oracle_dsn="hexaqueue_adb_high")
     assert isinstance(oracle_store, OracleAdbRbacPolicyAdapter)
-    # Silence unused import lint if sqlite3 is only used for type parity
-    assert sqlite3.sqlite_version is not None
