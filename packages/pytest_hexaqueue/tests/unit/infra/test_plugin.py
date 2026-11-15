@@ -956,12 +956,11 @@ def test_normalize_cov_sources_and_managed_ssh_tunnel(
 
     key_file = tmp_path / "id_ed25519"
     key_file.write_text("dummy-key", encoding="utf-8")
-    monkeypatch.setattr(
-        "hexaqueue_core.domain.credentials.discover_and_merge_env", dict
-    )
+    monkeypatch.setattr("pytest_hexaqueue.infra.plugin.discover_and_merge_env", dict)
 
     prof_no_host = HexaqueueProfileConfig(host=None)
-    assert _build_tunnel_command(prof_no_host) is None
+    cmd_no_host = _build_tunnel_command(prof_no_host)
+    assert cmd_no_host is None
 
     prof_host = HexaqueueProfileConfig(
         host="129.146.115.79",
