@@ -1623,6 +1623,8 @@ dependencies = [
     { name = "hexastack-fastapi" },
     { name = "hexastack-grpc" },
     { name = "hexastack-ui", extra = ["nicegui"] },
+    { name = "httpx" },
+    { name = "pydantic" },
 ]
 
 [package.metadata]
@@ -1636,6 +1638,8 @@ requires-dist = [
     { name = "hexastack-fastapi", specifier = ">=0.11.0" },
     { name = "hexastack-grpc", specifier = ">=0.11.0" },
     { name = "hexastack-ui", extras = ["nicegui"], specifier = ">=0.11.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "pydantic", specifier = ">=2.0.0" },
 ]
 
 [[package]]

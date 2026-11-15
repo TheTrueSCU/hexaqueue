@@ -5,6 +5,9 @@ from hexaqueue_dashboard.adapters.auth import (
     create_auth_router,
 )
 from hexaqueue_dashboard.adapters.nicegui_ui import mount_dashboard_ui
+from hexaqueue_dashboard.adapters.remote_controller import (
+    HttpSchedulerControllerAdapter,
+)
 from hexaqueue_dashboard.adapters.web import (
     create_dashboard_router,
     get_pipeline,
@@ -15,5 +18,6 @@ __all__ = [
     "create_dashboard_router",
     "DashboardAuthManager",
     "get_pipeline",
+    "HttpSchedulerControllerAdapter",
     "mount_dashboard_ui",
 ]
