@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+import pytest
 from fastapi import FastAPI
+from hexastack_auth.domain.models import Identity
 from nicegui import app as nicegui_app
 
 from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
+from hexaqueue_dashboard.adapters import nicegui_ui
 from hexaqueue_dashboard.adapters.auth import DashboardAuthManager
-from hexaqueue_dashboard.adapters.nicegui_ui import mount_dashboard_ui
+from hexaqueue_dashboard.adapters.nicegui_ui import (
+    _render_console_panel,
+    _render_jobs_section,
+    _render_login_panel,
+    _resolve_session_identity,
+    mount_dashboard_ui,
+)
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
 from hexaqueue_server.infra.cqrs import create_hexaqueue_execution_pipeline
 
@@ -27,3 +38,65 @@ def test_mount_dashboard_ui_registers_nicegui_and_auth_manager() -> None:
     route_paths = {getattr(r, "path", "") for r in nicegui_app.routes}
     has_ui_route = "/dashboard/ui" in route_paths
     assert has_ui_route is True
+
+
+class _FakeElement:
+    def __init__(self, value: str = "") -> None:
+        self.value = value
+        self.text = ""
+
+    def __enter__(self) -> _FakeElement:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def classes(self, *_args: object, **_kwargs: object) -> _FakeElement:
+        return self
+
+    def props(self, *_args: object, **_kwargs: object) -> _FakeElement:
+        return self
+
+    def tooltip(self, *_args: object, **_kwargs: object) -> _FakeElement:
+        return self
+
+
+@pytest.mark.asyncio
+async def test_nicegui_ui_identity_and_panels(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify NiceGUI identity resolution, login panel, and console rendering."""
+    fake_storage = SimpleNamespace(user={})
+    monkeypatch.setattr(nicegui_ui.nicegui_app, "storage", fake_storage)
+
+    fake_ui = SimpleNamespace(
+        card=lambda *_a, **_k: _FakeElement(),
+        row=lambda *_a, **_k: _FakeElement(),
+        column=lambda *_a, **_k: _FakeElement(),
+        label=lambda *_a, **_k: _FakeElement(),
+        input=lambda *_a, **_k: _FakeElement(),
+        button=lambda *_a, **_k: _FakeElement(),
+        separator=lambda *_a, **_k: _FakeElement(),
+        notify=lambda *_a, **_k: None,
+        navigate=SimpleNamespace(reload=lambda: None),
+        header=lambda *_a, **_k: _FakeElement(),
+    )
+    monkeypatch.setattr(nicegui_ui, "ui", fake_ui)
+
+    manager = DashboardAuthManager(jwt_secret="test-secret-for-nicegui-mount-32bytes")
+    assert _resolve_session_identity(manager) is None
+
+    fake_storage.user["jwt"] = "not-a-valid-jwt"
+    assert _resolve_session_identity(manager) is None
+
+    ident = Identity(user_id="rjdw", roles=frozenset({"admin"}))
+    fake_storage.user["jwt"] = manager.issue_token(ident)
+    resolved = _resolve_session_identity(manager)
+    assert resolved is not None
+    assert resolved.user_id == "rjdw"
+
+    _render_login_panel(manager)
+
+    queue = InMemoryJobQueueAdapter()
+    controller = LocalSchedulerControllerAdapter(queue=queue)
+    pipeline = create_hexaqueue_execution_pipeline(controller=controller)
+    await _render_jobs_section(pipeline, ident)
+    await _render_console_panel(pipeline, ident)
