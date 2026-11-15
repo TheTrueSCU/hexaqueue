@@ -78,6 +78,8 @@ async def test_nicegui_ui_identity_and_panels(monkeypatch: pytest.MonkeyPatch) -
         notify=lambda *_a, **_k: None,
         navigate=SimpleNamespace(reload=lambda: None),
         header=lambda *_a, **_k: _FakeElement(),
+        html=lambda *_a, **_k: _FakeElement(),
+        add_body_html=lambda *_a, **_k: None,
     )
     monkeypatch.setattr(nicegui_ui, "ui", fake_ui)
 

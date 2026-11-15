@@ -139,6 +139,7 @@ def test_dashboard_ui_wcag_accessibility(
     page.get_by_role("button", name="Sign in to Hexaqueue Dashboard").click()
 
     expect(page.get_by_text("Hexaqueue Operator Console")).to_be_visible()
+    expect(page.get_by_text("Live", exact=True)).to_be_visible()
     expect(page.get_by_text("wcag_audit_job")).to_be_visible()
 
     console_violations = run_axe_scan(page)

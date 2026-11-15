@@ -9,8 +9,10 @@ Notes/Architectural Intent:
 
 from __future__ import annotations
 
+import importlib.resources
 import os
 import secrets
+from pathlib import Path
 
 from fastapi import FastAPI
 from hexastack_auth.domain.models import Identity
@@ -129,20 +131,68 @@ async def _render_jobs_section(
             ).props(f'aria-label="Kill job {job.id}"').tooltip(f"Cancel job {job.id}")
 
 
+def _resolve_static_dir() -> Path | None:
+    """Resolve the static asset directory using PEP 451/616 importlib.resources.
+
+    Returns:
+        Path to static asset directory if present, otherwise None.
+    """
+    try:
+        traversable = importlib.resources.files(
+            "hexaqueue_dashboard.adapters"
+        ).joinpath("static")
+        if traversable.is_dir():
+            if isinstance(traversable, Path):
+                return traversable
+            candidate = Path(str(traversable))
+            if candidate.is_dir():
+                return candidate
+    except (TypeError, FileNotFoundError, ModuleNotFoundError):
+        pass
+    fallback = Path(__file__).parent / "static"
+    return fallback if fallback.is_dir() else None
+
+
+def _render_live_status_widget(script_url: str | None) -> None:
+    """Render an accessible heartbeat badge polling `/dashboard/health`.
+
+    Args:
+        script_url: URL returned by `nicegui_app.add_static_file` for `live_status.js`.
+    """
+    ui.html(
+        '<span id="hq-live-badge" role="status" aria-live="polite" '
+        'style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;'
+        "border-radius:9999px;font-size:0.75rem;font-weight:600;"
+        'background-color:#15803d;color:#ffffff;">'
+        '<span id="hq-live-dot" aria-hidden="true" '
+        'style="width:8px;height:8px;border-radius:9999px;background-color:#86efac;">'
+        "</span>"
+        '<span id="hq-live-text">Live</span>'
+        "</span>",
+        sanitize=False,
+    )
+    if script_url:
+        ui.add_body_html(f'<script src="{script_url}" defer></script>')
+
+
 async def _render_console_panel(
     pipeline: ExecutionPipeline,
     identity: Identity,
+    *,
+    live_status_js_url: str | None = None,
 ) -> None:
     """Render the authenticated Hexaqueue operator console.
 
     Args:
         pipeline: Shared CQRS ExecutionPipeline.
         identity: Verified caller Identity.
+        live_status_js_url: Optional URL for the static `live_status.js` script.
     """
     roles_label = ", ".join(sorted(identity.roles))
     with ui.header().classes("items-center justify-between px-6"):
         ui.label("Hexaqueue Operator Console").classes("text-lg font-bold")
         with ui.row().classes("items-center gap-3"):
+            _render_live_status_widget(live_status_js_url)
             ui.label(f"{identity.user_id} ({roles_label})").classes("text-sm")
             ui.button(
                 "Refresh",
@@ -200,6 +250,14 @@ def mount_dashboard_ui(
     )
     app.state.auth_manager = manager
 
+    static_dir = _resolve_static_dir()
+    live_status_js_path = static_dir / "live_status.js" if static_dir else None
+    live_status_js_url = (
+        nicegui_app.add_static_file(local_file=live_status_js_path)
+        if live_status_js_path is not None and live_status_js_path.is_file()
+        else None
+    )
+
     @ui_page(mount_path, title="Hexaqueue Operator Console", dark=True)
     async def _dashboard_page() -> None:
         ui.colors(primary="#1d4ed8", negative="#b91c1c")
@@ -207,7 +265,11 @@ def mount_dashboard_ui(
         if identity is None:
             _render_login_panel(manager)
             return
-        await _render_console_panel(pipeline, identity)
+        await _render_console_panel(
+            pipeline,
+            identity,
+            live_status_js_url=live_status_js_url,
+        )
 
     storage_secret = os.environ.get("HEXAQUEUE_JWT_SECRET") or secrets.token_urlsafe(32)
     ui.run_with(

@@ -532,6 +532,15 @@ def create_dashboard_router(
             CancelRunCommand(run_id=run_id, user_id=user_id, elevate=is_elevated),
         )
 
+    # 0. Tunnel & Host Heartbeat
+    @router.get(
+        "/health",
+        summary="Lightweight dashboard tunnel & host heartbeat",
+    )
+    def dashboard_health() -> dict[str, str]:
+        """Return lightweight liveness indicator for the dashboard heartbeat widget."""
+        return {"status": "live"}
+
     return router
 
 
