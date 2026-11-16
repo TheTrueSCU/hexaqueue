@@ -14,6 +14,7 @@ from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import JobState, JobStatus, TerminalOutcome
 from hexaqueue_core.domain.run import RunSpec
+from hexaqueue_core.ports.logging import LogChunk
 from hexaqueue_dashboard.adapters import nicegui_ui
 from hexaqueue_dashboard.adapters.auth import DashboardAuthManager
 from hexaqueue_dashboard.adapters.nicegui_ui import (
@@ -315,9 +316,80 @@ async def test_jobs_table_filtering_badges_and_lifecycle_actions(
     assert children[0]["job_id"] == "j-root"
     assert children[0]["children"][0]["job_id"] == "j-child"
 
-    tree_ui = SimpleNamespace(
+    # Verify job and run inspection drawers (logs, explainability, DAG links, callbacks)
+    drawer_buttons: dict[str, Any] = {}
+    tree_select_cbs: list[Any] = []
+
+    def _capture_drawer_btn(
+        label: str = "", *_a: object, **kwargs: Any
+    ) -> _FakeElement:
+        if "on_click" in kwargs:
+            drawer_buttons[label] = kwargs["on_click"]
+        return _FakeElement()
+
+    def _capture_tree(*_a: object, **kwargs: Any) -> _FakeElement:
+        if "on_select" in kwargs:
+            tree_select_cbs.append(kwargs["on_select"])
+        return _FakeElement()
+
+    drawer_ui = SimpleNamespace(
         label=lambda *_a, **_k: _FakeElement(),
-        tree=lambda *_a, **_k: _FakeElement(),
+        tree=_capture_tree,
+        row=lambda *_a, **_k: _FakeElement(),
+        card=lambda *_a, **_k: _FakeElement(),
+        dialog=lambda *_a, **_k: _FakeElement(),
+        button=_capture_drawer_btn,
+        html=lambda *_a, **_k: _FakeElement(),
+        notify=lambda *_a, **_k: None,
+        navigate=SimpleNamespace(reload=lambda: None),
     )
-    monkeypatch.setattr(nicegui_ui, "ui", tree_ui)
-    nicegui_ui._render_runs_section(runs_list, dag_jobs)
+    monkeypatch.setattr(nicegui_ui, "ui", drawer_ui)
+    nicegui_ui._render_runs_section(pipeline, ident, runs_list, dag_jobs)
+
+    run_report = next(r for r in runs_list if r.run_id == "r-dag")
+    root_job = next(j for j in dag_jobs if j.id == "j-root")
+    child_dag_job = next(j for j in dag_jobs if j.id == "j-child")
+    filtered_runs: list[str] = []
+
+    await nicegui_ui._open_job_inspection_drawer(
+        pipeline,
+        ident,
+        child_dag_job,
+        run_report=run_report,
+        all_jobs=dag_jobs,
+        on_mutated=_on_mutated,
+        on_filter_run=filtered_runs.append,
+    )
+    drawer_buttons["Filter Table to Run"]()
+    assert filtered_runs == ["r-dag"]
+    await drawer_buttons["Parent: j-root"]()
+    await drawer_buttons["Child: j-child"]()
+    await drawer_buttons["Inspect Run"]()
+
+    await nicegui_ui._open_run_inspection_drawer(
+        pipeline,
+        ident,
+        run_report,
+        dag_jobs,
+        on_mutated=_on_mutated,
+        on_filter_run=filtered_runs.append,
+    )
+    drawer_buttons["Filter Jobs Table to Run"]()
+    drawer_buttons["Cancel Run"]()
+    await tree_select_cbs[0](SimpleNamespace(value="run:r-dag"))
+    await tree_select_cbs[0](SimpleNamespace(value="job:j-root"))
+
+    nicegui_ui._render_drawer_explain_and_logs(
+        None,
+        "err",
+        [LogChunk(job_id="j-root", offset=0, stream="stdout", content="hello")],
+        None,
+    )
+    nicegui_ui._render_drawer_explain_and_logs(None, "err", [], "no logs")
+    await nicegui_ui._open_job_inspection_drawer(
+        pipeline,
+        ident,
+        root_job,
+        run_report=run_report,
+        all_jobs=dag_jobs,
+    )

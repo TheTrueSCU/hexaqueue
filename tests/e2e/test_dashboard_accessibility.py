@@ -151,3 +151,17 @@ def test_dashboard_ui_wcag_accessibility(
     assert crit_console_count == 0, (
         f"Accessibility violations on operator console: {critical_console}"
     )
+
+    # 3. Open the Job Inspection Drawer and audit under WCAG 2.1 AA
+    page.get_by_role("button", name="Inspect job a11y-job-1").click()
+    expect(page.get_by_text("Scheduler Explainability")).to_be_visible()
+    expect(page.get_by_text("Execution Logs")).to_be_visible()
+
+    drawer_violations = run_axe_scan(page)
+    critical_drawer = [
+        v for v in drawer_violations if v.get("impact") in ("critical", "serious")
+    ]
+    crit_drawer_count = len(critical_drawer)
+    assert crit_drawer_count == 0, (
+        f"Accessibility violations in inspection drawer: {critical_drawer}"
+    )
