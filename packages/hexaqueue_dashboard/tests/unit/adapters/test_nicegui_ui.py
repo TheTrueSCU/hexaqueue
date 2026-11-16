@@ -318,6 +318,30 @@ async def test_jobs_table_filtering_badges_and_lifecycle_actions(
     tree_ui = SimpleNamespace(
         label=lambda *_a, **_k: _FakeElement(),
         tree=lambda *_a, **_k: _FakeElement(),
+        row=lambda *_a, **_k: _FakeElement(),
+        card=lambda *_a, **_k: _FakeElement(),
+        dialog=lambda *_a, **_k: _FakeElement(),
+        button=lambda *_a, **_k: _FakeElement(),
+        html=lambda *_a, **_k: _FakeElement(),
+        notify=lambda *_a, **_k: None,
+        navigate=SimpleNamespace(reload=lambda: None),
     )
     monkeypatch.setattr(nicegui_ui, "ui", tree_ui)
-    nicegui_ui._render_runs_section(runs_list, dag_jobs)
+    nicegui_ui._render_runs_section(pipeline, ident, runs_list, dag_jobs)
+
+    # Verify job and run inspection drawers (logs, explainability, DAG links)
+    run_report = next(r for r in runs_list if r.run_id == "r-dag")
+    root_job = next(j for j in dag_jobs if j.id == "j-root")
+    await nicegui_ui._open_job_inspection_drawer(
+        pipeline,
+        ident,
+        root_job,
+        run_report=run_report,
+        all_jobs=dag_jobs,
+    )
+    await nicegui_ui._open_run_inspection_drawer(
+        pipeline,
+        ident,
+        run_report,
+        dag_jobs,
+    )
