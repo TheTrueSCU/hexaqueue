@@ -217,6 +217,28 @@ def _filter_jobs(
     return filtered
 
 
+def _compute_filtered_kpi_counts(
+    jobs: list[JobSpec],
+    *,
+    search_text: str = "",
+    status_filter: str = "ALL",
+) -> tuple[int, int, int, bool]:
+    """Compute (total, running, pending, is_filtered) counts for KPI cards."""
+    is_filtered = bool(
+        search_text.strip() or status_filter.strip().upper() not in ("", "ALL")
+    )
+    filtered = _filter_jobs(jobs, search_text=search_text, status_filter=status_filter)
+    running = sum(
+        1
+        for j in filtered
+        if _resolve_display_status(j) in ("RUNNING", "PROVISIONING", "CLEANUP")
+    )
+    pending = sum(
+        1 for j in filtered if _resolve_display_status(j) in ("PENDING", "SUBMITTED")
+    )
+    return len(filtered), running, pending, is_filtered
+
+
 def _build_job_rows(jobs: list[JobSpec]) -> list[dict[str, object]]:
     """Transform JobSpec objects into sortable ui.table row dictionaries."""
     rows: list[dict[str, object]] = []
@@ -1112,13 +1134,23 @@ async def _render_console_panel(
     @ui.refreshable
     async def _cluster_body() -> None:
         stats, nodes, jobs, runs, _fp = snapshot_box[0]
+        total_cnt, running_cnt, pending_cnt, is_filtered = _compute_filtered_kpi_counts(
+            jobs,
+            search_text=filter_state.get("search", ""),
+            status_filter=filter_state.get("status", "ALL"),
+        )
+        total_label = (
+            f"Total Jobs: {total_cnt} / {stats.total_jobs}"
+            if is_filtered
+            else f"Total Jobs: {total_cnt}"
+        )
         with ui.row().classes("w-full gap-4 mt-4"):
             with ui.card().classes("p-4"):
-                ui.label(f"Total Jobs: {stats.total_jobs}").classes("font-semibold")
+                ui.label(total_label).classes("font-semibold")
             with ui.card().classes("p-4"):
-                ui.label(f"Running: {stats.running_jobs}").classes("font-semibold")
+                ui.label(f"Running: {running_cnt}").classes("font-semibold")
             with ui.card().classes("p-4"):
-                ui.label(f"Pending: {stats.pending_jobs}").classes("font-semibold")
+                ui.label(f"Pending: {pending_cnt}").classes("font-semibold")
             with ui.card().classes("p-4"):
                 ui.label(f"Active Nodes: {len(nodes)}").classes("font-semibold")
 
@@ -1163,12 +1195,16 @@ async def _render_console_panel(
     with ui.row().classes("w-full items-center gap-3 mt-4"):
 
         def _on_search_change(ev: object) -> None:
-            filter_state["search"] = str(getattr(ev, "value", "") or "")
-            _cluster_body.refresh()
+            new_val = str(getattr(ev, "value", "") or "")
+            if new_val != filter_state["search"]:
+                filter_state["search"] = new_val
+                _cluster_body.refresh()
 
         def _on_status_change(ev: object) -> None:
-            filter_state["status"] = str(getattr(ev, "value", "ALL") or "ALL")
-            _cluster_body.refresh()
+            new_val = str(getattr(ev, "value", "ALL") or "ALL")
+            if new_val != filter_state["status"]:
+                filter_state["status"] = new_val
+                _cluster_body.refresh()
 
         filter_controls["search_input"] = (
             ui.input(
