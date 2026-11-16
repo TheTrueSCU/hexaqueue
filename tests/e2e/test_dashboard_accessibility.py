@@ -152,6 +152,25 @@ def test_dashboard_ui_wcag_accessibility(
         f"Accessibility violations on operator console: {critical_console}"
     )
 
+    # 2b. Switch to Active Nodes & Topology view and audit under WCAG 2.1 AA
+    page.get_by_role("button", name="Switch to Active Nodes and Topology view").click()
+    expect(page.get_by_text("Cluster Topology", exact=True)).to_be_visible()
+    expect(
+        page.get_by_role("img", name="Hexaqueue cluster topology diagram")
+    ).to_be_visible()
+
+    nodes_violations = run_axe_scan(page)
+    critical_nodes = [
+        v for v in nodes_violations if v.get("impact") in ("critical", "serious")
+    ]
+    crit_nodes_count = len(critical_nodes)
+    assert crit_nodes_count == 0, (
+        f"Accessibility violations on Active Nodes & Topology view: {critical_nodes}"
+    )
+
+    page.get_by_role("button", name="Switch to Runs and Jobs view").click()
+    expect(page.get_by_text("wcag_audit_job")).to_be_visible()
+
     # 3. Open the Job Inspection Drawer and audit under WCAG 2.1 AA
     page.get_by_role("button", name="Inspect job a11y-job-1").click()
     page.mouse.move(0, 0)

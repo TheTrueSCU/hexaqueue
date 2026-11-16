@@ -9,6 +9,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "diagrams>=0.24.0",
     "hexaqueue-core",
     "hexaqueue-server",
     "hexaqueue-worker",
