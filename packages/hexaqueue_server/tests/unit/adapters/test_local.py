@@ -44,6 +44,7 @@ from hexaqueue_monitor.adapters.ledger import InMemoryBudgetLedgerAdapter
 from hexaqueue_monitor.adapters.local import LocalClusterMonitorAdapter
 from hexaqueue_monitor.adapters.rates import NormalizedCostRateModelAdapter
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
+from hexaqueue_server.adapters.storage.in_memory import InMemorySchedulerStorageAdapter
 from hexaqueue_server.domain.lease_coordinator import SliceLeaseCoordinator
 from hexaqueue_server.domain.models import RunSubmission
 
@@ -1484,3 +1485,45 @@ async def test_local_controller_integrated_with_lease_coordinator() -> None:
     assert run_status.outcome == RunOutcome.SUCCEEDED
     assert run_status.completed_jobs == 2
     assert run_status.failed_jobs == 0
+
+
+@pytest.mark.anyio
+async def test_local_controller_persists_and_hydrates_from_storage() -> None:
+    """Verify controller writes runs, jobs, and nodes to storage and hydrates after restart."""
+    storage = InMemorySchedulerStorageAdapter()
+    q1 = InMemoryJobQueueAdapter()
+    ctrl1 = LocalSchedulerControllerAdapter(queue=q1, storage=storage)
+
+    node = ComputeNodeProfile(node_id="node-persist-1")
+    await ctrl1.register_node(node)
+
+    run_spec = RunSpec(id="run-persist-1", name="persist-run")
+    job_spec = JobSpec(
+        id="job-persist-1",
+        run_id="run-persist-1",
+        name="persist-job",
+        command="echo ok",
+    )
+    submission = RunSubmission(run_spec=run_spec, jobs=[job_spec])
+    initial_status = await ctrl1.submit_run(submission)
+    assert initial_status.run_id == "run-persist-1"
+
+    await ctrl1.mark_job_running("job-persist-1", "node-persist-1")
+    await ctrl1.update_job_outcome("job-persist-1", TerminalOutcome.COMPLETED)
+
+    # Simulate controller restart with a fresh LocalSchedulerControllerAdapter backed by same storage
+    q2 = InMemoryJobQueueAdapter()
+    ctrl2 = LocalSchedulerControllerAdapter(queue=q2, storage=storage)
+
+    hydrated_jobs = await ctrl2.list_jobs()
+    assert len(hydrated_jobs) == 1
+    assert hydrated_jobs[0].id == "job-persist-1"
+    assert hydrated_jobs[0].outcome == TerminalOutcome.COMPLETED
+
+    hydrated_status = await ctrl2.get_run_status("run-persist-1")
+    assert hydrated_status.state == RunState.DONE
+    assert hydrated_status.completed_jobs == 1
+
+    hydrated_nodes = await ctrl2.list_nodes()
+    assert len(hydrated_nodes) == 1
+    assert hydrated_nodes[0].node_id == "node-persist-1"

@@ -29,12 +29,16 @@ from hexaqueue_server.adapters.cloud.oci import OciInstancePoolAdapter
 from hexaqueue_server.adapters.local import (
     LocalSchedulerControllerAdapter,
 )
+from hexaqueue_server.adapters.storage.in_memory import InMemorySchedulerStorageAdapter
+from hexaqueue_server.adapters.storage.oracle import OciAutonomousDatabaseStorageAdapter
 from hexaqueue_server.domain.autoscaler import BudgetAwareInstancePoolAutoscaler
 from hexaqueue_server.domain.config import ServerConfig
 from hexaqueue_server.domain.lease_coordinator import SliceLeaseCoordinator
 from hexaqueue_server.infra.cqrs.pipeline import (
     create_hexaqueue_execution_pipeline,
 )
+from hexaqueue_server.ports.controller import SchedulerControllerPort
+from hexaqueue_server.ports.storage import SchedulerStoragePort
 
 
 def _resolve_storage_port(
@@ -90,11 +94,26 @@ def _resolve_coordinator(
     return coordinator
 
 
+def _resolve_scheduler_storage(di: ContainerPort) -> SchedulerStoragePort:
+    """Resolve or construct SchedulerStoragePort implementation."""
+    storage = di.resolve(SchedulerStoragePort) if SchedulerStoragePort in di else None
+    if storage is not None:
+        return storage
+
+    if OciAutonomousDatabaseStorageAdapter.is_adb_configured():
+        storage = OciAutonomousDatabaseStorageAdapter.from_env()
+    else:
+        storage = InMemorySchedulerStorageAdapter()
+    di.add_instance(storage, declared_class=SchedulerStoragePort)
+    return storage
+
+
 def _resolve_pipeline(
     di: ContainerPort,
     coordinator: SliceLeaseCoordinator,
     storage_port: PresignedStoragePort,
     collateral_service: CollateralServicePort,
+    scheduler_storage: SchedulerStoragePort,
 ) -> ExecutionPipeline:
     """Resolve or construct ExecutionPipeline and wire coordinator controller."""
     pipeline = di.resolve(ExecutionPipeline) if ExecutionPipeline in di else None
@@ -117,7 +136,9 @@ def _resolve_pipeline(
         budget_port=budget_port,
         cluster_monitor=cluster_monitor,
         lease_coordinator=coordinator,
+        storage=scheduler_storage,
     )
+    di.add_instance(controller, declared_class=SchedulerControllerPort)
     coordinator.set_controller(controller)
 
     pipeline = create_hexaqueue_execution_pipeline(
@@ -158,6 +179,7 @@ def bootstrap_server_container(
     )
 
     storage_port = _resolve_storage_port(di, provider, pool_id)
+    scheduler_storage = _resolve_scheduler_storage(di)
 
     collateral_service = (
         di.resolve(CollateralServicePort) if CollateralServicePort in di else None
@@ -172,12 +194,9 @@ def bootstrap_server_container(
     coordinator = _resolve_coordinator(
         di, storage_port, collateral_service, provider, pool_id
     )
-    _resolve_pipeline(di, coordinator, storage_port, collateral_service)
-
-    if ServerConfig not in di:
-        di.add_instance(server_cfg, declared_class=ServerConfig)
-
-    return di
+    _resolve_pipeline(
+        di, coordinator, storage_port, collateral_service, scheduler_storage
+    )
 
     if ServerConfig not in di:
         di.add_instance(server_cfg, declared_class=ServerConfig)

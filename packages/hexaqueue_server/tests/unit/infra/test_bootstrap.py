@@ -2,6 +2,7 @@
 
 from unittest.mock import patch
 
+import pytest
 from hexastack_core.infra.container import create_container
 from hexastack_cqrs.infra.pipeline import ExecutionPipeline
 
@@ -9,12 +10,19 @@ from hexaqueue_collateral.ports.service import CollateralServicePort
 from hexaqueue_core.infra.bootstrap import HexaqueueBootstrapContext
 from hexaqueue_core.infra.registries import HexaqueueConfigRegistry
 from hexaqueue_core.ports.storage import PresignedStoragePort
+from hexaqueue_server.adapters.storage.in_memory import (
+    InMemorySchedulerStorageAdapter,
+)
+from hexaqueue_server.adapters.storage.oracle import (
+    OciAutonomousDatabaseStorageAdapter,
+)
 from hexaqueue_server.domain.config import ServerConfig
 from hexaqueue_server.domain.lease_coordinator import SliceLeaseCoordinator
 from hexaqueue_server.infra.bootstrap import (
     ServerBootstrapper,
     bootstrap_server_container,
 )
+from hexaqueue_server.ports.storage import SchedulerStoragePort
 
 
 def test_server_bootstrapper() -> None:
@@ -80,3 +88,21 @@ def test_bootstrap_server_container_oci_configured() -> None:
         coord = di.resolve(SliceLeaseCoordinator)
         autoscaler_active = coord.has_autoscaler
         assert autoscaler_active is True
+
+
+def test_bootstrap_server_container_wires_scheduler_storage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify bootstrap_server_container registers SchedulerStoragePort into DI and controller."""
+    monkeypatch.delenv("HEXAQUEUE_ORACLE_ADB_DSN", raising=False)
+    monkeypatch.delenv("HEXAQUEUE_ORACLE_ADB_PASSWORD", raising=False)
+    monkeypatch.delenv("HEXAQUEUE_DATABASE_URL", raising=False)
+
+    di_mem = bootstrap_server_container()
+    mem_storage = di_mem.resolve(SchedulerStoragePort)
+    assert isinstance(mem_storage, InMemorySchedulerStorageAdapter)
+
+    monkeypatch.setenv("HEXAQUEUE_DATABASE_URL", "sqlite:///:memory:")
+    di_adb = bootstrap_server_container()
+    adb_storage = di_adb.resolve(SchedulerStoragePort)
+    assert isinstance(adb_storage, OciAutonomousDatabaseStorageAdapter)
