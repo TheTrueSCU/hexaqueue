@@ -44,7 +44,7 @@ from hexaqueue_core.domain.cqrs import (
 )
 from hexaqueue_core.domain.explainability import SchedulingDecisionReport
 from hexaqueue_core.domain.job import JobSpec
-from hexaqueue_core.domain.lifecycle import JobState
+from hexaqueue_core.domain.lifecycle import JobState, RunState
 from hexaqueue_core.ports.logging import LogChunk
 from hexaqueue_dashboard.adapters.auth import DashboardAuthManager
 from hexaqueue_server.domain.models import RunStatusReport
@@ -106,8 +106,11 @@ _STATUS_BADGE_COLORS: dict[str, str] = {
     "SUBMITTED": "#92400e",
     "PROVISIONING": "#92400e",
     "HELD": "#6b21a8",
+    "IN_PROGRESS": "#0f766e",
     "COMPLETED": "#15803d",
+    "SUCCEEDED": "#15803d",
     "FAILED": "#b91c1c",
+    "PARTIALLY_FAILED": "#b91c1c",
     "TIMED_OUT": "#b91c1c",
     "BLOCKED": "#b91c1c",
     "CANCELLED": "#374151",
@@ -168,6 +171,26 @@ def _resolve_display_status(job: JobSpec) -> str:
     if job.state == JobState.BLOCKED and job.status.reason == "Administratively held":
         return "HELD"
     return str(job.state)
+
+
+def _resolve_run_display_status(run: RunStatusReport) -> str:
+    """Resolve user-facing badge status string for a RunStatusReport.
+
+    Distinguishes PENDING (all jobs pending, none running or completed),
+    RUNNING (one or more jobs actively running), IN_PROGRESS (mixed completed
+    and pending jobs with none currently running), and terminal/blocked states.
+    """
+    if run.outcome is not None:
+        return str(run.outcome)
+    if run.state == RunState.BLOCKED:
+        return "BLOCKED"
+    if run.running_jobs > 0:
+        return "RUNNING"
+    if run.completed_jobs + run.failed_jobs == 0:
+        return "PENDING" if run.pending_jobs > 0 else str(run.state)
+    if run.pending_jobs > 0:
+        return "IN_PROGRESS"
+    return str(run.state)
 
 
 def _filter_jobs(
@@ -506,7 +529,7 @@ async def _open_run_inspection_drawer(
     on_filter_run: Callable[[str], None] | None = None,
 ) -> None:
     """Open slide-over inspection drawer for a pipeline Run and its child jobs."""
-    run_status = str(run_report.outcome or run_report.state)
+    run_status = _resolve_run_display_status(run_report)
     badge_bg = _STATUS_BADGE_COLORS.get(run_status, "#374151")
     run_jobs = [j for j in all_jobs if j.run_id == run_report.run_id]
 
@@ -849,7 +872,7 @@ def _build_single_run_tree_node(
     run_jobs: list[JobSpec],
 ) -> dict[str, object]:
     """Build a single Run tree node with its nested DAG job children."""
-    run_status = str(run.outcome or run.state)
+    run_status = _resolve_run_display_status(run)
     jobs_by_id = {j.id: j for j in run_jobs}
     children_map: dict[str, list[str]] = {}
     for child_id, parents in run.dependencies.items():
@@ -896,7 +919,7 @@ def _build_run_tree_nodes(
 
     tree_nodes: list[dict[str, object]] = []
     for run in runs:
-        run_status = str(run.outcome or run.state)
+        run_status = _resolve_run_display_status(run)
         if target_status not in ("", "ALL") and run_status != target_status:
             continue
         if needle and needle not in f"{run.run_id} {run.name or ''}".casefold():
@@ -1044,6 +1067,7 @@ async def _render_console_panel(
         ]
     ] = [await _fetch_cluster_snapshot(pipeline, identity)]
     filter_state: dict[str, str] = {"search": "", "status": "ALL"}
+    filter_controls: dict[str, Any] = {}
 
     def _notify_live_badge(changed: bool) -> None:
         flag = "true" if changed else "false"
@@ -1069,6 +1093,20 @@ async def _render_console_panel(
 
     def _filter_to_run(run_id: str) -> None:
         filter_state["search"] = run_id
+        search_input = filter_controls.get("search_input")
+        if search_input is not None:
+            search_input.value = run_id
+        _cluster_body.refresh()
+
+    def _clear_filters() -> None:
+        filter_state["search"] = ""
+        filter_state["status"] = "ALL"
+        search_input = filter_controls.get("search_input")
+        if search_input is not None:
+            search_input.value = ""
+        status_select = filter_controls.get("status_select")
+        if status_select is not None:
+            status_select.value = "ALL"
         _cluster_body.refresh()
 
     @ui.refreshable
@@ -1132,28 +1170,43 @@ async def _render_console_panel(
             filter_state["status"] = str(getattr(ev, "value", "ALL") or "ALL")
             _cluster_body.refresh()
 
-        ui.input(
-            label="Search Jobs / Runs / Workers",
-            placeholder="Filter by job ID, run ID, name, or worker...",
-            on_change=_on_search_change,
+        filter_controls["search_input"] = (
+            ui.input(
+                label="Search Jobs / Runs / Workers",
+                placeholder="Filter by job ID, run ID, name, or worker...",
+                on_change=_on_search_change,
+            )
+            .props('clearable aria-label="Filter jobs by ID, run ID, name, or worker"')
+            .classes("w-80")
+        )
+        filter_controls["status_select"] = (
+            ui.select(
+                options=[
+                    "ALL",
+                    "PENDING",
+                    "RUNNING",
+                    "IN_PROGRESS",
+                    "HELD",
+                    "COMPLETED",
+                    "SUCCEEDED",
+                    "FAILED",
+                    "CANCELLED",
+                    "BLOCKED",
+                ],
+                value="ALL",
+                label="Status Filter",
+                on_change=_on_status_change,
+            )
+            .props('aria-label="Filter jobs by status"')
+            .classes("w-48")
+        )
+        ui.button(
+            "Clear Filters",
+            on_click=_clear_filters,
+            icon="filter_alt_off",
         ).props(
-            'clearable aria-label="Filter jobs by ID, run ID, name, or worker"'
-        ).classes("w-80")
-        ui.select(
-            options=[
-                "ALL",
-                "PENDING",
-                "RUNNING",
-                "HELD",
-                "COMPLETED",
-                "FAILED",
-                "CANCELLED",
-                "BLOCKED",
-            ],
-            value="ALL",
-            label="Status Filter",
-            on_change=_on_status_change,
-        ).props('aria-label="Filter jobs by status"').classes("w-48")
+            'size="sm" color="primary" aria-label="Clear search and status filters"'
+        ).tooltip("Reset search and status filters")
 
     await _cluster_body()
     ui.timer(2.0, _handle_timer_tick)

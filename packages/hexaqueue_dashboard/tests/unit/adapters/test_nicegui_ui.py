@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
@@ -12,7 +13,13 @@ from nicegui import app as nicegui_app
 
 from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
 from hexaqueue_core.domain.job import JobSpec
-from hexaqueue_core.domain.lifecycle import JobState, JobStatus, TerminalOutcome
+from hexaqueue_core.domain.lifecycle import (
+    JobState,
+    JobStatus,
+    RunOutcome,
+    RunState,
+    TerminalOutcome,
+)
 from hexaqueue_core.domain.run import RunSpec
 from hexaqueue_core.ports.logging import LogChunk
 from hexaqueue_dashboard.adapters import nicegui_ui
@@ -21,11 +28,12 @@ from hexaqueue_dashboard.adapters.nicegui_ui import (
     _render_console_panel,
     _render_jobs_section,
     _render_login_panel,
+    _resolve_run_display_status,
     _resolve_session_identity,
     mount_dashboard_ui,
 )
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
-from hexaqueue_server.domain.models import RunSubmission
+from hexaqueue_server.domain.models import RunStatusReport, RunSubmission
 from hexaqueue_server.infra.cqrs import create_hexaqueue_execution_pipeline
 
 
@@ -150,9 +158,10 @@ async def test_nicegui_ui_identity_and_panels(monkeypatch: pytest.MonkeyPatch) -
     await _render_jobs_section(pipeline, ident)
     await _render_console_panel(pipeline, ident)
 
-    # Exercise search & status filter callbacks
+    # Exercise search, status filter, and clear filters callbacks
     for on_change_cb in captured_on_changes:
-        on_change_cb(SimpleNamespace(value=""))
+        on_change_cb(SimpleNamespace(value="r-test"))
+    captured_buttons["Clear Filters"]()
 
     # Exercise reactive refresh, timer tick, and sign-out callbacks
     refresh_cb = captured_buttons["Refresh"]
@@ -393,3 +402,57 @@ async def test_jobs_table_filtering_badges_and_lifecycle_actions(
         run_report=run_report,
         all_jobs=dag_jobs,
     )
+
+
+def test_resolve_run_display_status_rollups() -> None:
+    """Verify run display status reflects PENDING, RUNNING, IN_PROGRESS, and SUCCEEDED."""
+    now = datetime.now(UTC)
+    pending_run = RunStatusReport(
+        run_id="r-pend",
+        state=RunState.RUNNING,
+        total_jobs=4,
+        completed_jobs=0,
+        failed_jobs=0,
+        pending_jobs=4,
+        running_jobs=0,
+        created_at=now,
+    )
+    running_run = RunStatusReport(
+        run_id="r-run",
+        state=RunState.RUNNING,
+        total_jobs=4,
+        completed_jobs=1,
+        failed_jobs=0,
+        pending_jobs=2,
+        running_jobs=1,
+        created_at=now,
+    )
+    partial_run = RunStatusReport(
+        run_id="r-part",
+        state=RunState.RUNNING,
+        total_jobs=4,
+        completed_jobs=2,
+        failed_jobs=0,
+        pending_jobs=2,
+        running_jobs=0,
+        created_at=now,
+    )
+    done_run = RunStatusReport(
+        run_id="r-done",
+        state=RunState.DONE,
+        outcome=RunOutcome.SUCCEEDED,
+        total_jobs=4,
+        completed_jobs=4,
+        failed_jobs=0,
+        pending_jobs=0,
+        running_jobs=0,
+        created_at=now,
+    )
+    pend_status = _resolve_run_display_status(pending_run)
+    run_status = _resolve_run_display_status(running_run)
+    part_status = _resolve_run_display_status(partial_run)
+    done_status = _resolve_run_display_status(done_run)
+    assert pend_status == "PENDING"
+    assert run_status == "RUNNING"
+    assert part_status == "IN_PROGRESS"
+    assert done_status == "SUCCEEDED"
