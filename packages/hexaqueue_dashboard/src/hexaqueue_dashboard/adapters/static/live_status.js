@@ -18,6 +18,19 @@
         if (!badge || !dot || !text) {
             return;
         }
+        const tunnelOnly = badge.dataset && badge.dataset.mode === "tunnel";
+        if (tunnelOnly) {
+            if (state === "disconnected") {
+                badge.style.backgroundColor = "#b91c1c";
+                dot.style.backgroundColor = "#fca5a5";
+                text.textContent = "Tunnel Disconnected";
+            } else {
+                badge.style.backgroundColor = "#15803d";
+                dot.style.backgroundColor = "#86efac";
+                text.textContent = "Tunnel Connected";
+            }
+            return;
+        }
         if (state === "updated") {
             lastUpdateStr = timestampStr || formatTime(new Date());
             badge.style.backgroundColor = "#15803d";
@@ -64,7 +77,12 @@
         }
     });
 
-    if (typeof window.EventSource === "function") {
+    const badgeEl = document.getElementById("hq-live-badge");
+    const isTunnelOnly = Boolean(
+        badgeEl && badgeEl.dataset && badgeEl.dataset.mode === "tunnel"
+    );
+
+    if (!isTunnelOnly && typeof window.EventSource === "function") {
         try {
             const es = new window.EventSource("/dashboard/events");
             es.addEventListener("snapshot", () => setBadge("updated", formatTime(new Date())));

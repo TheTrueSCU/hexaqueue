@@ -70,14 +70,21 @@ def _resolve_session_identity(auth_manager: DashboardAuthManager) -> Identity | 
         return None
 
 
-def _render_login_panel(auth_manager: DashboardAuthManager) -> None:
+def _render_login_panel(
+    auth_manager: DashboardAuthManager,
+    *,
+    live_status_js_url: str | None = None,
+) -> None:
     """Render the NiceGUI login card for `rjdw` / `hexaqueue-ci` web credentials.
 
     Args:
         auth_manager: DashboardAuthManager validating credentials.
+        live_status_js_url: Optional URL for the static `live_status.js` script.
     """
     with ui.card().classes("w-full max-w-md mx-auto mt-12 p-6"):
-        ui.label("Hexaqueue Operator Sign In").classes("text-xl font-bold mb-2")
+        with ui.row().classes("w-full items-center justify-between mb-2"):
+            ui.label("Hexaqueue Operator Sign In").classes("text-xl font-bold")
+            _render_live_status_widget(live_status_js_url, mode="tunnel")
         username = ui.input("Username", placeholder="rjdw").classes("w-full")
         password = ui.input(
             "Web Password / CI Token", password=True, password_toggle_button=True
@@ -835,21 +842,23 @@ def _resolve_static_dir() -> Path | None:
     return fallback if fallback.is_dir() else None
 
 
-def _render_live_status_widget(script_url: str | None) -> None:
+def _render_live_status_widget(script_url: str | None, *, mode: str = "full") -> None:
     """Render an accessible heartbeat badge polling `/dashboard/health`.
 
     Args:
         script_url: URL returned by `nicegui_app.add_static_file` for `live_status.js`.
+        mode: Display mode (`"full"` for console SSE + timestamps, `"tunnel"` for login).
     """
+    initial_text = "Tunnel Connected" if mode == "tunnel" else "Connected"
     ui.html(
-        '<span id="hq-live-badge" role="status" aria-live="polite" '
+        f'<span id="hq-live-badge" data-mode="{mode}" role="status" aria-live="polite" '
         'style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;'
         "border-radius:9999px;font-size:0.75rem;font-weight:600;"
         'background-color:#15803d;color:#ffffff;">'
         '<span id="hq-live-dot" aria-hidden="true" '
         'style="width:8px;height:8px;border-radius:9999px;background-color:#86efac;">'
         "</span>"
-        '<span id="hq-live-text">Connected</span>'
+        f'<span id="hq-live-text">{initial_text}</span>'
         "</span>",
         sanitize=False,
     )
@@ -1288,7 +1297,7 @@ def mount_dashboard_ui(
         ui.colors(primary="#1d4ed8", negative="#b91c1c")
         identity = _resolve_session_identity(manager)
         if identity is None:
-            _render_login_panel(manager)
+            _render_login_panel(manager, live_status_js_url=live_status_js_url)
             return
         await _render_console_panel(
             pipeline,
