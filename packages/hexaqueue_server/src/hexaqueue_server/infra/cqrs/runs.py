@@ -8,6 +8,7 @@ Notes/Architectural Intent:
 from hexaqueue_core.domain.cqrs import (
     CancelRunCommand,
     GetRunStatusQuery,
+    ListRunsQuery,
     RewindRunCommand,
     SubmitRunCommand,
     SubmitSuiteCommand,
@@ -158,6 +159,30 @@ class RunsCqrsMixin(BaseCqrsService):
             run_id=cmd.run_id,
             target_job_ids=cmd.target_job_ids,
         )
+
+    async def handle_list_runs(self, qry: ListRunsQuery) -> list[RunStatusReport]:
+        """Handle ListRunsQuery with tenant isolation.
+
+        Args:
+            qry: Query payload specifying user identity and elevation.
+
+        Returns:
+            List of authorized RunStatusReport instances.
+        """
+        all_runs = await self.controller.list_runs()
+        if qry.elevate:
+            return all_runs[: qry.limit]
+
+        runs_map = getattr(self.controller, "_runs", {})
+        authorized: list[RunStatusReport] = []
+        for report in all_runs:
+            sub = runs_map.get(report.run_id)
+            if sub is not None and any(
+                tag.startswith("owner:") and tag.split(":", 1)[1] == qry.user_id
+                for tag in sub.run_spec.tags
+            ):
+                authorized.append(report)
+        return authorized[: qry.limit]
 
 
 __all__ = [

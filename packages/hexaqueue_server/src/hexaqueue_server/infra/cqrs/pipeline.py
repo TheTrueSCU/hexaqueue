@@ -41,6 +41,7 @@ from hexaqueue_core.domain.cqrs import (
     HoldJobCommand,
     ListComputeNodesQuery,
     ListJobsQuery,
+    ListRunsQuery,
     NotifyLogUploadCompleteCommand,
     PinCollateralCommand,
     RegisterCollateralCommand,
@@ -251,6 +252,12 @@ def create_hexaqueue_execution_pipeline(
     handler_reg.register(
         ListJobsQuery,
         lambda qry: run_coro_sync(service.handle_list_jobs(qry)),
+    )
+
+    query_reg.register(ListRunsQuery)
+    handler_reg.register(
+        ListRunsQuery,
+        lambda qry: run_coro_sync(service.handle_list_runs(qry)),
     )
 
     query_reg.register(ExplainJobQuery)

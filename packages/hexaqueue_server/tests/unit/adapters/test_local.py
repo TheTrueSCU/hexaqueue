@@ -1527,3 +1527,7 @@ async def test_local_controller_persists_and_hydrates_from_storage() -> None:
     hydrated_nodes = await ctrl2.list_nodes()
     assert len(hydrated_nodes) == 1
     assert hydrated_nodes[0].node_id == "node-persist-1"
+
+    hydrated_runs = await ctrl2.list_runs()
+    assert len(hydrated_runs) == 1
+    assert hydrated_runs[0].run_id == "run-persist-1"

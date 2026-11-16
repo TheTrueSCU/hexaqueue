@@ -89,6 +89,9 @@ async def test_scheduler_controller_port_concrete_implementation() -> None:
         async def list_jobs(self) -> list[JobSpec]:
             return []
 
+        async def list_runs(self) -> list[RunStatusReport]:
+            return []
+
         async def cancel_job(self, job_id: str) -> JobSpec:
             return JobSpec(
                 id=job_id,

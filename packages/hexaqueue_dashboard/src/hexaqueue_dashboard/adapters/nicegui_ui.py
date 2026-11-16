@@ -36,11 +36,13 @@ from hexaqueue_core.domain.cqrs import (
     GetQueueStatsQuery,
     HoldJobCommand,
     ListJobsQuery,
+    ListRunsQuery,
     ReleaseJobCommand,
 )
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import JobState
 from hexaqueue_dashboard.adapters.auth import DashboardAuthManager
+from hexaqueue_server.domain.models import RunStatusReport
 from hexaqueue_worker.domain.telemetry import NodeTelemetryPulse
 
 
@@ -461,16 +463,160 @@ def _render_live_status_widget(script_url: str | None) -> None:
         ui.add_body_html(f'<script src="{script_url}" defer></script>')
 
 
+def _build_dag_job_subtree(
+    job: JobSpec,
+    jobs_by_id: dict[str, JobSpec],
+    children_map: dict[str, list[str]],
+    visited: set[str],
+) -> dict[str, object]:
+    """Build a nested tree node for a job and its downstream DAG dependents."""
+    visited.add(job.id)
+    display_status = _resolve_display_status(job)
+    worker_suffix = f" · {job.assigned_worker_id}" if job.assigned_worker_id else ""
+    node: dict[str, object] = {
+        "id": f"job:{job.id}",
+        "label": f"{job.name} ({job.id}){worker_suffix}",
+        "status": display_status,
+        "badge_bg": _STATUS_BADGE_COLORS.get(display_status, "#374151"),
+        "kind": "job",
+        "job_id": job.id,
+        "run_id": job.run_id,
+    }
+    child_nodes: list[dict[str, object]] = []
+    for child_id in children_map.get(job.id, []):
+        if child_id not in visited and child_id in jobs_by_id:
+            child_nodes.append(
+                _build_dag_job_subtree(
+                    jobs_by_id[child_id], jobs_by_id, children_map, visited
+                )
+            )
+    if child_nodes:
+        node["children"] = child_nodes
+    return node
+
+
+def _build_single_run_tree_node(
+    run: RunStatusReport,
+    run_jobs: list[JobSpec],
+) -> dict[str, object]:
+    """Build a single Run tree node with its nested DAG job children."""
+    run_status = str(run.outcome or run.state)
+    jobs_by_id = {j.id: j for j in run_jobs}
+    children_map: dict[str, list[str]] = {}
+    for child_id, parents in run.dependencies.items():
+        for parent_id in parents:
+            children_map.setdefault(parent_id, []).append(child_id)
+
+    root_jobs = [j for j in run_jobs if not run.dependencies.get(j.id)] or run_jobs
+    visited: set[str] = set()
+    job_children = [
+        _build_dag_job_subtree(job, jobs_by_id, children_map, visited)
+        for job in root_jobs
+    ]
+    for job in run_jobs:
+        if job.id not in visited:
+            job_children.append(
+                _build_dag_job_subtree(job, jobs_by_id, children_map, visited)
+            )
+
+    run_label = f"{run.name or run.run_id} — {run.completed_jobs}/{run.total_jobs} jobs"
+    return {
+        "id": f"run:{run.run_id}",
+        "label": run_label,
+        "status": run_status,
+        "badge_bg": _STATUS_BADGE_COLORS.get(run_status, "#374151"),
+        "kind": "run",
+        "run_id": run.run_id,
+        "children": job_children,
+    }
+
+
+def _build_run_tree_nodes(
+    runs: list[RunStatusReport],
+    jobs: list[JobSpec],
+    *,
+    search_text: str = "",
+    status_filter: str = "ALL",
+) -> list[dict[str, object]]:
+    """Build hierarchical ui.tree nodes for runs and nested hexaflow DAG jobs."""
+    needle = search_text.strip().casefold()
+    target_status = status_filter.strip().upper()
+    jobs_by_run: dict[str, list[JobSpec]] = {}
+    for job in jobs:
+        jobs_by_run.setdefault(job.run_id, []).append(job)
+
+    tree_nodes: list[dict[str, object]] = []
+    for run in runs:
+        run_status = str(run.outcome or run.state)
+        if target_status not in ("", "ALL") and run_status != target_status:
+            continue
+        if needle and needle not in f"{run.run_id} {run.name or ''}".casefold():
+            continue
+        tree_nodes.append(
+            _build_single_run_tree_node(run, jobs_by_run.get(run.run_id, []))
+        )
+    return tree_nodes
+
+
+def _render_runs_section(
+    runs: list[RunStatusReport],
+    jobs: list[JobSpec],
+    *,
+    filter_state: dict[str, str] | None = None,
+) -> None:
+    """Render expandable Runs & nested DAG tree view."""
+    active_filters = (
+        filter_state if filter_state is not None else {"search": "", "status": "ALL"}
+    )
+    ui.label("Runs & DAG Tree").classes("text-lg font-semibold mt-4")
+    nodes = _build_run_tree_nodes(
+        runs,
+        jobs,
+        search_text=active_filters.get("search", ""),
+        status_filter=active_filters.get("status", "ALL"),
+    )
+    if not nodes:
+        ui.label("No matching runs.").classes("text-slate-600 text-sm")
+        return
+
+    tree = ui.tree(nodes, label_key="label", node_key="id").classes(
+        "w-full border rounded p-2 mt-1"
+    )
+    tree.add_slot(
+        "default-header",
+        """
+        <div class="row items-center q-gutter-sm">
+            <q-badge
+                :style="{ backgroundColor: props.node.badge_bg, color: '#ffffff', fontWeight: 700 }"
+                class="px-2 py-0.5 text-xs rounded"
+            >
+                {{ props.node.status }}
+            </q-badge>
+            <span class="font-mono text-sm">{{ props.node.label }}</span>
+        </div>
+        """,
+    )
+
+
 async def _fetch_cluster_snapshot(
     pipeline: ExecutionPipeline,
     identity: Identity,
-) -> tuple[ClusterStatsReport, list[NodeTelemetryPulse], list[JobSpec], str]:
-    """Fetch cluster stats, active nodes, jobs, and a stable diff fingerprint."""
+) -> tuple[
+    ClusterStatsReport,
+    list[NodeTelemetryPulse],
+    list[JobSpec],
+    list[RunStatusReport],
+    str,
+]:
+    """Fetch cluster stats, active nodes, jobs, runs, and a stable diff fingerprint."""
     is_admin = "admin" in identity.roles
     stats: ClusterStatsReport = await dispatch_query(pipeline, GetQueueStatsQuery())
     nodes: list[NodeTelemetryPulse] = await dispatch_query(pipeline, GetNodesQuery())
     jobs: list[JobSpec] = await dispatch_query(
         pipeline, ListJobsQuery(user_id=identity.user_id, elevate=is_admin)
+    )
+    runs: list[RunStatusReport] = await dispatch_query(
+        pipeline, ListRunsQuery(user_id=identity.user_id, elevate=is_admin)
     )
     fingerprint = json.dumps(
         {
@@ -483,10 +629,11 @@ async def _fetch_cluster_snapshot(
             },
             "nodes": len(nodes),
             "jobs": [(j.id, str(j.state), str(j.outcome)) for j in jobs],
+            "runs": [(r.run_id, str(r.state), str(r.outcome)) for r in runs],
         },
         sort_keys=True,
     )
-    return stats, nodes, jobs, fingerprint
+    return stats, nodes, jobs, runs, fingerprint
 
 
 async def _render_console_panel(
@@ -504,7 +651,13 @@ async def _render_console_panel(
     """
     roles_label = ", ".join(sorted(identity.roles))
     snapshot_box: list[
-        tuple[ClusterStatsReport, list[NodeTelemetryPulse], list[JobSpec], str]
+        tuple[
+            ClusterStatsReport,
+            list[NodeTelemetryPulse],
+            list[JobSpec],
+            list[RunStatusReport],
+            str,
+        ]
     ] = [await _fetch_cluster_snapshot(pipeline, identity)]
     filter_state: dict[str, str] = {"search": "", "status": "ALL"}
 
@@ -516,9 +669,9 @@ async def _render_console_panel(
         )
 
     async def _refresh_now(*, force: bool = False) -> None:
-        _, _, _, prev_fp = snapshot_box[0]
+        _, _, _, _, prev_fp = snapshot_box[0]
         next_data = await _fetch_cluster_snapshot(pipeline, identity)
-        changed = force or next_data[3] != prev_fp
+        changed = force or next_data[4] != prev_fp
         if changed:
             snapshot_box[0] = next_data
             _cluster_body.refresh()
@@ -532,7 +685,7 @@ async def _render_console_panel(
 
     @ui.refreshable
     async def _cluster_body() -> None:
-        stats, nodes, jobs, _fp = snapshot_box[0]
+        stats, nodes, jobs, runs, _fp = snapshot_box[0]
         with ui.row().classes("w-full gap-4 mt-4"):
             with ui.card().classes("p-4"):
                 ui.label(f"Total Jobs: {stats.total_jobs}").classes("font-semibold")
@@ -543,6 +696,7 @@ async def _render_console_panel(
             with ui.card().classes("p-4"):
                 ui.label(f"Active Nodes: {len(nodes)}").classes("font-semibold")
 
+        _render_runs_section(runs, jobs, filter_state=filter_state)
         await _render_jobs_section(
             pipeline,
             identity,
