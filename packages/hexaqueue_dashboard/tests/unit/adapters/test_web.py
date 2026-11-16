@@ -600,3 +600,24 @@ def test_dashboard_health_endpoint(hermetic_dashboard_client: TestClient) -> Non
     assert status_code == 200
     payload = resp.json()
     assert payload == {"status": "live"}
+
+
+def test_dashboard_events_sse_requires_auth_and_streams_snapshot(
+    hermetic_dashboard_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify `/dashboard/events` enforces auth and streams an initial SSE snapshot."""
+    monkeypatch.setenv("HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN", "0")
+    unauth = hermetic_dashboard_client.get("/dashboard/events?once=true")
+    unauth_code = unauth.status_code
+    assert unauth_code == 401
+
+    monkeypatch.setenv("HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN", "1")
+    resp = hermetic_dashboard_client.get("/dashboard/events?once=true")
+    ok_code = resp.status_code
+    assert ok_code == 200
+    content_type = resp.headers.get("content-type", "")
+    assert "text/event-stream" in content_type
+    body = resp.text
+    assert "event: snapshot" in body
+    assert "data:" in body

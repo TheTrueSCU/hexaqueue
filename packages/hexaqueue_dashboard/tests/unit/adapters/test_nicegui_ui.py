@@ -67,6 +67,10 @@ async def test_nicegui_ui_identity_and_panels(monkeypatch: pytest.MonkeyPatch) -
     fake_storage = SimpleNamespace(user={})
     monkeypatch.setattr(nicegui_ui.nicegui_app, "storage", fake_storage)
 
+    def _fake_refreshable(fn):  # type: ignore[no-untyped-def]
+        fn.refresh = lambda: None
+        return fn
+
     fake_ui = SimpleNamespace(
         card=lambda *_a, **_k: _FakeElement(),
         row=lambda *_a, **_k: _FakeElement(),
@@ -80,6 +84,9 @@ async def test_nicegui_ui_identity_and_panels(monkeypatch: pytest.MonkeyPatch) -
         header=lambda *_a, **_k: _FakeElement(),
         html=lambda *_a, **_k: _FakeElement(),
         add_body_html=lambda *_a, **_k: None,
+        refreshable=_fake_refreshable,
+        timer=lambda *_a, **_k: None,
+        run_javascript=lambda *_a, **_k: None,
     )
     monkeypatch.setattr(nicegui_ui, "ui", fake_ui)
 
