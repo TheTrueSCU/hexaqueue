@@ -154,6 +154,8 @@ def test_dashboard_ui_wcag_accessibility(
 
     # 3. Open the Job Inspection Drawer and audit under WCAG 2.1 AA
     page.get_by_role("button", name="Inspect job a11y-job-1").click()
+    page.mouse.move(0, 0)
+    page.wait_for_timeout(350)
     expect(page.get_by_text("Scheduler Explainability")).to_be_visible()
     expect(page.get_by_text("Execution Logs")).to_be_visible()
 

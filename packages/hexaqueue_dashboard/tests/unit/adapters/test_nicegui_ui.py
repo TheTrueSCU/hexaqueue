@@ -456,3 +456,38 @@ def test_resolve_run_display_status_rollups() -> None:
     assert run_status == "RUNNING"
     assert part_status == "IN_PROGRESS"
     assert done_status == "SUCCEEDED"
+
+
+def test_compute_filtered_kpi_counts() -> None:
+    """Verify KPI counts reflect active search and status filters."""
+    jobs = [
+        JobSpec(
+            id="j1",
+            run_id="r-a",
+            name="task-a",
+            command="echo a",
+            status=JobStatus(state=JobState.RUNNING),
+        ),
+        JobSpec(
+            id="j2",
+            run_id="r-a",
+            name="task-b",
+            command="echo b",
+            status=JobStatus(state=JobState.PENDING),
+        ),
+        JobSpec(
+            id="j3",
+            run_id="r-b",
+            name="task-c",
+            command="echo c",
+            status=JobStatus(state=JobState.DONE, outcome=TerminalOutcome.COMPLETED),
+        ),
+    ]
+    unfiltered = nicegui_ui._compute_filtered_kpi_counts(jobs)
+    assert unfiltered == (3, 1, 1, False)
+
+    by_run = nicegui_ui._compute_filtered_kpi_counts(jobs, search_text="r-a")
+    assert by_run == (2, 1, 1, True)
+
+    by_status = nicegui_ui._compute_filtered_kpi_counts(jobs, status_filter="COMPLETED")
+    assert by_status == (1, 0, 0, True)

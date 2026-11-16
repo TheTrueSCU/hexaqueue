@@ -70,14 +70,21 @@ def _resolve_session_identity(auth_manager: DashboardAuthManager) -> Identity | 
         return None
 
 
-def _render_login_panel(auth_manager: DashboardAuthManager) -> None:
+def _render_login_panel(
+    auth_manager: DashboardAuthManager,
+    *,
+    live_status_js_url: str | None = None,
+) -> None:
     """Render the NiceGUI login card for `rjdw` / `hexaqueue-ci` web credentials.
 
     Args:
         auth_manager: DashboardAuthManager validating credentials.
+        live_status_js_url: Optional URL for the static `live_status.js` script.
     """
     with ui.card().classes("w-full max-w-md mx-auto mt-12 p-6"):
-        ui.label("Hexaqueue Operator Sign In").classes("text-xl font-bold mb-2")
+        with ui.row().classes("w-full items-center justify-between mb-2"):
+            ui.label("Hexaqueue Operator Sign In").classes("text-xl font-bold")
+            _render_live_status_widget(live_status_js_url, mode="tunnel")
         username = ui.input("Username", placeholder="rjdw").classes("w-full")
         password = ui.input(
             "Web Password / CI Token", password=True, password_toggle_button=True
@@ -97,6 +104,8 @@ def _render_login_panel(auth_manager: DashboardAuthManager) -> None:
         ui.button("Sign In", on_click=_handle_login, icon="login").props(
             'aria-label="Sign in to Hexaqueue Dashboard"'
         ).tooltip("Authenticate with Hexaqueue web credentials")
+        username.on("keydown.enter", _handle_login)
+        password.on("keydown.enter", _handle_login)
 
 
 _STATUS_BADGE_COLORS: dict[str, str] = {
@@ -215,6 +224,28 @@ def _filter_jobs(
                 continue
         filtered.append(job)
     return filtered
+
+
+def _compute_filtered_kpi_counts(
+    jobs: list[JobSpec],
+    *,
+    search_text: str = "",
+    status_filter: str = "ALL",
+) -> tuple[int, int, int, bool]:
+    """Compute (total, running, pending, is_filtered) counts for KPI cards."""
+    is_filtered = bool(
+        search_text.strip() or status_filter.strip().upper() not in ("", "ALL")
+    )
+    filtered = _filter_jobs(jobs, search_text=search_text, status_filter=status_filter)
+    running = sum(
+        1
+        for j in filtered
+        if _resolve_display_status(j) in ("RUNNING", "PROVISIONING", "CLEANUP")
+    )
+    pending = sum(
+        1 for j in filtered if _resolve_display_status(j) in ("PENDING", "SUBMITTED")
+    )
+    return len(filtered), running, pending, is_filtered
 
 
 def _build_job_rows(jobs: list[JobSpec]) -> list[dict[str, object]]:
@@ -813,21 +844,23 @@ def _resolve_static_dir() -> Path | None:
     return fallback if fallback.is_dir() else None
 
 
-def _render_live_status_widget(script_url: str | None) -> None:
+def _render_live_status_widget(script_url: str | None, *, mode: str = "full") -> None:
     """Render an accessible heartbeat badge polling `/dashboard/health`.
 
     Args:
         script_url: URL returned by `nicegui_app.add_static_file` for `live_status.js`.
+        mode: Display mode (`"full"` for console SSE + timestamps, `"tunnel"` for login).
     """
+    initial_text = "Tunnel Connected" if mode == "tunnel" else "Connected"
     ui.html(
-        '<span id="hq-live-badge" role="status" aria-live="polite" '
+        f'<span id="hq-live-badge" data-mode="{mode}" role="status" aria-live="polite" '
         'style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;'
         "border-radius:9999px;font-size:0.75rem;font-weight:600;"
         'background-color:#15803d;color:#ffffff;">'
         '<span id="hq-live-dot" aria-hidden="true" '
         'style="width:8px;height:8px;border-radius:9999px;background-color:#86efac;">'
         "</span>"
-        '<span id="hq-live-text">Connected</span>'
+        f'<span id="hq-live-text">{initial_text}</span>'
         "</span>",
         sanitize=False,
     )
@@ -1112,13 +1145,23 @@ async def _render_console_panel(
     @ui.refreshable
     async def _cluster_body() -> None:
         stats, nodes, jobs, runs, _fp = snapshot_box[0]
+        total_cnt, running_cnt, pending_cnt, is_filtered = _compute_filtered_kpi_counts(
+            jobs,
+            search_text=filter_state.get("search", ""),
+            status_filter=filter_state.get("status", "ALL"),
+        )
+        total_label = (
+            f"Total Jobs: {total_cnt} / {stats.total_jobs}"
+            if is_filtered
+            else f"Total Jobs: {total_cnt}"
+        )
         with ui.row().classes("w-full gap-4 mt-4"):
             with ui.card().classes("p-4"):
-                ui.label(f"Total Jobs: {stats.total_jobs}").classes("font-semibold")
+                ui.label(total_label).classes("font-semibold")
             with ui.card().classes("p-4"):
-                ui.label(f"Running: {stats.running_jobs}").classes("font-semibold")
+                ui.label(f"Running: {running_cnt}").classes("font-semibold")
             with ui.card().classes("p-4"):
-                ui.label(f"Pending: {stats.pending_jobs}").classes("font-semibold")
+                ui.label(f"Pending: {pending_cnt}").classes("font-semibold")
             with ui.card().classes("p-4"):
                 ui.label(f"Active Nodes: {len(nodes)}").classes("font-semibold")
 
@@ -1163,12 +1206,16 @@ async def _render_console_panel(
     with ui.row().classes("w-full items-center gap-3 mt-4"):
 
         def _on_search_change(ev: object) -> None:
-            filter_state["search"] = str(getattr(ev, "value", "") or "")
-            _cluster_body.refresh()
+            new_val = str(getattr(ev, "value", "") or "")
+            if new_val != filter_state["search"]:
+                filter_state["search"] = new_val
+                _cluster_body.refresh()
 
         def _on_status_change(ev: object) -> None:
-            filter_state["status"] = str(getattr(ev, "value", "ALL") or "ALL")
-            _cluster_body.refresh()
+            new_val = str(getattr(ev, "value", "ALL") or "ALL")
+            if new_val != filter_state["status"]:
+                filter_state["status"] = new_val
+                _cluster_body.refresh()
 
         filter_controls["search_input"] = (
             ui.input(
@@ -1252,7 +1299,7 @@ def mount_dashboard_ui(
         ui.colors(primary="#1d4ed8", negative="#b91c1c")
         identity = _resolve_session_identity(manager)
         if identity is None:
-            _render_login_panel(manager)
+            _render_login_panel(manager, live_status_js_url=live_status_js_url)
             return
         await _render_console_panel(
             pipeline,
