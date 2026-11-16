@@ -11,6 +11,9 @@ from hexastack_auth.domain.models import Identity
 from nicegui import app as nicegui_app
 
 from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
+from hexaqueue_core.domain.job import JobSpec
+from hexaqueue_core.domain.lifecycle import JobState, JobStatus, TerminalOutcome
+from hexaqueue_core.domain.run import RunSpec
 from hexaqueue_dashboard.adapters import nicegui_ui
 from hexaqueue_dashboard.adapters.auth import DashboardAuthManager
 from hexaqueue_dashboard.adapters.nicegui_ui import (
@@ -21,6 +24,7 @@ from hexaqueue_dashboard.adapters.nicegui_ui import (
     mount_dashboard_ui,
 )
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
+from hexaqueue_server.domain.models import RunSubmission
 from hexaqueue_server.infra.cqrs import create_hexaqueue_execution_pipeline
 
 
@@ -61,6 +65,18 @@ class _FakeElement:
     def tooltip(self, *_args: object, **_kwargs: object) -> _FakeElement:
         return self
 
+    def add_slot(self, *_args: object, **_kwargs: object) -> None:
+        return None
+
+    def on(self, *_args: object, **_kwargs: object) -> None:
+        return None
+
+    def open(self) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
+
 
 @pytest.mark.asyncio
 async def test_nicegui_ui_identity_and_panels(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -90,6 +106,9 @@ async def test_nicegui_ui_identity_and_panels(monkeypatch: pytest.MonkeyPatch) -
         column=lambda *_a, **_k: _FakeElement(),
         label=lambda *_a, **_k: _FakeElement(),
         input=lambda *_a, **_k: _FakeElement(),
+        select=lambda *_a, **_k: _FakeElement(),
+        table=lambda *_a, **_k: _FakeElement(),
+        dialog=lambda *_a, **_k: _FakeElement(),
         button=_fake_button,
         separator=lambda *_a, **_k: _FakeElement(),
         notify=lambda *_a, **_k: None,
@@ -137,3 +156,77 @@ async def test_nicegui_ui_identity_and_panels(monkeypatch: pytest.MonkeyPatch) -
     logout_cb()
     jwt_after_logout = fake_storage.user.get("jwt")
     assert jwt_after_logout is None
+
+
+@pytest.mark.asyncio
+async def test_jobs_table_filtering_badges_and_lifecycle_actions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify job row building, filtering, status badges, and hold/release/cancel dispatch."""
+    fake_ui = SimpleNamespace(
+        notify=lambda *_a, **_k: None,
+        navigate=SimpleNamespace(reload=lambda: None),
+    )
+    monkeypatch.setattr(nicegui_ui, "ui", fake_ui)
+
+    pending_job = JobSpec(
+        id="j-pend",
+        run_id="r-1",
+        name="pending-task",
+        command="echo 1",
+        status=JobStatus(state=JobState.PENDING),
+    )
+    held_job = JobSpec(
+        id="j-held",
+        run_id="r-1",
+        name="held-task",
+        command="echo 2",
+        status=JobStatus(state=JobState.BLOCKED, reason="Administratively held"),
+    )
+    done_job = JobSpec(
+        id="j-done",
+        run_id="r-2",
+        name="done-task",
+        command="echo 3",
+        status=JobStatus(state=JobState.DONE, outcome=TerminalOutcome.COMPLETED),
+    )
+
+    assert nicegui_ui._resolve_display_status(pending_job) == "PENDING"
+    assert nicegui_ui._resolve_display_status(held_job) == "HELD"
+    assert nicegui_ui._resolve_display_status(done_job) == "COMPLETED"
+
+    filtered_held = nicegui_ui._filter_jobs(
+        [pending_job, held_job, done_job], status_filter="HELD"
+    )
+    assert [j.id for j in filtered_held] == ["j-held"]
+
+    filtered_search = nicegui_ui._filter_jobs(
+        [pending_job, held_job, done_job], search_text="r-2"
+    )
+    assert [j.id for j in filtered_search] == ["j-done"]
+
+    rows = nicegui_ui._build_job_rows([pending_job, held_job, done_job])
+    assert rows[0]["can_hold"] is True
+    assert rows[0]["can_release"] is False
+    assert rows[1]["can_release"] is True
+    assert rows[2]["can_cancel"] is False
+
+    queue = InMemoryJobQueueAdapter()
+    controller = LocalSchedulerControllerAdapter(queue=queue)
+    await controller.submit_run(
+        RunSubmission(run_spec=RunSpec(id="r-1", name="run-1"), jobs=[pending_job])
+    )
+    pipeline = create_hexaqueue_execution_pipeline(controller=controller)
+    ident = Identity(user_id="rjdw", roles=frozenset({"admin"}))
+
+    await nicegui_ui._dispatch_lifecycle_action(pipeline, ident, "hold", "j-pend")
+    held_state = (await controller.get_job("j-pend")).state
+    assert held_state == JobState.BLOCKED
+
+    await nicegui_ui._dispatch_lifecycle_action(pipeline, ident, "release", "j-pend")
+    released_state = (await controller.get_job("j-pend")).state
+    assert released_state == JobState.PENDING
+
+    await nicegui_ui._dispatch_lifecycle_action(pipeline, ident, "cancel_run", "r-1")
+    cancelled_outcome = (await controller.get_job("j-pend")).outcome
+    assert cancelled_outcome == TerminalOutcome.CANCELLED

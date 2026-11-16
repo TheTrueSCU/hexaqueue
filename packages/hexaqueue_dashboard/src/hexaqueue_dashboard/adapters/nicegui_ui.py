@@ -30,12 +30,16 @@ from nicegui import ui
 
 from hexaqueue_core.domain.cqrs import (
     CancelJobCommand,
+    CancelRunCommand,
     ClusterStatsReport,
     GetNodesQuery,
     GetQueueStatsQuery,
+    HoldJobCommand,
     ListJobsQuery,
+    ReleaseJobCommand,
 )
 from hexaqueue_core.domain.job import JobSpec
+from hexaqueue_core.domain.lifecycle import JobState
 from hexaqueue_dashboard.adapters.auth import DashboardAuthManager
 from hexaqueue_worker.domain.telemetry import NodeTelemetryPulse
 
@@ -88,20 +92,205 @@ def _render_login_panel(auth_manager: DashboardAuthManager) -> None:
         ).tooltip("Authenticate with Hexaqueue web credentials")
 
 
+_STATUS_BADGE_COLORS: dict[str, str] = {
+    "RUNNING": "#1d4ed8",
+    "CLEANUP": "#1d4ed8",
+    "PENDING": "#92400e",
+    "SUBMITTED": "#92400e",
+    "PROVISIONING": "#92400e",
+    "HELD": "#6b21a8",
+    "COMPLETED": "#15803d",
+    "FAILED": "#b91c1c",
+    "TIMED_OUT": "#b91c1c",
+    "BLOCKED": "#b91c1c",
+    "CANCELLED": "#374151",
+}
+
+_TERMINAL_DISPLAY_STATES = frozenset({"COMPLETED", "FAILED", "TIMED_OUT", "CANCELLED"})
+
+_JOB_TABLE_COLUMNS: list[dict[str, object]] = [
+    {
+        "name": "job_id",
+        "label": "Job ID",
+        "field": "job_id",
+        "sortable": True,
+        "align": "left",
+    },
+    {
+        "name": "run_id",
+        "label": "Run ID",
+        "field": "run_id",
+        "sortable": True,
+        "align": "left",
+    },
+    {
+        "name": "name",
+        "label": "Name",
+        "field": "name",
+        "sortable": True,
+        "align": "left",
+    },
+    {
+        "name": "status",
+        "label": "Status",
+        "field": "status",
+        "sortable": True,
+        "align": "center",
+    },
+    {
+        "name": "worker_id",
+        "label": "Worker",
+        "field": "worker_id",
+        "sortable": True,
+        "align": "left",
+    },
+    {
+        "name": "actions",
+        "label": "Actions",
+        "field": "actions",
+        "sortable": False,
+        "align": "right",
+    },
+]
+
+
+def _resolve_display_status(job: JobSpec) -> str:
+    """Resolve user-facing badge status string for a JobSpec."""
+    if job.state == JobState.DONE and job.outcome is not None:
+        return str(job.outcome)
+    if job.state == JobState.BLOCKED and job.status.reason == "Administratively held":
+        return "HELD"
+    return str(job.state)
+
+
+def _filter_jobs(
+    jobs: list[JobSpec],
+    *,
+    search_text: str = "",
+    status_filter: str = "ALL",
+) -> list[JobSpec]:
+    """Filter jobs by search query and display status."""
+    needle = search_text.strip().casefold()
+    target_status = status_filter.strip().upper()
+    filtered: list[JobSpec] = []
+    for job in jobs:
+        display_status = _resolve_display_status(job)
+        if target_status not in ("", "ALL") and display_status != target_status:
+            continue
+        if needle:
+            haystack = (
+                f"{job.id} {job.run_id} {job.name} {job.assigned_worker_id or ''}"
+            ).casefold()
+            if needle not in haystack:
+                continue
+        filtered.append(job)
+    return filtered
+
+
+def _build_job_rows(jobs: list[JobSpec]) -> list[dict[str, object]]:
+    """Transform JobSpec objects into sortable ui.table row dictionaries."""
+    rows: list[dict[str, object]] = []
+    for job in jobs:
+        display_status = _resolve_display_status(job)
+        is_terminal = display_status in _TERMINAL_DISPLAY_STATES
+        rows.append(
+            {
+                "job_id": job.id,
+                "run_id": job.run_id,
+                "name": job.name,
+                "status": display_status,
+                "badge_bg": _STATUS_BADGE_COLORS.get(display_status, "#374151"),
+                "worker_id": job.assigned_worker_id or "—",
+                "can_hold": display_status in ("PENDING", "SUBMITTED"),
+                "can_release": display_status == "HELD",
+                "can_cancel": not is_terminal,
+            }
+        )
+    return rows
+
+
+async def _dispatch_lifecycle_action(
+    pipeline: ExecutionPipeline,
+    identity: Identity,
+    action: str,
+    target_id: str,
+    on_mutated: Callable[[], Awaitable[None]] | None = None,
+) -> None:
+    """Dispatch Hold, Release, Cancel Job, or Cancel Run through ExecutionPipeline."""
+    is_admin = "admin" in identity.roles
+    cmd: HoldJobCommand | ReleaseJobCommand | CancelJobCommand | CancelRunCommand
+    if action == "hold":
+        cmd = HoldJobCommand(
+            job_id=target_id, user_id=identity.user_id, elevate=is_admin
+        )
+    elif action == "release":
+        cmd = ReleaseJobCommand(
+            job_id=target_id, user_id=identity.user_id, elevate=is_admin
+        )
+    elif action == "cancel_run":
+        cmd = CancelRunCommand(
+            run_id=target_id, user_id=identity.user_id, elevate=is_admin
+        )
+    else:
+        cmd = CancelJobCommand(
+            job_id=target_id, user_id=identity.user_id, elevate=is_admin
+        )
+
+    try:
+        await dispatch_command(pipeline, cmd)
+        ui.notify(f"Action '{action}' succeeded for {target_id}", type="positive")
+        if on_mutated is not None:
+            await on_mutated()
+        else:
+            ui.navigate.reload()
+    except Exception as exc:
+        ui.notify(f"Action '{action}' failed: {exc}", type="negative")
+
+
+def _open_cancel_run_dialog(
+    run_id: str,
+    on_confirm: Callable[[], Awaitable[None]],
+) -> None:
+    """Open an accessible confirmation dialog before cancelling an entire run."""
+    with ui.dialog() as dialog, ui.card().classes("p-6 min-w-80"):
+        ui.label(f"Cancel Run {run_id}?").classes("text-lg font-bold")
+        ui.label(
+            "All pending and running jobs in this run will be terminated."
+        ).classes("text-sm text-slate-600 mt-1 mb-4")
+        with ui.row().classes("w-full justify-end gap-2"):
+            ui.button("Dismiss", on_click=dialog.close).props(
+                'flat aria-label="Dismiss cancel run dialog"'
+            )
+
+            async def _confirm() -> None:
+                dialog.close()
+                await on_confirm()
+
+            ui.button(
+                "Confirm Cancel Run",
+                on_click=_confirm,
+                color="negative",
+                icon="stop_circle",
+            ).props(f'aria-label="Confirm cancel run {run_id}"')
+    dialog.open()
+
+
 async def _render_jobs_section(
     pipeline: ExecutionPipeline,
     identity: Identity,
     *,
     jobs: list[JobSpec] | None = None,
     on_mutated: Callable[[], Awaitable[None]] | None = None,
+    filter_state: dict[str, str] | None = None,
 ) -> None:
-    """Render active cluster jobs table with RBAC-gated Kill controls.
+    """Render sortable, filterable jobs table with status badges and lifecycle controls.
 
     Args:
         pipeline: Shared CQRS ExecutionPipeline.
         identity: Verified caller Identity.
         jobs: Optional pre-fetched list of JobSpec instances.
         on_mutated: Optional callback invoked after a job mutation succeeds.
+        filter_state: Optional mutable dict persisting search/status filter values.
     """
     is_admin = "admin" in identity.roles
     resolved_jobs: list[JobSpec] = (
@@ -112,38 +301,115 @@ async def _render_jobs_section(
             ListJobsQuery(user_id=identity.user_id, elevate=is_admin),
         )
     )
+    active_filters = (
+        filter_state if filter_state is not None else {"search": "", "status": "ALL"}
+    )
     ui.label("Jobs").classes("text-lg font-semibold mt-4")
     if not resolved_jobs:
         ui.label("No jobs in queue.").classes("text-slate-400")
         return
 
-    for job in resolved_jobs:
-        with ui.row().classes("w-full items-center justify-between border-b py-2"):
-            ui.label(f"{job.id} | {job.run_id} | {job.name} ({job.state})").classes(
-                "font-mono text-sm"
-            )
+    filtered = _filter_jobs(
+        resolved_jobs,
+        search_text=active_filters.get("search", ""),
+        status_filter=active_filters.get("status", "ALL"),
+    )
+    rows = _build_job_rows(filtered)
 
-            async def _kill_job(target_id: str = job.id) -> None:
-                try:
-                    await dispatch_command(
-                        pipeline,
-                        CancelJobCommand(
-                            job_id=target_id,
-                            user_id=identity.user_id,
-                            elevate=is_admin,
-                        ),
-                    )
-                    ui.notify(f"Cancelled job {target_id}", type="positive")
-                    if on_mutated is not None:
-                        await on_mutated()
-                    else:
-                        ui.navigate.reload()
-                except Exception as exc:
-                    ui.notify(f"Cancel failed: {exc}", type="negative")
+    table = ui.table(
+        columns=_JOB_TABLE_COLUMNS,
+        rows=rows,
+        row_key="job_id",
+        pagination={"rowsPerPage": 15, "sortBy": "job_id", "descending": False},
+    ).classes("w-full mt-2")
 
-            ui.button(
-                "Kill", on_click=_kill_job, icon="cancel", color="negative"
-            ).props(f'aria-label="Kill job {job.id}"').tooltip(f"Cancel job {job.id}")
+    table.add_slot(
+        "body-cell-status",
+        """
+        <q-td :props="props">
+            <q-badge
+                :style="{ backgroundColor: props.row.badge_bg, color: '#ffffff', fontWeight: 700 }"
+                class="px-2 py-1 text-xs rounded"
+            >
+                {{ props.value }}
+            </q-badge>
+        </q-td>
+        """,
+    )
+    table.add_slot(
+        "body-cell-actions",
+        """
+        <q-td :props="props">
+            <div class="row justify-end q-gutter-xs no-wrap">
+                <q-btn
+                    v-if="props.row.can_hold"
+                    dense flat round size="sm" icon="pause_circle" color="purple-8"
+                    :aria-label="'Hold job ' + props.row.job_id"
+                    @click="$parent.$emit('hold_job', props.row)"
+                >
+                    <q-tooltip>Hold job</q-tooltip>
+                </q-btn>
+                <q-btn
+                    v-if="props.row.can_release"
+                    dense flat round size="sm" icon="play_circle" color="green-8"
+                    :aria-label="'Release job ' + props.row.job_id"
+                    @click="$parent.$emit('release_job', props.row)"
+                >
+                    <q-tooltip>Release job</q-tooltip>
+                </q-btn>
+                <q-btn
+                    v-if="props.row.can_cancel"
+                    dense flat round size="sm" icon="cancel" color="red-8"
+                    :aria-label="'Kill job ' + props.row.job_id"
+                    @click="$parent.$emit('cancel_job', props.row)"
+                >
+                    <q-tooltip>Kill job</q-tooltip>
+                </q-btn>
+                <q-btn
+                    v-if="props.row.can_cancel"
+                    dense flat round size="sm" icon="stop_circle" color="grey-8"
+                    :aria-label="'Cancel run ' + props.row.run_id"
+                    @click="$parent.$emit('cancel_run', props.row)"
+                >
+                    <q-tooltip>Cancel run</q-tooltip>
+                </q-btn>
+            </div>
+        </q-td>
+        """,
+    )
+
+    async def _on_hold(ev: object) -> None:
+        args = getattr(ev, "args", {}) or {}
+        await _dispatch_lifecycle_action(
+            pipeline, identity, "hold", str(args.get("job_id", "")), on_mutated
+        )
+
+    async def _on_release(ev: object) -> None:
+        args = getattr(ev, "args", {}) or {}
+        await _dispatch_lifecycle_action(
+            pipeline, identity, "release", str(args.get("job_id", "")), on_mutated
+        )
+
+    async def _on_cancel_job(ev: object) -> None:
+        args = getattr(ev, "args", {}) or {}
+        await _dispatch_lifecycle_action(
+            pipeline, identity, "cancel_job", str(args.get("job_id", "")), on_mutated
+        )
+
+    def _on_cancel_run(ev: object) -> None:
+        args = getattr(ev, "args", {}) or {}
+        run_id = str(args.get("run_id", ""))
+        _open_cancel_run_dialog(
+            run_id,
+            lambda: _dispatch_lifecycle_action(
+                pipeline, identity, "cancel_run", run_id, on_mutated
+            ),
+        )
+
+    table.on("hold_job", _on_hold)
+    table.on("release_job", _on_release)
+    table.on("cancel_job", _on_cancel_job)
+    table.on("cancel_run", _on_cancel_run)
 
 
 _logger = logging.getLogger(__name__)
@@ -240,6 +506,7 @@ async def _render_console_panel(
     snapshot_box: list[
         tuple[ClusterStatsReport, list[NodeTelemetryPulse], list[JobSpec], str]
     ] = [await _fetch_cluster_snapshot(pipeline, identity)]
+    filter_state: dict[str, str] = {"search": "", "status": "ALL"}
 
     def _notify_live_badge(changed: bool) -> None:
         flag = "true" if changed else "false"
@@ -281,6 +548,7 @@ async def _render_console_panel(
             identity,
             jobs=jobs,
             on_mutated=_handle_manual_refresh,
+            filter_state=filter_state,
         )
 
     with ui.header().classes("items-center justify-between px-6"):
@@ -301,6 +569,39 @@ async def _render_console_panel(
             ui.button("Sign Out", on_click=_logout, icon="logout").props(
                 'aria-label="Sign out"'
             ).tooltip("Sign out")
+
+    with ui.row().classes("w-full items-center gap-3 mt-4"):
+
+        def _on_search_change(ev: object) -> None:
+            filter_state["search"] = str(getattr(ev, "value", "") or "")
+            _cluster_body.refresh()
+
+        def _on_status_change(ev: object) -> None:
+            filter_state["status"] = str(getattr(ev, "value", "ALL") or "ALL")
+            _cluster_body.refresh()
+
+        ui.input(
+            label="Search Jobs / Runs / Workers",
+            placeholder="Filter by job ID, run ID, name, or worker...",
+            on_change=_on_search_change,
+        ).props(
+            'clearable aria-label="Filter jobs by ID, run ID, name, or worker"'
+        ).classes("w-80")
+        ui.select(
+            options=[
+                "ALL",
+                "PENDING",
+                "RUNNING",
+                "HELD",
+                "COMPLETED",
+                "FAILED",
+                "CANCELLED",
+                "BLOCKED",
+            ],
+            value="ALL",
+            label="Status Filter",
+            on_change=_on_status_change,
+        ).props('aria-label="Filter jobs by status"').classes("w-48")
 
     await _cluster_body()
     ui.timer(2.0, _handle_timer_tick)
