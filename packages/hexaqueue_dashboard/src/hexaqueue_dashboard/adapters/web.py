@@ -260,9 +260,10 @@ async def _stream_dashboard_events_generator(
         snapshot = await asyncio.to_thread(
             _build_sse_snapshot, pipeline, user_id, is_elevated
         )
+        stats_dict = snapshot["stats"]
         fingerprint = json.dumps(
             {
-                "stats": snapshot["stats"],
+                "stats": {k: v for k, v in stats_dict.items() if k != "timestamp"},
                 "nodes_count": snapshot["nodes_count"],
                 "jobs": snapshot["jobs"],
             },

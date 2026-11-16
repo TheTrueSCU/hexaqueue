@@ -187,7 +187,7 @@ def _render_live_status_widget(script_url: str | None) -> None:
         '<span id="hq-live-dot" aria-hidden="true" '
         'style="width:8px;height:8px;border-radius:9999px;background-color:#86efac;">'
         "</span>"
-        '<span id="hq-live-text">Live</span>'
+        '<span id="hq-live-text">Connected</span>'
         "</span>",
         sanitize=False,
     )
@@ -208,7 +208,13 @@ async def _fetch_cluster_snapshot(
     )
     fingerprint = json.dumps(
         {
-            "stats": stats.model_dump(mode="json"),
+            "stats": {
+                "total_jobs": stats.total_jobs,
+                "pending_jobs": stats.pending_jobs,
+                "running_jobs": stats.running_jobs,
+                "completed_jobs": stats.completed_jobs,
+                "failed_jobs": stats.failed_jobs,
+            },
             "nodes": len(nodes),
             "jobs": [(j.id, str(j.state), str(j.outcome)) for j in jobs],
         },

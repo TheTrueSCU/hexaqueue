@@ -22,15 +22,15 @@
             lastUpdateStr = timestampStr || formatTime(new Date());
             badge.style.backgroundColor = "#15803d";
             dot.style.backgroundColor = "#86efac";
-            text.textContent = `Live · Updated ${lastUpdateStr}`;
+            text.textContent = `Connected · Updated ${lastUpdateStr}`;
         } else if (state === "idle") {
             badge.style.backgroundColor = "#15803d";
             dot.style.backgroundColor = "#86efac";
-            text.textContent = `Live · Idle (Last update: ${lastUpdateStr})`;
+            text.textContent = `Connected · Idle (Last: ${lastUpdateStr})`;
         } else {
             badge.style.backgroundColor = "#b91c1c";
             dot.style.backgroundColor = "#fca5a5";
-            text.textContent = "Tunnel Disconnected";
+            text.textContent = `Disconnected (Last: ${lastUpdateStr})`;
         }
     };
 

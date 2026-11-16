@@ -140,7 +140,7 @@ def test_dashboard_ui_wcag_accessibility(
 
     expect(page.get_by_text("Hexaqueue Operator Console")).to_be_visible()
     expect(page.locator("#hq-live-badge")).to_be_visible()
-    expect(page.locator("#hq-live-text")).to_contain_text("Live")
+    expect(page.locator("#hq-live-text")).to_contain_text("Connected")
     expect(page.get_by_text("wcag_audit_job")).to_be_visible()
 
     console_violations = run_axe_scan(page)
