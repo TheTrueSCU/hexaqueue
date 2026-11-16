@@ -183,9 +183,12 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                 if run_jobs:
                     self._runs[run_id] = RunSubmission(
                         run_spec=RunSpec(
-                            id=run_id, name=run_id, created_at=run.created_at
+                            id=run_id,
+                            name=run.name or run_id,
+                            created_at=run.created_at,
                         ),
                         jobs=run_jobs,
+                        dependencies=run.dependencies,
                     )
                     self._dag_engines.setdefault(run_id, JobDagEngine())
                 else:
@@ -471,8 +474,10 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             burn_report=burn_report,
             completed_jobs=completed,
             created_at=submission.run_spec.created_at,
+            dependencies=dict(submission.dependencies),
             failed_jobs=failed,
             free_tier_active=free_tier_active,
+            name=submission.run_spec.name,
             outcome=run_outcome,
             pending_jobs=pending,
             run_id=run_id,
@@ -480,6 +485,17 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             state=run_state,
             total_jobs=len(run_jobs),
         )
+
+    async def list_runs(self) -> list[RunStatusReport]:
+        """Retrieve status reports for all registered pipeline runs."""
+        await self._ensure_hydrated()
+        async with self._lock:
+            reports = [self._build_run_status_unlocked(run_id) for run_id in self._runs]
+            for run_id, persisted in self._persisted_runs.items():
+                if run_id not in self._runs:
+                    reports.append(persisted)
+            reports.sort(key=lambda r: r.created_at, reverse=True)
+            return reports
 
     async def get_run_status(self, run_id: str) -> RunStatusReport:
         """Retrieve aggregated run status."""

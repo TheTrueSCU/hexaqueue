@@ -89,6 +89,9 @@ class RunStatusReport(BaseModel):
         default_factory=list, description="List of completed steps or job IDs"
     )
     created_at: datetime = Field(description="Run creation timestamp")
+    dependencies: dict[str, list[str]] = Field(
+        default_factory=dict, description="Job dependency adjacency mapping"
+    )
     failed_jobs: int = Field(ge=0, description="Failed jobs count")
     failed_steps: list[str] = Field(
         default_factory=list, description="List of failed steps or job IDs"
@@ -101,6 +104,7 @@ class RunStatusReport(BaseModel):
         default=None,
         description="Alias for run_id for generic consumer protocol parity",
     )
+    name: str | None = Field(default=None, description="Optional pipeline run name")
     outcome: RunOutcome | None = Field(
         default=None, description="Terminal outcome if DONE"
     )

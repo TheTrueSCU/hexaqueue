@@ -22,6 +22,7 @@ from hexastack_fastapi.adapters.dependencies import get_pipeline
 from hexaqueue_core.domain.cqrs import (
     CancelRunCommand,
     GetRunStatusQuery,
+    ListRunsQuery,
     RewindRunCommand,
     SubmitRunCommand,
     SubmitSuiteCommand,
@@ -67,6 +68,21 @@ def create_runs_router() -> APIRouter:
             elevate=is_elevated,
         )
         return _dispatch(pipeline, effective_cmd)
+
+    # 1b. List Runs
+    @router.get(
+        "/runs",
+        response_model=list[RunStatusReport],
+        summary="List registered pipeline runs",
+    )
+    def list_runs(
+        pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
+        limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+    ) -> list[RunStatusReport]:
+        user_id, is_elevated = auth
+        qry = ListRunsQuery(user_id=user_id, elevate=is_elevated, limit=limit)
+        return _dispatch(pipeline, qry)
 
     # 2. Run Status
     @router.get(

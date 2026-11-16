@@ -102,6 +102,14 @@ class SchedulerControllerPort(ABC):
         """
 
     @abstractmethod
+    async def list_runs(self) -> list[RunStatusReport]:
+        """Retrieve all currently registered pipeline runs.
+
+        Returns:
+            List of RunStatusReport instances.
+        """
+
+    @abstractmethod
     async def cancel_job(self, job_id: str) -> JobSpec:
         """Cancel an individual job.
 

@@ -225,6 +225,18 @@ class HttpSchedulerControllerAdapter(SchedulerControllerPort):
         data = await self._request("GET", "/v1/jobs")
         return [JobSpec.model_validate(item) for item in data]
 
+    async def list_runs(self) -> list[RunStatusReport]:
+        """Retrieve all currently registered pipeline runs from the remote controller.
+
+        Returns:
+            List of RunStatusReport instances.
+
+        Raises:
+            HexaqueueError: If the controller request fails.
+        """
+        data = await self._request("GET", "/v1/runs")
+        return [RunStatusReport.model_validate(item) for item in data]
+
     async def cancel_job(self, job_id: str) -> JobSpec:
         """Cancel an individual job on the remote controller.
 

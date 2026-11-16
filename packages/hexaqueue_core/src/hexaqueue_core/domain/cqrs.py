@@ -648,6 +648,24 @@ class ListJobsQuery(Query):
     user_id: str = Field(default="default", description="Requesting user identity")
 
 
+class ListRunsQuery(Query):
+    """Query to list registered pipeline runs.
+
+    Args:
+        user_id: Identity of requesting user.
+        elevate: Explicit administrative privilege elevation flag.
+        limit: Maximum number of runs to return.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    elevate: bool = Field(
+        default=False, description="Explicit administrative elevation flag"
+    )
+    limit: int = Field(default=100, ge=1, le=1000, description="Max runs to return")
+    user_id: str = Field(default="default", description="Requesting user identity")
+
+
 class ExplainJobQuery(Query):
     """Query to retrieve diagnostic explainability reasoning for a job's placement.
 
@@ -1205,6 +1223,7 @@ __all__ = [
     "HoldJobCommand",
     "ListComputeNodesQuery",
     "ListJobsQuery",
+    "ListRunsQuery",
     "NodesReport",
     "NotifyLogUploadCompleteCommand",
     "PinCollateralCommand",

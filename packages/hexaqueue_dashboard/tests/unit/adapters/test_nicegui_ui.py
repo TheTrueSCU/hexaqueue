@@ -114,6 +114,7 @@ async def test_nicegui_ui_identity_and_panels(monkeypatch: pytest.MonkeyPatch) -
         input=_fake_input,
         select=_fake_input,
         table=lambda *_a, **_k: _FakeElement(),
+        tree=lambda *_a, **_k: _FakeElement(),
         dialog=lambda *_a, **_k: _FakeElement(),
         button=_fake_button,
         separator=lambda *_a, **_k: _FakeElement(),
@@ -286,3 +287,37 @@ async def test_jobs_table_filtering_badges_and_lifecycle_actions(
     await nicegui_ui._dispatch_lifecycle_action(
         pipeline, ident, "cancel_job", "nonexistent-job"
     )
+
+    # Verify nested DAG tree builder and _render_runs_section
+    child_job = JobSpec(
+        id="j-child",
+        run_id="r-1",
+        name="child-task",
+        command="echo child",
+        status=JobStatus(state=JobState.PENDING),
+    )
+    await controller.submit_run(
+        RunSubmission(
+            run_spec=RunSpec(id="r-dag", name="nested-dag"),
+            jobs=[
+                pending_job.model_copy(update={"id": "j-root", "run_id": "r-dag"}),
+                child_job.model_copy(update={"run_id": "r-dag"}),
+            ],
+            dependencies={"j-child": ["j-root"]},
+        )
+    )
+    runs_list = await controller.list_runs()
+    dag_jobs = await controller.list_jobs()
+    tree_nodes = nicegui_ui._build_run_tree_nodes(runs_list, dag_jobs)
+    dag_node = next(n for n in tree_nodes if n["run_id"] == "r-dag")
+    children = dag_node["children"]
+    assert isinstance(children, list)
+    assert children[0]["job_id"] == "j-root"
+    assert children[0]["children"][0]["job_id"] == "j-child"
+
+    tree_ui = SimpleNamespace(
+        label=lambda *_a, **_k: _FakeElement(),
+        tree=lambda *_a, **_k: _FakeElement(),
+    )
+    monkeypatch.setattr(nicegui_ui, "ui", tree_ui)
+    nicegui_ui._render_runs_section(runs_list, dag_jobs)

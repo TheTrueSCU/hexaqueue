@@ -672,3 +672,17 @@ async def test_dashboard_events_generator_emits_heartbeat_and_cluster_update(
     assert "event: snapshot" in events[0]
     assert "event: heartbeat" in events[1]
     assert "event: cluster_update" in events[2]
+
+
+def test_dashboard_list_runs_endpoint(
+    hermetic_dashboard_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify GET /dashboard/runs returns seeded runs."""
+    monkeypatch.setenv("HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN", "1")
+    resp = hermetic_dashboard_client.get("/dashboard/runs?elevate=true")
+    status_code = resp.status_code
+    assert status_code == 200
+    runs = resp.json()
+    assert len(runs) >= 1
+    assert runs[0]["run_id"] == "run-dash-seed"

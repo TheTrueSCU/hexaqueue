@@ -34,6 +34,7 @@ from hexaqueue_core.domain.cqrs import (
     GetQueueStatsQuery,
     HoldJobCommand,
     ListJobsQuery,
+    ListRunsQuery,
     RegisterCollateralCommand,
     ReleaseJobCommand,
     SubmitRunCommand,
@@ -395,6 +396,22 @@ def create_dashboard_router(
             elevate=bool(cmd.elevate or is_elevated),
         )
         return _dispatch(pip, effective_cmd)
+
+    # 6b. Run Listing
+    @router.get(
+        "/runs",
+        response_model=list[RunStatusReport],
+        summary="List pipeline runs in dashboard view",
+    )
+    def list_runs(
+        pip: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
+        limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+    ) -> list[RunStatusReport]:
+        user_id, is_elevated = auth
+        return _dispatch(
+            pip, ListRunsQuery(user_id=user_id, elevate=is_elevated, limit=limit)
+        )
 
     # 7. Job Listing
     @router.get(
