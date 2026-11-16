@@ -7,11 +7,16 @@ Notes/Architectural Intent:
     introducing private domain bypasses or state drift.
 """
 
+import asyncio
+import json
 import os
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 from typing import Annotated, Any, cast
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from hexastack_cqrs.infra.pipeline import ExecutionPipeline
 
 from hexaqueue_core.domain.collateral import CollateralBundle
@@ -211,6 +216,69 @@ def _dispatch[T](pipeline: ExecutionPipeline, msg: Any) -> T:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
         ) from exc
+
+
+def _build_sse_snapshot(
+    pipeline: ExecutionPipeline, user_id: str, is_elevated: bool
+) -> dict[str, Any]:
+    """Build a serializable cluster snapshot for dashboard SSE streaming."""
+    stats: ClusterStatsReport = _dispatch(pipeline, GetQueueStatsQuery())
+    nodes: list[NodeTelemetryPulse] = _dispatch(pipeline, GetNodesQuery())
+    jobs: list[JobSpec] = _dispatch(
+        pipeline, ListJobsQuery(user_id=user_id, elevate=is_elevated)
+    )
+    return {
+        "timestamp": datetime.now(tz=UTC).isoformat(),
+        "stats": stats.model_dump(mode="json"),
+        "nodes_count": len(nodes),
+        "jobs": [
+            {
+                "id": j.id,
+                "run_id": j.run_id,
+                "name": j.name,
+                "state": str(j.state),
+                "outcome": str(j.outcome) if j.outcome is not None else None,
+            }
+            for j in jobs
+        ],
+    }
+
+
+async def _stream_dashboard_events_generator(
+    request: Request,
+    pipeline: ExecutionPipeline,
+    user_id: str,
+    is_elevated: bool,
+    poll_interval: float,
+    once: bool,
+) -> AsyncGenerator[str]:
+    """Yield SSE-formatted cluster snapshots and idle heartbeats."""
+    last_fingerprint: str | None = None
+    while True:
+        if await request.is_disconnected():
+            break
+        snapshot = await asyncio.to_thread(
+            _build_sse_snapshot, pipeline, user_id, is_elevated
+        )
+        stats_dict = snapshot["stats"]
+        fingerprint = json.dumps(
+            {
+                "stats": {k: v for k, v in stats_dict.items() if k != "timestamp"},
+                "nodes_count": snapshot["nodes_count"],
+                "jobs": snapshot["jobs"],
+            },
+            sort_keys=True,
+        )
+        if last_fingerprint is None or fingerprint != last_fingerprint:
+            event_name = "snapshot" if last_fingerprint is None else "cluster_update"
+            last_fingerprint = fingerprint
+            yield f"event: {event_name}\ndata: {json.dumps(snapshot)}\n\n"
+        else:
+            heartbeat = {"timestamp": snapshot["timestamp"]}
+            yield f"event: heartbeat\ndata: {json.dumps(heartbeat)}\n\n"
+        if once:
+            break
+        await asyncio.sleep(poll_interval)
 
 
 def create_dashboard_router(
@@ -540,6 +608,33 @@ def create_dashboard_router(
     def dashboard_health() -> dict[str, str]:
         """Return lightweight liveness indicator for the dashboard heartbeat widget."""
         return {"status": "live"}
+
+    # 0b. Authenticated Cluster SSE Stream
+    @router.get(
+        "/events",
+        summary="Stream live cluster stats, jobs, and node telemetry deltas via SSE",
+        response_class=StreamingResponse,
+    )
+    async def stream_dashboard_events(
+        request: Request,
+        pip: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
+        poll_interval: Annotated[float, Query(ge=0.1, le=30.0)] = 2.0,
+        once: Annotated[bool, Query()] = False,
+    ) -> StreamingResponse:
+        """Stream authenticated cluster updates as Server-Sent Events."""
+        user_id, is_elevated = auth
+        return StreamingResponse(
+            _stream_dashboard_events_generator(
+                request, pip, user_id, is_elevated, poll_interval, once
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     return router
 

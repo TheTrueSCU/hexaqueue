@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from fastapi import FastAPI
@@ -67,19 +68,38 @@ async def test_nicegui_ui_identity_and_panels(monkeypatch: pytest.MonkeyPatch) -
     fake_storage = SimpleNamespace(user={})
     monkeypatch.setattr(nicegui_ui.nicegui_app, "storage", fake_storage)
 
+    def _fake_refreshable(fn):  # type: ignore[no-untyped-def]
+        fn.refresh = lambda: None
+        return fn
+
+    captured_buttons: dict[str, Any] = {}
+    captured_timers: list[Any] = []
+    js_calls: list[str] = []
+
+    def _fake_button(label: str = "", *args: object, **kwargs: Any) -> _FakeElement:
+        if "on_click" in kwargs:
+            captured_buttons[label] = kwargs["on_click"]
+        return _FakeElement()
+
+    def _fake_timer(_interval: float, callback: Any) -> None:
+        captured_timers.append(callback)
+
     fake_ui = SimpleNamespace(
         card=lambda *_a, **_k: _FakeElement(),
         row=lambda *_a, **_k: _FakeElement(),
         column=lambda *_a, **_k: _FakeElement(),
         label=lambda *_a, **_k: _FakeElement(),
         input=lambda *_a, **_k: _FakeElement(),
-        button=lambda *_a, **_k: _FakeElement(),
+        button=_fake_button,
         separator=lambda *_a, **_k: _FakeElement(),
         notify=lambda *_a, **_k: None,
         navigate=SimpleNamespace(reload=lambda: None),
         header=lambda *_a, **_k: _FakeElement(),
         html=lambda *_a, **_k: _FakeElement(),
         add_body_html=lambda *_a, **_k: None,
+        refreshable=_fake_refreshable,
+        timer=_fake_timer,
+        run_javascript=lambda code, *_a, **_k: js_calls.append(str(code)),
     )
     monkeypatch.setattr(nicegui_ui, "ui", fake_ui)
 
@@ -102,3 +122,18 @@ async def test_nicegui_ui_identity_and_panels(monkeypatch: pytest.MonkeyPatch) -
     pipeline = create_hexaqueue_execution_pipeline(controller=controller)
     await _render_jobs_section(pipeline, ident)
     await _render_console_panel(pipeline, ident)
+
+    # Exercise reactive refresh, timer tick, and sign-out callbacks
+    refresh_cb = captured_buttons["Refresh"]
+    await refresh_cb()
+    timer_cb = captured_timers[0]
+    await timer_cb()
+    js_count = len(js_calls)
+    assert js_count >= 2
+    assert "changed: true" in js_calls[0]
+    assert "changed: false" in js_calls[1]
+
+    logout_cb = captured_buttons["Sign Out"]
+    logout_cb()
+    jwt_after_logout = fake_storage.user.get("jwt")
+    assert jwt_after_logout is None

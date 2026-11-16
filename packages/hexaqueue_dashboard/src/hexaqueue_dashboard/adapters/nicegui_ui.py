@@ -10,9 +10,11 @@ Notes/Architectural Intent:
 from __future__ import annotations
 
 import importlib.resources
+import json
 import logging
 import os
 import secrets
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -89,24 +91,33 @@ def _render_login_panel(auth_manager: DashboardAuthManager) -> None:
 async def _render_jobs_section(
     pipeline: ExecutionPipeline,
     identity: Identity,
+    *,
+    jobs: list[JobSpec] | None = None,
+    on_mutated: Callable[[], Awaitable[None]] | None = None,
 ) -> None:
     """Render active cluster jobs table with RBAC-gated Kill controls.
 
     Args:
         pipeline: Shared CQRS ExecutionPipeline.
         identity: Verified caller Identity.
+        jobs: Optional pre-fetched list of JobSpec instances.
+        on_mutated: Optional callback invoked after a job mutation succeeds.
     """
     is_admin = "admin" in identity.roles
-    jobs: list[JobSpec] = await dispatch_query(
-        pipeline,
-        ListJobsQuery(user_id=identity.user_id, elevate=is_admin),
+    resolved_jobs: list[JobSpec] = (
+        jobs
+        if jobs is not None
+        else await dispatch_query(
+            pipeline,
+            ListJobsQuery(user_id=identity.user_id, elevate=is_admin),
+        )
     )
     ui.label("Jobs").classes("text-lg font-semibold mt-4")
-    if not jobs:
+    if not resolved_jobs:
         ui.label("No jobs in queue.").classes("text-slate-400")
         return
 
-    for job in jobs:
+    for job in resolved_jobs:
         with ui.row().classes("w-full items-center justify-between border-b py-2"):
             ui.label(f"{job.id} | {job.run_id} | {job.name} ({job.state})").classes(
                 "font-mono text-sm"
@@ -123,7 +134,10 @@ async def _render_jobs_section(
                         ),
                     )
                     ui.notify(f"Cancelled job {target_id}", type="positive")
-                    ui.navigate.reload()
+                    if on_mutated is not None:
+                        await on_mutated()
+                    else:
+                        ui.navigate.reload()
                 except Exception as exc:
                     ui.notify(f"Cancel failed: {exc}", type="negative")
 
@@ -173,12 +187,40 @@ def _render_live_status_widget(script_url: str | None) -> None:
         '<span id="hq-live-dot" aria-hidden="true" '
         'style="width:8px;height:8px;border-radius:9999px;background-color:#86efac;">'
         "</span>"
-        '<span id="hq-live-text">Live</span>'
+        '<span id="hq-live-text">Connected</span>'
         "</span>",
         sanitize=False,
     )
     if script_url:
         ui.add_body_html(f'<script src="{script_url}" defer></script>')
+
+
+async def _fetch_cluster_snapshot(
+    pipeline: ExecutionPipeline,
+    identity: Identity,
+) -> tuple[ClusterStatsReport, list[NodeTelemetryPulse], list[JobSpec], str]:
+    """Fetch cluster stats, active nodes, jobs, and a stable diff fingerprint."""
+    is_admin = "admin" in identity.roles
+    stats: ClusterStatsReport = await dispatch_query(pipeline, GetQueueStatsQuery())
+    nodes: list[NodeTelemetryPulse] = await dispatch_query(pipeline, GetNodesQuery())
+    jobs: list[JobSpec] = await dispatch_query(
+        pipeline, ListJobsQuery(user_id=identity.user_id, elevate=is_admin)
+    )
+    fingerprint = json.dumps(
+        {
+            "stats": {
+                "total_jobs": stats.total_jobs,
+                "pending_jobs": stats.pending_jobs,
+                "running_jobs": stats.running_jobs,
+                "completed_jobs": stats.completed_jobs,
+                "failed_jobs": stats.failed_jobs,
+            },
+            "nodes": len(nodes),
+            "jobs": [(j.id, str(j.state), str(j.outcome)) for j in jobs],
+        },
+        sort_keys=True,
+    )
+    return stats, nodes, jobs, fingerprint
 
 
 async def _render_console_panel(
@@ -195,6 +237,52 @@ async def _render_console_panel(
         live_status_js_url: Optional URL for the static `live_status.js` script.
     """
     roles_label = ", ".join(sorted(identity.roles))
+    snapshot_box: list[
+        tuple[ClusterStatsReport, list[NodeTelemetryPulse], list[JobSpec], str]
+    ] = [await _fetch_cluster_snapshot(pipeline, identity)]
+
+    def _notify_live_badge(changed: bool) -> None:
+        flag = "true" if changed else "false"
+        ui.run_javascript(
+            "window.dispatchEvent(new CustomEvent('hq:cluster-update', "
+            f"{{detail: {{changed: {flag}}}}}))"
+        )
+
+    async def _refresh_now(*, force: bool = False) -> None:
+        _, _, _, prev_fp = snapshot_box[0]
+        next_data = await _fetch_cluster_snapshot(pipeline, identity)
+        changed = force or next_data[3] != prev_fp
+        if changed:
+            snapshot_box[0] = next_data
+            _cluster_body.refresh()
+        _notify_live_badge(changed)
+
+    async def _handle_manual_refresh() -> None:
+        await _refresh_now(force=True)
+
+    async def _handle_timer_tick() -> None:
+        await _refresh_now(force=False)
+
+    @ui.refreshable
+    async def _cluster_body() -> None:
+        stats, nodes, jobs, _fp = snapshot_box[0]
+        with ui.row().classes("w-full gap-4 mt-4"):
+            with ui.card().classes("p-4"):
+                ui.label(f"Total Jobs: {stats.total_jobs}").classes("font-semibold")
+            with ui.card().classes("p-4"):
+                ui.label(f"Running: {stats.running_jobs}").classes("font-semibold")
+            with ui.card().classes("p-4"):
+                ui.label(f"Pending: {stats.pending_jobs}").classes("font-semibold")
+            with ui.card().classes("p-4"):
+                ui.label(f"Active Nodes: {len(nodes)}").classes("font-semibold")
+
+        await _render_jobs_section(
+            pipeline,
+            identity,
+            jobs=jobs,
+            on_mutated=_handle_manual_refresh,
+        )
+
     with ui.header().classes("items-center justify-between px-6"):
         ui.label("Hexaqueue Operator Console").classes("text-lg font-bold")
         with ui.row().classes("items-center gap-3"):
@@ -202,7 +290,7 @@ async def _render_console_panel(
             ui.label(f"{identity.user_id} ({roles_label})").classes("text-sm")
             ui.button(
                 "Refresh",
-                on_click=ui.navigate.reload,
+                on_click=_handle_manual_refresh,
                 icon="refresh",
             ).props('aria-label="Refresh cluster status"').tooltip("Refresh status")
 
@@ -214,19 +302,8 @@ async def _render_console_panel(
                 'aria-label="Sign out"'
             ).tooltip("Sign out")
 
-    stats: ClusterStatsReport = await dispatch_query(pipeline, GetQueueStatsQuery())
-    nodes: list[NodeTelemetryPulse] = await dispatch_query(pipeline, GetNodesQuery())
-    with ui.row().classes("w-full gap-4 mt-4"):
-        with ui.card().classes("p-4"):
-            ui.label(f"Total Jobs: {stats.total_jobs}").classes("font-semibold")
-        with ui.card().classes("p-4"):
-            ui.label(f"Running: {stats.running_jobs}").classes("font-semibold")
-        with ui.card().classes("p-4"):
-            ui.label(f"Pending: {stats.pending_jobs}").classes("font-semibold")
-        with ui.card().classes("p-4"):
-            ui.label(f"Active Nodes: {len(nodes)}").classes("font-semibold")
-
-    await _render_jobs_section(pipeline, identity)
+    await _cluster_body()
+    ui.timer(2.0, _handle_timer_tick)
 
 
 def mount_dashboard_ui(

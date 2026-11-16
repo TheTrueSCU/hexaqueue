@@ -2,6 +2,9 @@
 
 import asyncio
 from collections.abc import Generator
+from types import SimpleNamespace
+from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import HTTPException
@@ -13,6 +16,7 @@ from hexaqueue_core.domain.lifecycle import JobState
 from hexaqueue_core.domain.resources import ResourceRequirements
 from hexaqueue_core.domain.run import RunSpec
 from hexaqueue_core.ports.logging import LogChunk
+from hexaqueue_dashboard.adapters.web import _stream_dashboard_events_generator
 from hexaqueue_dashboard.infra.app import create_dashboard_app
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
 from hexaqueue_server.domain.models import RunSubmission
@@ -600,3 +604,71 @@ def test_dashboard_health_endpoint(hermetic_dashboard_client: TestClient) -> Non
     assert status_code == 200
     payload = resp.json()
     assert payload == {"status": "live"}
+
+
+def test_dashboard_events_sse_requires_auth_and_streams_snapshot(
+    hermetic_dashboard_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify `/dashboard/events` enforces auth and streams an initial SSE snapshot."""
+    monkeypatch.setenv("HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN", "0")
+    unauth = hermetic_dashboard_client.get("/dashboard/events?once=true")
+    unauth_code = unauth.status_code
+    assert unauth_code == 401
+
+    monkeypatch.setenv("HEXAQUEUE_ALLOW_ANONYMOUS_ADMIN", "1")
+    resp = hermetic_dashboard_client.get("/dashboard/events?once=true")
+    ok_code = resp.status_code
+    assert ok_code == 200
+    content_type = resp.headers.get("content-type", "")
+    assert "text/event-stream" in content_type
+    body = resp.text
+    assert "event: snapshot" in body
+    assert "data:" in body
+
+
+@pytest.mark.asyncio
+async def test_dashboard_events_generator_emits_heartbeat_and_cluster_update(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify SSE generator emits snapshot, heartbeat on idle, and cluster_update on change."""
+    snapshots: list[dict[str, Any]] = [
+        {"timestamp": "t1", "stats": {"total_jobs": 1}, "nodes_count": 1, "jobs": []},
+        {"timestamp": "t2", "stats": {"total_jobs": 1}, "nodes_count": 1, "jobs": []},
+        {"timestamp": "t3", "stats": {"total_jobs": 2}, "nodes_count": 1, "jobs": []},
+    ]
+    idx = 0
+
+    def _fake_snapshot(_pip: object, _uid: str, _elev: bool) -> dict[str, Any]:
+        nonlocal idx
+        val = snapshots[min(idx, len(snapshots) - 1)]
+        idx += 1
+        return val
+
+    monkeypatch.setattr(
+        "hexaqueue_dashboard.adapters.web._build_sse_snapshot",
+        _fake_snapshot,
+    )
+
+    calls = 0
+
+    async def _is_disconnected() -> bool:
+        nonlocal calls
+        calls += 1
+        return calls > 3
+
+    fake_req: Any = SimpleNamespace(is_disconnected=_is_disconnected)
+    gen = _stream_dashboard_events_generator(
+        fake_req,
+        MagicMock(),
+        "rjdw",
+        True,
+        0.1,
+        False,
+    )
+    events = [chunk async for chunk in gen]
+    event_count = len(events)
+    assert event_count == 3
+    assert "event: snapshot" in events[0]
+    assert "event: heartbeat" in events[1]
+    assert "event: cluster_update" in events[2]

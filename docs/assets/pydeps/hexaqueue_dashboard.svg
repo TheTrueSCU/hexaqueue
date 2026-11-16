@@ -12,8 +12,8 @@
 <!-- fastapi -->
 <g id="node1" class="node">
 <title>fastapi</title><style>.edge>path:hover{stroke-width:8}</style>
-<polygon fill="#db2f2f" stroke="black" points="517.5,-685.98 514.5,-689.98 493.5,-689.98 490.5,-685.98 463.5,-685.98 463.5,-649.98 517.5,-649.98 517.5,-685.98"/>
-<text text-anchor="middle" x="490.5" y="-665.48" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#ffffff">fastapi</text>
+<polygon fill="blue" stroke="black" points="517.5,-685.98 514.5,-689.98 493.5,-689.98 490.5,-685.98 463.5,-685.98 463.5,-649.98 517.5,-649.98 517.5,-685.98"/>
+<text text-anchor="middle" x="490.5" y="-665.48" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">fastapi</text>
 </g>
 <!-- hexaqueue_dashboard_adapters_auth -->
 <g id="node5" class="node">
@@ -27,7 +27,7 @@
 <g id="edge1" class="edge">
 <title>fastapi&#45;&gt;hexaqueue_dashboard_adapters_auth</title><style>.edge>path:hover{stroke-width:8}</style>
 <path fill="none" stroke="black" d="M661.5,-520.48C676.55,-501.71 697.06,-484.55 714.99,-471.39"/>
-<polygon fill="#db2f2f" stroke="black" points="717.45,-473.93 723.55,-465.27 713.38,-468.24 717.45,-473.93"/>
+<polygon fill="blue" stroke="black" points="717.45,-473.93 723.55,-465.27 713.38,-468.24 717.45,-473.93"/>
 </g>
 <!-- hexaqueue_dashboard_adapters_nicegui_ui -->
 <g id="node6" class="node">
@@ -42,7 +42,7 @@
 <title>fastapi&#45;&gt;hexaqueue_dashboard_adapters_nicegui_ui</title><style>.edge>path:hover{stroke-width:8}</style>
 <path fill="none" stroke="black" d="M583.5,-594.98C617.15,-561.7 631.89,-559.41 661.5,-522.48"/>
 <path fill="none" stroke="black" d="M661.5,-520.48C688.84,-486.38 661.76,-463.47 680.5,-423.98 686.76,-410.79 696.35,-398.03 705.66,-387.42"/>
-<polygon fill="#db2f2f" stroke="black" points="708.51,-389.5 712.67,-379.75 703.34,-384.77 708.51,-389.5"/>
+<polygon fill="blue" stroke="black" points="708.51,-389.5 712.67,-379.75 703.34,-384.77 708.51,-389.5"/>
 </g>
 <!-- hexaqueue_dashboard_adapters_web -->
 <g id="node9" class="node">
@@ -58,7 +58,7 @@
 <path fill="none" stroke="black" d="M517.26,-649.71C536.72,-636.49 563.1,-617.16 583.5,-596.98"/>
 <path fill="none" stroke="black" d="M583.5,-594.98C609.67,-569.1 623.01,-559.28 623.5,-522.48"/>
 <path fill="none" stroke="black" d="M623.5,-520.48C624.09,-476.29 619.24,-463.52 599.5,-423.98 592.98,-410.92 583.4,-398.11 574.23,-387.42"/>
-<polygon fill="#db2f2f" stroke="black" points="576.62,-384.84 567.36,-379.69 571.39,-389.49 576.62,-384.84"/>
+<polygon fill="blue" stroke="black" points="576.62,-384.84 567.36,-379.69 571.39,-389.49 576.62,-384.84"/>
 </g>
 <!-- hexaqueue_dashboard_infra_app -->
 <g id="node14" class="node">
