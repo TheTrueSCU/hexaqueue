@@ -1067,6 +1067,7 @@ async def _render_console_panel(
         ]
     ] = [await _fetch_cluster_snapshot(pipeline, identity)]
     filter_state: dict[str, str] = {"search": "", "status": "ALL"}
+    filter_controls: dict[str, Any] = {}
 
     def _notify_live_badge(changed: bool) -> None:
         flag = "true" if changed else "false"
@@ -1092,6 +1093,20 @@ async def _render_console_panel(
 
     def _filter_to_run(run_id: str) -> None:
         filter_state["search"] = run_id
+        search_input = filter_controls.get("search_input")
+        if search_input is not None:
+            search_input.value = run_id
+        _cluster_body.refresh()
+
+    def _clear_filters() -> None:
+        filter_state["search"] = ""
+        filter_state["status"] = "ALL"
+        search_input = filter_controls.get("search_input")
+        if search_input is not None:
+            search_input.value = ""
+        status_select = filter_controls.get("status_select")
+        if status_select is not None:
+            status_select.value = "ALL"
         _cluster_body.refresh()
 
     @ui.refreshable
@@ -1155,30 +1170,43 @@ async def _render_console_panel(
             filter_state["status"] = str(getattr(ev, "value", "ALL") or "ALL")
             _cluster_body.refresh()
 
-        ui.input(
-            label="Search Jobs / Runs / Workers",
-            placeholder="Filter by job ID, run ID, name, or worker...",
-            on_change=_on_search_change,
+        filter_controls["search_input"] = (
+            ui.input(
+                label="Search Jobs / Runs / Workers",
+                placeholder="Filter by job ID, run ID, name, or worker...",
+                on_change=_on_search_change,
+            )
+            .props('clearable aria-label="Filter jobs by ID, run ID, name, or worker"')
+            .classes("w-80")
+        )
+        filter_controls["status_select"] = (
+            ui.select(
+                options=[
+                    "ALL",
+                    "PENDING",
+                    "RUNNING",
+                    "IN_PROGRESS",
+                    "HELD",
+                    "COMPLETED",
+                    "SUCCEEDED",
+                    "FAILED",
+                    "CANCELLED",
+                    "BLOCKED",
+                ],
+                value="ALL",
+                label="Status Filter",
+                on_change=_on_status_change,
+            )
+            .props('aria-label="Filter jobs by status"')
+            .classes("w-48")
+        )
+        ui.button(
+            "Clear Filters",
+            on_click=_clear_filters,
+            icon="filter_alt_off",
         ).props(
-            'clearable aria-label="Filter jobs by ID, run ID, name, or worker"'
-        ).classes("w-80")
-        ui.select(
-            options=[
-                "ALL",
-                "PENDING",
-                "RUNNING",
-                "IN_PROGRESS",
-                "HELD",
-                "COMPLETED",
-                "SUCCEEDED",
-                "FAILED",
-                "CANCELLED",
-                "BLOCKED",
-            ],
-            value="ALL",
-            label="Status Filter",
-            on_change=_on_status_change,
-        ).props('aria-label="Filter jobs by status"').classes("w-48")
+            'size="sm" color="primary" aria-label="Clear search and status filters"'
+        ).tooltip("Reset search and status filters")
 
     await _cluster_body()
     ui.timer(2.0, _handle_timer_tick)

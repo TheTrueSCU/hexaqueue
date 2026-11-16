@@ -158,9 +158,10 @@ async def test_nicegui_ui_identity_and_panels(monkeypatch: pytest.MonkeyPatch) -
     await _render_jobs_section(pipeline, ident)
     await _render_console_panel(pipeline, ident)
 
-    # Exercise search & status filter callbacks
+    # Exercise search, status filter, and clear filters callbacks
     for on_change_cb in captured_on_changes:
-        on_change_cb(SimpleNamespace(value=""))
+        on_change_cb(SimpleNamespace(value="r-test"))
+    captured_buttons["Clear Filters"]()
 
     # Exercise reactive refresh, timer tick, and sign-out callbacks
     refresh_cb = captured_buttons["Refresh"]
