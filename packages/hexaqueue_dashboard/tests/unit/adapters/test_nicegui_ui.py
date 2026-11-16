@@ -68,7 +68,7 @@ class _FakeElement:
     def add_slot(self, *_args: object, **_kwargs: object) -> None:
         return None
 
-    def on(self, *_args: object, **_kwargs: object) -> None:
+    def on(self, event_name: str, handler: Any) -> None:
         return None
 
     def open(self) -> None:
@@ -90,11 +90,17 @@ async def test_nicegui_ui_identity_and_panels(monkeypatch: pytest.MonkeyPatch) -
 
     captured_buttons: dict[str, Any] = {}
     captured_timers: list[Any] = []
+    captured_on_changes: list[Any] = []
     js_calls: list[str] = []
 
     def _fake_button(label: str = "", *args: object, **kwargs: Any) -> _FakeElement:
         if "on_click" in kwargs:
             captured_buttons[label] = kwargs["on_click"]
+        return _FakeElement()
+
+    def _fake_input(*_args: object, **kwargs: Any) -> _FakeElement:
+        if "on_change" in kwargs:
+            captured_on_changes.append(kwargs["on_change"])
         return _FakeElement()
 
     def _fake_timer(_interval: float, callback: Any) -> None:
@@ -105,8 +111,8 @@ async def test_nicegui_ui_identity_and_panels(monkeypatch: pytest.MonkeyPatch) -
         row=lambda *_a, **_k: _FakeElement(),
         column=lambda *_a, **_k: _FakeElement(),
         label=lambda *_a, **_k: _FakeElement(),
-        input=lambda *_a, **_k: _FakeElement(),
-        select=lambda *_a, **_k: _FakeElement(),
+        input=_fake_input,
+        select=_fake_input,
         table=lambda *_a, **_k: _FakeElement(),
         dialog=lambda *_a, **_k: _FakeElement(),
         button=_fake_button,
@@ -141,6 +147,10 @@ async def test_nicegui_ui_identity_and_panels(monkeypatch: pytest.MonkeyPatch) -
     pipeline = create_hexaqueue_execution_pipeline(controller=controller)
     await _render_jobs_section(pipeline, ident)
     await _render_console_panel(pipeline, ident)
+
+    # Exercise search & status filter callbacks
+    for on_change_cb in captured_on_changes:
+        on_change_cb(SimpleNamespace(value=""))
 
     # Exercise reactive refresh, timer tick, and sign-out callbacks
     refresh_cb = captured_buttons["Refresh"]
@@ -230,3 +240,49 @@ async def test_jobs_table_filtering_badges_and_lifecycle_actions(
     await nicegui_ui._dispatch_lifecycle_action(pipeline, ident, "cancel_run", "r-1")
     cancelled_outcome = (await controller.get_job("j-pend")).outcome
     assert cancelled_outcome == TerminalOutcome.CANCELLED
+
+    # Exercise _render_jobs_section table slots, event handlers, cancel_job, and dialog
+    table_events: dict[str, Any] = {}
+    dialog_buttons: dict[str, Any] = {}
+
+    class _FakeTable(_FakeElement):
+        def on(self, event_name: str, handler: Any) -> None:
+            table_events[event_name] = handler
+
+    def _fake_dialog_btn(label: str = "", *_a: object, **kwargs: Any) -> _FakeElement:
+        if "on_click" in kwargs:
+            dialog_buttons[label] = kwargs["on_click"]
+        return _FakeElement()
+
+    rich_ui = SimpleNamespace(
+        label=lambda *_a, **_k: _FakeElement(),
+        row=lambda *_a, **_k: _FakeElement(),
+        card=lambda *_a, **_k: _FakeElement(),
+        table=lambda *_a, **_k: _FakeTable(),
+        dialog=lambda *_a, **_k: _FakeElement(),
+        button=_fake_dialog_btn,
+        notify=lambda *_a, **_k: None,
+        navigate=SimpleNamespace(reload=lambda: None),
+    )
+    monkeypatch.setattr(nicegui_ui, "ui", rich_ui)
+
+    mutated_calls = 0
+
+    async def _on_mutated() -> None:
+        nonlocal mutated_calls
+        mutated_calls += 1
+
+    await _render_jobs_section(
+        pipeline, ident, jobs=[pending_job], on_mutated=_on_mutated
+    )
+    await table_events["hold_job"](SimpleNamespace(args={"job_id": "j-pend"}))
+    await table_events["release_job"](SimpleNamespace(args={"job_id": "j-pend"}))
+    await table_events["cancel_job"](SimpleNamespace(args={"job_id": "j-pend"}))
+    table_events["cancel_run"](SimpleNamespace(args={"run_id": "r-1"}))
+    await dialog_buttons["Confirm Cancel Run"]()
+    assert mutated_calls == 4
+
+    # Error path in _dispatch_lifecycle_action
+    await nicegui_ui._dispatch_lifecycle_action(
+        pipeline, ident, "cancel_job", "nonexistent-job"
+    )
