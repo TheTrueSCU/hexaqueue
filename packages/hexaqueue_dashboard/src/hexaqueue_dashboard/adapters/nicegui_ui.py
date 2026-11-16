@@ -104,6 +104,8 @@ def _render_login_panel(
         ui.button("Sign In", on_click=_handle_login, icon="login").props(
             'aria-label="Sign in to Hexaqueue Dashboard"'
         ).tooltip("Authenticate with Hexaqueue web credentials")
+        username.on("keydown.enter", _handle_login)
+        password.on("keydown.enter", _handle_login)
 
 
 _STATUS_BADGE_COLORS: dict[str, str] = {
