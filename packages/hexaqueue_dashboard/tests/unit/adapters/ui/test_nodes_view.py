@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -16,6 +17,7 @@ from hexaqueue_worker.domain.telemetry import NodeTelemetryPulse
 def test_build_node_rows_and_topology_svg(
     monkeypatch: pytest.MonkeyPatch,
     fake_el: Any,
+    tmp_path: Path,
 ) -> None:
     """Verify node table row formatting and diagrams SVG generation + fallback."""
     pulse = NodeTelemetryPulse(
@@ -45,8 +47,15 @@ def test_build_node_rows_and_topology_svg(
 
     svg = nodes_mod.generate_cluster_topology_svg([pulse], [running_job])
     assert "<svg" in svg
-    assert "data:image/png;base64," in svg
     assert 'xlink:href="/' not in svg
+
+    icon_file = tmp_path / "vm.png"
+    icon_file.write_bytes(b"\x89PNG\r\n\x1a\n")
+    inlined_svg = nodes_mod._inline_svg_images(
+        f'<svg><image xlink:href="{icon_file}"/></svg>'
+    )
+    assert "data:image/png;base64," in inlined_svg
+    assert str(icon_file) not in inlined_svg
 
     # Exercise fallback SVG when Diagram raises
     monkeypatch.setattr(

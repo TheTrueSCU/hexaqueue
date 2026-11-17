@@ -12,6 +12,7 @@ from hexaqueue_dashboard.adapters.ui.inspection_drawer import (
     open_run_inspection_drawer,
     render_drawer_dag_links,
     render_drawer_explain_and_logs,
+    render_drawer_run_timeline,
     render_drawer_state_timeline,
 )
 from hexaqueue_dashboard.adapters.ui.jobs_table import (
@@ -58,6 +59,7 @@ __all__ = [
     "open_run_inspection_drawer",
     "render_drawer_dag_links",
     "render_drawer_explain_and_logs",
+    "render_drawer_run_timeline",
     "render_drawer_state_timeline",
     "render_jobs_section",
     "render_live_status_widget",

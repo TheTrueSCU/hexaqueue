@@ -243,6 +243,64 @@ def render_drawer_state_timeline(job: JobSpec) -> None:
             )
 
 
+def render_drawer_run_timeline(
+    run_report: RunStatusReport,
+    run_jobs: list[JobSpec],
+) -> None:
+    """Render chronological event log for a pipeline Run and its child jobs.
+
+    Args:
+        run_report: Target RunStatusReport instance.
+        run_jobs: Child JobSpec instances belonging to the run.
+
+    Notes/Architectural Intent:
+        Combines run-level timestamps (`created_at`, `updated_at`) with child
+        job transitions sorted by `updated_at` so operators can trace run
+        progress without leaving the slide-over.
+    """
+    run_status = resolve_run_display_status(run_report)
+    events: list[tuple[str, str]] = [
+        (
+            _fmt_ts(run_report.created_at),
+            f"Run submitted ({run_report.total_jobs} jobs)",
+        ),
+    ]
+    sorted_jobs = sorted(
+        run_jobs,
+        key=lambda j: str(j.updated_at or j.created_at or ""),
+    )
+    for job in sorted_jobs[-25:]:
+        job_status = resolve_job_display_status(job)
+        if (
+            job_status == "PENDING"
+            and not job.assigned_worker_id
+            and not job.status.reason
+        ):
+            continue
+        worker_part = f" on {job.assigned_worker_id}" if job.assigned_worker_id else ""
+        reason_part = f" ({job.status.reason})" if job.status.reason else ""
+        events.append(
+            (
+                _fmt_ts(job.updated_at),
+                f"{job.name} ({job.id}): {job_status}{worker_part}{reason_part}",
+            )
+        )
+    events.append(
+        (
+            _fmt_ts(run_report.updated_at),
+            f"Run state: {run_status} ({run_report.completed_jobs}/{run_report.total_jobs} completed, "
+            f"{run_report.failed_jobs} failed)",
+        )
+    )
+
+    ui.label("Run Event Log").classes("text-sm font-semibold mt-4")
+    with ui.column().classes("w-full gap-1 mt-1 pl-3 border-l-2 border-slate-600"):
+        for timestamp_str, description in events:
+            ui.label(f"{timestamp_str} — {description}").classes(
+                "text-xs font-mono text-slate-200"
+            )
+
+
 def render_drawer_explain_and_logs(
     explain_report: SchedulingDecisionReport | None,
     explain_error: str | None,
@@ -534,6 +592,8 @@ async def open_run_inspection_drawer(
                     color="negative",
                 ).props('size="sm" aria-label="Cancel inspected run"')
 
+        render_drawer_run_timeline(run_report, run_jobs)
+
         ui.label("Jobs in Run").classes("text-sm font-semibold mt-4")
         for job in run_jobs:
 
@@ -547,6 +607,7 @@ async def open_run_inspection_drawer(
                     all_jobs=all_jobs,
                     on_mutated=on_mutated,
                     on_filter_run=on_filter_run,
+                    drawer_host=drawer_host,
                 )
 
             ui.button(
@@ -567,4 +628,6 @@ __all__ = [
     "open_run_inspection_drawer",
     "render_drawer_dag_links",
     "render_drawer_explain_and_logs",
+    "render_drawer_run_timeline",
+    "render_drawer_state_timeline",
 ]
