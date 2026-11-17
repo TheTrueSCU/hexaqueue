@@ -14,37 +14,11 @@ from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
 from hexaqueue_dashboard.adapters import nicegui_ui
 from hexaqueue_dashboard.adapters.auth import DashboardAuthManager
 from hexaqueue_dashboard.adapters.ui import jobs_table as jobs_mod
+from hexaqueue_dashboard.adapters.ui import nodes_view as nodes_mod
 from hexaqueue_dashboard.adapters.ui import runs_tree as runs_mod
 from hexaqueue_dashboard.adapters.ui import status as status_mod
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
 from hexaqueue_server.infra.cqrs import create_hexaqueue_execution_pipeline
-
-
-class _FakeElement:
-    def __init__(self, value: str = "") -> None:
-        self.value = value
-        self.text = ""
-
-    def __enter__(self) -> _FakeElement:
-        return self
-
-    def __exit__(self, *_args: object) -> None:
-        return None
-
-    def classes(self, *_args: object) -> _FakeElement:
-        return self
-
-    def props(self, *_args: object) -> _FakeElement:
-        return self
-
-    def tooltip(self, *_args: object) -> _FakeElement:
-        return self
-
-    def add_slot(self, *_args: object, **_kwargs: object) -> None:
-        return None
-
-    def on(self, *_args: object, **_kwargs: object) -> None:
-        return None
 
 
 def test_mount_dashboard_ui_registers_routes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -75,6 +49,7 @@ def test_mount_dashboard_ui_registers_routes(monkeypatch: pytest.MonkeyPatch) ->
 @pytest.mark.asyncio
 async def test_console_panel_refresh_and_filters(
     monkeypatch: pytest.MonkeyPatch,
+    fake_el: Any,
 ) -> None:
     """Verify _render_console_panel reactive refresh, filter sync, and logout."""
     fake_storage = SimpleNamespace(user={"jwt": "tok"})
@@ -89,30 +64,30 @@ async def test_console_panel_refresh_and_filters(
     captured_on_changes: list[Any] = []
     js_calls: list[str] = []
 
-    def _fake_button(label: str = "", *_a: object, **kwargs: Any) -> _FakeElement:
+    def _fake_button(label: str = "", *_a: object, **kwargs: Any) -> fake_el:
         if "on_click" in kwargs:
             captured_buttons[label] = kwargs["on_click"]
-        return _FakeElement()
+        return fake_el()
 
-    def _fake_input(*_a: object, **kwargs: Any) -> _FakeElement:
+    def _fake_input(*_a: object, **kwargs: Any) -> fake_el:
         if "on_change" in kwargs:
             captured_on_changes.append(kwargs["on_change"])
-        return _FakeElement()
+        return fake_el()
 
     fake_ui = SimpleNamespace(
-        card=lambda *_a, **_k: _FakeElement(),
-        row=lambda *_a, **_k: _FakeElement(),
-        label=lambda *_a, **_k: _FakeElement(),
+        card=lambda *_a, **_k: fake_el(),
+        row=lambda *_a, **_k: fake_el(),
+        label=lambda *_a, **_k: fake_el(),
         input=_fake_input,
         select=_fake_input,
-        table=lambda *_a, **_k: _FakeElement(),
-        tree=lambda *_a, **_k: _FakeElement(),
-        dialog=lambda *_a, **_k: _FakeElement(),
+        table=lambda *_a, **_k: fake_el(),
+        tree=lambda *_a, **_k: fake_el(),
+        dialog=lambda *_a, **_k: fake_el(),
         button=_fake_button,
         notify=lambda *_a, **_k: None,
         navigate=SimpleNamespace(reload=lambda: None),
-        header=lambda *_a, **_k: _FakeElement(),
-        html=lambda *_a, **_k: _FakeElement(),
+        header=lambda *_a, **_k: fake_el(),
+        html=lambda *_a, **_k: fake_el(),
         add_body_html=lambda *_a, **_k: None,
         refreshable=_fake_refreshable,
         timer=lambda _i, cb: captured_timers.append(cb),
@@ -122,6 +97,7 @@ async def test_console_panel_refresh_and_filters(
     monkeypatch.setattr(status_mod, "ui", fake_ui)
     monkeypatch.setattr(runs_mod, "ui", fake_ui)
     monkeypatch.setattr(jobs_mod, "ui", fake_ui)
+    monkeypatch.setattr(nodes_mod, "ui", fake_ui)
 
     queue = InMemoryJobQueueAdapter()
     controller = LocalSchedulerControllerAdapter(queue=queue)
@@ -139,6 +115,9 @@ async def test_console_panel_refresh_and_filters(
     assert len(js_calls) >= 2
     assert "changed: true" in js_calls[0]
     assert "changed: false" in js_calls[1]
+
+    captured_buttons["Active Nodes & Topology"]()
+    captured_buttons["Runs & Jobs"]()
 
     captured_buttons["Sign Out"]()
     assert fake_storage.user.get("jwt") is None

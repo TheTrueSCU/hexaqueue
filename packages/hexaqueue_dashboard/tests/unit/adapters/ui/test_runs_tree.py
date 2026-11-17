@@ -19,49 +19,28 @@ from hexaqueue_server.domain.models import RunSubmission
 from hexaqueue_server.infra.cqrs import create_hexaqueue_execution_pipeline
 
 
-class _FakeEl:
-    def __enter__(self) -> _FakeEl:
-        return self
-
-    def __exit__(self, *_args: object) -> None:
-        return None
-
-    def classes(self, *_args: object) -> _FakeEl:
-        return self
-
-    def props(self, *_args: object) -> _FakeEl:
-        return self
-
-    def add_slot(self, *_args: object, **_kwargs: object) -> None:
-        return None
-
-    def open(self) -> None:
-        return None
-
-    def close(self) -> None:
-        return None
-
-
 @pytest.mark.asyncio
 async def test_runs_tree_builder_and_selection(
     monkeypatch: pytest.MonkeyPatch,
+    fake_el: Any,
 ) -> None:
     """Verify nested DAG tree construction and node selection drawer dispatch."""
     select_cbs: list[Any] = []
 
-    def _cap_tree(*_a: object, **kwargs: Any) -> _FakeEl:
+    def _cap_tree(*_a: object, **kwargs: Any) -> Any:
         if "on_select" in kwargs:
             select_cbs.append(kwargs["on_select"])
-        return _FakeEl()
+        return fake_el()
 
     fake_ui = SimpleNamespace(
-        label=lambda *_a, **_k: _FakeEl(),
+        label=lambda *_a, **_k: fake_el(),
         tree=_cap_tree,
-        dialog=lambda *_a, **_k: _FakeEl(),
-        card=lambda *_a, **_k: _FakeEl(),
-        row=lambda *_a, **_k: _FakeEl(),
-        button=lambda *_a, **_k: _FakeEl(),
-        html=lambda *_a, **_k: _FakeEl(),
+        dialog=lambda *_a, **_k: fake_el(),
+        card=lambda *_a, **_k: fake_el(),
+        row=lambda *_a, **_k: fake_el(),
+        column=lambda *_a, **_k: fake_el(),
+        button=lambda *_a, **_k: fake_el(),
+        html=lambda *_a, **_k: fake_el(),
         notify=lambda *_a, **_k: None,
         navigate=SimpleNamespace(reload=lambda: None),
     )

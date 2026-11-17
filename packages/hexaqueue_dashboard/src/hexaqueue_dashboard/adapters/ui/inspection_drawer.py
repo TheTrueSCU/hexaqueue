@@ -190,11 +190,65 @@ def render_drawer_dag_links(
                 )
 
 
+def _fmt_ts(ts: Any) -> str:
+    """Format an optional datetime timestamp for timeline display.
+
+    Args:
+        ts: Optional datetime or ISO string.
+
+    Returns:
+        Formatted UTC timestamp string or ``unknown``.
+
+    Notes/Architectural Intent:
+        Keeps timeline rendering resilient when unit-test fixtures omit
+        or supply naive datetimes.
+    """
+    if ts is None:
+        return "unknown"
+    if hasattr(ts, "strftime"):
+        return str(ts.strftime("%Y-%m-%d %H:%M:%S UTC"))
+    return str(ts)
+
+
+def render_drawer_state_timeline(job: JobSpec) -> None:
+    """Render chronological state-change event log for a job.
+
+    Args:
+        job: Target JobSpec whose lifecycle timestamps are displayed.
+
+    Notes/Architectural Intent:
+        Present from the moment a job enters the system (creation timestamp)
+        and tracks worker assignment and latest state transition/reason.
+    """
+    display_status = resolve_job_display_status(job)
+    events: list[tuple[str, str]] = [
+        (_fmt_ts(job.created_at), "Created / Submitted (PENDING)"),
+    ]
+    if job.assigned_worker_id:
+        events.append(
+            (_fmt_ts(job.updated_at), f"Assigned to worker {job.assigned_worker_id}")
+        )
+    reason_suffix = f" ({job.status.reason})" if job.status.reason else ""
+    if display_status != "PENDING" or reason_suffix:
+        events.append(
+            (_fmt_ts(job.updated_at), f"State: {display_status}{reason_suffix}")
+        )
+
+    ui.label("State Timeline").classes("text-sm font-semibold mt-4")
+    with ui.column().classes("w-full gap-1 mt-1 pl-3 border-l-2 border-slate-600"):
+        for timestamp_str, description in events:
+            ui.label(f"{timestamp_str} — {description}").classes(
+                "text-xs font-mono text-slate-200"
+            )
+
+
 def render_drawer_explain_and_logs(
     explain_report: SchedulingDecisionReport | None,
     explain_error: str | None,
     logs: list[LogChunk],
     logs_error: str | None,
+    *,
+    show_explainability: bool = True,
 ) -> None:
     """Render scheduler explainability summary and execution log tail.
 
@@ -203,19 +257,26 @@ def render_drawer_explain_and_logs(
         explain_error: Optional error message if explainability failed.
         logs: LogChunk list from GetLogsQuery.
         logs_error: Optional error message if log retrieval failed.
+        show_explainability: Whether to display the Scheduler Explainability
+            section (omitted once a job is running or terminal).
+
+    Notes/Architectural Intent:
+        Hides pre-dispatch queue/slot explainability once a job has moved past
+        pending/blocked states so operators see only relevant execution details.
     """
-    ui.label("Scheduler Explainability").classes("text-sm font-semibold mt-4")
-    if explain_report is not None:
-        ui.label(explain_report.summary).classes("text-sm text-slate-100 mt-1")
-        ui.label(
-            f"Queue Position: {explain_report.queue_position}/{explain_report.queue_total} | "
-            f"Slots: {explain_report.available_slots}/{explain_report.total_slots} "
-            f"(Required: {explain_report.required_slots})"
-        ).classes("text-xs font-mono text-slate-300 mt-1")
-    else:
-        ui.label(f"Explainability unavailable: {explain_error}").classes(
-            "text-xs text-slate-300 mt-1"
-        )
+    if show_explainability:
+        ui.label("Scheduler Explainability").classes("text-sm font-semibold mt-4")
+        if explain_report is not None:
+            ui.label(explain_report.summary).classes("text-sm text-slate-100 mt-1")
+            ui.label(
+                f"Queue Position: {explain_report.queue_position}/{explain_report.queue_total} | "
+                f"Slots: {explain_report.available_slots}/{explain_report.total_slots} "
+                f"(Required: {explain_report.required_slots})"
+            ).classes("text-xs font-mono text-slate-300 mt-1")
+        else:
+            ui.label(f"Explainability unavailable: {explain_error}").classes(
+                "text-xs text-slate-300 mt-1"
+            )
 
     ui.label("Execution Logs").classes("text-sm font-semibold mt-4")
     if logs:
@@ -259,13 +320,20 @@ async def open_job_inspection_drawer(
     is_admin = "admin" in identity.roles
     display_status = resolve_job_display_status(job)
     badge_bg = STATUS_BADGE_COLORS.get(display_status, "#374151")
+    show_explainability = (
+        display_status not in ("RUNNING", "CLEANUP")
+        and display_status not in TERMINAL_DISPLAY_STATES
+    )
 
     explain_report: SchedulingDecisionReport | None = None
     explain_error: str | None = None
-    try:
-        explain_report = await dispatch_query(pipeline, ExplainJobQuery(job_id=job.id))
-    except Exception as exc:
-        explain_error = str(exc)
+    if show_explainability:
+        try:
+            explain_report = await dispatch_query(
+                pipeline, ExplainJobQuery(job_id=job.id)
+            )
+        except Exception as exc:
+            explain_error = str(exc)
 
     logs: list[LogChunk] = []
     logs_error: str | None = None
@@ -352,7 +420,14 @@ async def open_job_inspection_drawer(
             on_mutated=on_mutated,
             on_filter_run=on_filter_run,
         )
-        render_drawer_explain_and_logs(explain_report, explain_error, logs, logs_error)
+        render_drawer_state_timeline(job)
+        render_drawer_explain_and_logs(
+            explain_report,
+            explain_error,
+            logs,
+            logs_error,
+            show_explainability=show_explainability,
+        )
 
     drawer.open()
 
@@ -419,7 +494,8 @@ async def open_run_inspection_drawer(
                     'size="sm" color="primary" aria-label="Filter jobs table to this run"'
                 )
 
-            if run_status not in TERMINAL_DISPLAY_STATES:
+            has_outstanding = (run_report.pending_jobs + run_report.running_jobs) > 0
+            if run_status not in TERMINAL_DISPLAY_STATES and has_outstanding:
 
                 def _cancel_this_run() -> None:
                     drawer.close()

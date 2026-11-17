@@ -33,47 +33,29 @@ class _FakeTable:
         self._events[event_name] = handler
 
 
-class _FakeEl:
-    def __enter__(self) -> _FakeEl:
-        return self
-
-    def __exit__(self, *_args: object) -> None:
-        return None
-
-    def classes(self, *_args: object) -> _FakeEl:
-        return self
-
-    def props(self, *_args: object) -> _FakeEl:
-        return self
-
-    def open(self) -> None:
-        return None
-
-    def close(self) -> None:
-        return None
-
-
 @pytest.mark.asyncio
 async def test_jobs_table_filtering_kpis_and_events(
     monkeypatch: pytest.MonkeyPatch,
+    fake_el: Any,
 ) -> None:
     """Verify job filtering, KPI counts, row building, and table lifecycle events."""
     events: dict[str, Any] = {}
     dialog_btns: dict[str, Any] = {}
 
-    def _cap_btn(label: str = "", *_a: object, **kwargs: Any) -> _FakeEl:
+    def _cap_btn(label: str = "", *_a: object, **kwargs: Any) -> Any:
         if "on_click" in kwargs:
             dialog_btns[label] = kwargs["on_click"]
-        return _FakeEl()
+        return fake_el()
 
     fake_ui = SimpleNamespace(
-        label=lambda *_a, **_k: _FakeEl(),
+        label=lambda *_a, **_k: fake_el(),
         table=lambda *_a, **_k: _FakeTable(events),
-        dialog=lambda *_a, **_k: _FakeEl(),
-        card=lambda *_a, **_k: _FakeEl(),
-        row=lambda *_a, **_k: _FakeEl(),
+        dialog=lambda *_a, **_k: fake_el(),
+        card=lambda *_a, **_k: fake_el(),
+        row=lambda *_a, **_k: fake_el(),
+        column=lambda *_a, **_k: fake_el(),
         button=_cap_btn,
-        html=lambda *_a, **_k: _FakeEl(),
+        html=lambda *_a, **_k: fake_el(),
         notify=lambda *_a, **_k: None,
         navigate=SimpleNamespace(reload=lambda: None),
     )

@@ -66,6 +66,13 @@ JOB_TABLE_COLUMNS: list[dict[str, object]] = [
         "align": "left",
     },
     {
+        "name": "updated_at",
+        "label": "Updated",
+        "field": "updated_at",
+        "sortable": True,
+        "align": "left",
+    },
+    {
         "name": "actions",
         "label": "Actions",
         "field": "actions",
@@ -152,6 +159,11 @@ def build_job_rows(jobs: list[JobSpec]) -> list[dict[str, object]]:
     for job in jobs:
         display_status = resolve_job_display_status(job)
         is_terminal = display_status in TERMINAL_DISPLAY_STATES
+        updated_str = (
+            job.updated_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+            if hasattr(job.updated_at, "strftime")
+            else str(job.updated_at or "")
+        )
         rows.append(
             {
                 "job_id": job.id,
@@ -160,6 +172,7 @@ def build_job_rows(jobs: list[JobSpec]) -> list[dict[str, object]]:
                 "status": display_status,
                 "badge_bg": STATUS_BADGE_COLORS.get(display_status, "#374151"),
                 "worker_id": job.assigned_worker_id or "—",
+                "updated_at": updated_str,
                 "can_hold": display_status in ("PENDING", "SUBMITTED"),
                 "can_release": display_status == "HELD",
                 "can_cancel": not is_terminal,

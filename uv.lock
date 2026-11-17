@@ -1620,6 +1620,7 @@ name = "hexaqueue-dashboard"
 version = "0.11.0"
 source = { editable = "packages/hexaqueue_dashboard" }
 dependencies = [
+    { name = "diagrams" },
     { name = "hexaqueue-core" },
     { name = "hexaqueue-server" },
     { name = "hexaqueue-worker" },
@@ -1635,6 +1636,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "diagrams", specifier = ">=0.24.0" },
     { name = "hexaqueue-core", editable = "packages/hexaqueue_core" },
     { name = "hexaqueue-server", editable = "packages/hexaqueue_server" },
     { name = "hexaqueue-worker", editable = "packages/hexaqueue_worker" },

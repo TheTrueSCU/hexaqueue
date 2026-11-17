@@ -40,6 +40,7 @@ from hexaqueue_dashboard.adapters.ui.login import (
     render_login_panel,
     resolve_session_identity,
 )
+from hexaqueue_dashboard.adapters.ui.nodes_view import render_nodes_section
 from hexaqueue_dashboard.adapters.ui.runs_tree import render_runs_section
 from hexaqueue_dashboard.adapters.ui.status import render_live_status_widget
 from hexaqueue_server.domain.models import RunStatusReport
@@ -118,6 +119,138 @@ async def _fetch_cluster_snapshot(
     return stats, nodes, jobs, runs, fingerprint
 
 
+def _render_kpi_cards(
+    cards: list[tuple[str, str, Any]],
+) -> None:
+    """Render clickable summary KPI cards for the operator console.
+
+    Args:
+        cards: Sequence of ``(label_text, aria_label, click_handler)`` tuples.
+
+    Notes/Architectural Intent:
+        Extracts KPI card rendering from `_render_console_panel` to avoid
+        repetitive card markup and keep cognitive complexity low.
+    """
+    with ui.row().classes("w-full gap-4 mt-4"):
+        for label_text, aria_label, on_click in cards:
+            with (
+                ui.card()
+                .classes("p-4 cursor-pointer hover:ring-2 hover:ring-blue-500")
+                .props(f'role="button" tabindex="0" aria-label="{aria_label}"')
+                .on("click", on_click)
+            ):
+                ui.label(label_text).classes("font-semibold")
+
+
+async def _render_cluster_body_content(
+    pipeline: ExecutionPipeline,
+    identity: Identity,
+    snapshot: tuple[
+        ClusterStatsReport,
+        list[NodeTelemetryPulse],
+        list[JobSpec],
+        list[RunStatusReport],
+        str,
+    ],
+    filter_state: dict[str, str],
+    view_state: dict[str, str],
+    *,
+    on_switch_view: Any,
+    on_mutated: Any,
+    on_filter_run: Any,
+) -> None:
+    """Render KPI cards, view tabs, and active tab content for the console body.
+
+    Args:
+        pipeline: Shared CQRS ExecutionPipeline.
+        identity: Verified caller Identity.
+        snapshot: Current cluster snapshot tuple.
+        filter_state: Mutable filter state mapping.
+        view_state: Mutable active tab state mapping.
+        on_switch_view: Callback to switch active tab and optional status filter.
+        on_mutated: Async callback invoked after lifecycle mutations.
+        on_filter_run: Callback to filter the jobs table to a run ID.
+
+    Notes/Architectural Intent:
+        Extracted from `_render_console_panel` to keep the refreshable body
+        modular and well below the cognitive complexity threshold.
+    """
+    stats, nodes, jobs, runs, _fp = snapshot
+    total_cnt, running_cnt, pending_cnt, is_filtered = compute_filtered_kpi_counts(
+        jobs,
+        search_text=filter_state.get("search", ""),
+        status_filter=filter_state.get("status", "ALL"),
+    )
+    total_label = (
+        f"Total Jobs: {total_cnt} / {stats.total_jobs}"
+        if is_filtered
+        else f"Total Jobs: {total_cnt}"
+    )
+    _render_kpi_cards(
+        [
+            (
+                total_label,
+                "Show all jobs",
+                lambda: on_switch_view("jobs", status_filter="ALL"),
+            ),
+            (
+                f"Running: {running_cnt}",
+                "Filter to running jobs",
+                lambda: on_switch_view("jobs", status_filter="RUNNING"),
+            ),
+            (
+                f"Pending: {pending_cnt}",
+                "Filter to pending jobs",
+                lambda: on_switch_view("jobs", status_filter="PENDING"),
+            ),
+            (
+                f"Active Nodes: {len(nodes)}",
+                "View active nodes and cluster topology",
+                lambda: on_switch_view("nodes"),
+            ),
+        ]
+    )
+
+    with ui.row().classes("w-full items-center gap-2 mt-4"):
+        jobs_btn_color = "primary" if view_state["tab"] == "jobs" else "grey-8"
+        nodes_btn_color = "primary" if view_state["tab"] == "nodes" else "grey-8"
+        ui.button(
+            "Runs & Jobs",
+            on_click=lambda: on_switch_view("jobs"),
+            icon="list_alt",
+            color=jobs_btn_color,
+        ).props('size="sm" aria-label="Switch to Runs and Jobs view"')
+        ui.button(
+            "Active Nodes & Topology",
+            on_click=lambda: on_switch_view("nodes"),
+            icon="hub",
+            color=nodes_btn_color,
+        ).props('size="sm" aria-label="Switch to Active Nodes and Topology view"')
+
+    if view_state["tab"] == "nodes":
+        render_nodes_section(nodes, jobs)
+        return
+
+    render_runs_section(
+        pipeline,
+        identity,
+        runs,
+        jobs,
+        filter_state=filter_state,
+        on_mutated=on_mutated,
+        on_filter_run=on_filter_run,
+    )
+    await render_jobs_section(
+        pipeline,
+        identity,
+        jobs=jobs,
+        runs=runs,
+        on_mutated=on_mutated,
+        on_filter_run=on_filter_run,
+        filter_state=filter_state,
+    )
+
+
 async def _render_console_panel(
     pipeline: ExecutionPipeline,
     identity: Identity,
@@ -143,6 +276,7 @@ async def _render_console_panel(
     ] = [await _fetch_cluster_snapshot(pipeline, identity)]
     filter_state: dict[str, str] = {"search": "", "status": "ALL"}
     filter_controls: dict[str, Any] = {}
+    view_state: dict[str, str] = {"tab": "jobs"}
 
     def _notify_live_badge(changed: bool) -> None:
         flag = "true" if changed else "false"
@@ -167,10 +301,20 @@ async def _render_console_panel(
         await _refresh_now(force=False)
 
     def _filter_to_run(run_id: str) -> None:
+        view_state["tab"] = "jobs"
         filter_state["search"] = run_id
         search_input = filter_controls.get("search_input")
         if search_input is not None:
             search_input.value = run_id
+        _cluster_body.refresh()
+
+    def _switch_view(tab: str, *, status_filter: str | None = None) -> None:
+        view_state["tab"] = tab
+        if status_filter is not None:
+            filter_state["status"] = status_filter
+            status_select = filter_controls.get("status_select")
+            if status_select is not None:
+                status_select.value = status_filter
         _cluster_body.refresh()
 
     def _clear_filters() -> None:
@@ -186,44 +330,15 @@ async def _render_console_panel(
 
     @ui.refreshable
     async def _cluster_body() -> None:
-        stats, nodes, jobs, runs, _fp = snapshot_box[0]
-        total_cnt, running_cnt, pending_cnt, is_filtered = compute_filtered_kpi_counts(
-            jobs,
-            search_text=filter_state.get("search", ""),
-            status_filter=filter_state.get("status", "ALL"),
-        )
-        total_label = (
-            f"Total Jobs: {total_cnt} / {stats.total_jobs}"
-            if is_filtered
-            else f"Total Jobs: {total_cnt}"
-        )
-        with ui.row().classes("w-full gap-4 mt-4"):
-            with ui.card().classes("p-4"):
-                ui.label(total_label).classes("font-semibold")
-            with ui.card().classes("p-4"):
-                ui.label(f"Running: {running_cnt}").classes("font-semibold")
-            with ui.card().classes("p-4"):
-                ui.label(f"Pending: {pending_cnt}").classes("font-semibold")
-            with ui.card().classes("p-4"):
-                ui.label(f"Active Nodes: {len(nodes)}").classes("font-semibold")
-
-        render_runs_section(
+        await _render_cluster_body_content(
             pipeline,
             identity,
-            runs,
-            jobs,
-            filter_state=filter_state,
+            snapshot_box[0],
+            filter_state,
+            view_state,
+            on_switch_view=_switch_view,
             on_mutated=_handle_manual_refresh,
             on_filter_run=_filter_to_run,
-        )
-        await render_jobs_section(
-            pipeline,
-            identity,
-            jobs=jobs,
-            runs=runs,
-            on_mutated=_handle_manual_refresh,
-            on_filter_run=_filter_to_run,
-            filter_state=filter_state,
         )
 
     with ui.header().classes("items-center justify-between px-6"):

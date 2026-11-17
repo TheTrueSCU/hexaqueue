@@ -19,45 +19,27 @@ from hexaqueue_server.domain.models import RunSubmission
 from hexaqueue_server.infra.cqrs import create_hexaqueue_execution_pipeline
 
 
-class _FakeEl:
-    def __enter__(self) -> _FakeEl:
-        return self
-
-    def __exit__(self, *_args: object) -> None:
-        return None
-
-    def classes(self, *_args: object) -> _FakeEl:
-        return self
-
-    def props(self, *_args: object) -> _FakeEl:
-        return self
-
-    def open(self) -> None:
-        return None
-
-    def close(self) -> None:
-        return None
-
-
 @pytest.mark.asyncio
 async def test_inspection_drawer_and_lifecycle_actions(
     monkeypatch: pytest.MonkeyPatch,
+    fake_el: Any,
 ) -> None:
     """Verify job/run drawers, DAG navigation links, logs, and lifecycle dispatch."""
     buttons: dict[str, Any] = {}
 
-    def _cap_btn(label: str = "", *_a: object, **kwargs: Any) -> _FakeEl:
+    def _cap_btn(label: str = "", *_a: object, **kwargs: Any) -> Any:
         if "on_click" in kwargs:
             buttons[label] = kwargs["on_click"]
-        return _FakeEl()
+        return fake_el()
 
     fake_ui = SimpleNamespace(
-        dialog=lambda *_a, **_k: _FakeEl(),
-        card=lambda *_a, **_k: _FakeEl(),
-        row=lambda *_a, **_k: _FakeEl(),
-        label=lambda *_a, **_k: _FakeEl(),
+        dialog=lambda *_a, **_k: fake_el(),
+        card=lambda *_a, **_k: fake_el(),
+        row=lambda *_a, **_k: fake_el(),
+        column=lambda *_a, **_k: fake_el(),
+        label=lambda *_a, **_k: fake_el(),
         button=_cap_btn,
-        html=lambda *_a, **_k: _FakeEl(),
+        html=lambda *_a, **_k: fake_el(),
         notify=lambda *_a, **_k: None,
         navigate=SimpleNamespace(reload=lambda: None),
     )
@@ -118,3 +100,72 @@ async def test_inspection_drawer_and_lifecycle_actions(
         None,
     )
     drawer_mod.render_drawer_explain_and_logs(None, "err", [], "no logs")
+
+
+@pytest.mark.asyncio
+async def test_running_job_hides_explainability_and_completed_run_hides_cancel(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_el: Any,
+) -> None:
+    """Verify running jobs show State Timeline without Explainability, and finished runs hide Cancel Run."""
+    labels: list[str] = []
+    buttons: dict[str, Any] = {}
+
+    def _cap_label(text: str = "", *_a: object, **_k: object) -> Any:
+        labels.append(str(text))
+        return fake_el()
+
+    def _cap_btn(label: str = "", *_a: object, **kwargs: Any) -> Any:
+        if "on_click" in kwargs:
+            buttons[label] = kwargs["on_click"]
+        return fake_el()
+
+    fake_ui = SimpleNamespace(
+        dialog=lambda *_a, **_k: fake_el(),
+        card=lambda *_a, **_k: fake_el(),
+        row=lambda *_a, **_k: fake_el(),
+        column=lambda *_a, **_k: fake_el(),
+        label=_cap_label,
+        button=_cap_btn,
+        html=lambda *_a, **_k: fake_el(),
+        notify=lambda *_a, **_k: None,
+        navigate=SimpleNamespace(reload=lambda: None),
+    )
+    monkeypatch.setattr(drawer_mod, "ui", fake_ui)
+
+    running_job = JobSpec(
+        id="j-run",
+        run_id="r-done",
+        name="running-job",
+        command="echo running",
+        status=JobStatus(state=JobState.RUNNING, reason="dispatched"),
+        assigned_worker_id="worker-1",
+    )
+    queue = InMemoryJobQueueAdapter()
+    controller = LocalSchedulerControllerAdapter(queue=queue)
+    run_report = await controller.submit_run(
+        RunSubmission(
+            run_spec=RunSpec(id="r-done", name="finished-run"),
+            jobs=[running_job],
+        )
+    )
+    pipeline = create_hexaqueue_execution_pipeline(controller=controller)
+    ident = Identity(user_id="rjdw", roles=frozenset({"admin"}))
+
+    await drawer_mod.open_job_inspection_drawer(pipeline, ident, running_job)
+    has_timeline = "State Timeline" in labels
+    has_explain = "Scheduler Explainability" in labels
+    has_worker_entry = any("worker-1" in lbl for lbl in labels)
+    assert has_timeline is True
+    assert has_explain is False
+    assert has_worker_entry is True
+
+    buttons.clear()
+    finished_report = run_report.model_copy(
+        update={"pending_jobs": 0, "running_jobs": 0, "completed_jobs": 1}
+    )
+    await drawer_mod.open_run_inspection_drawer(
+        pipeline, ident, finished_report, [running_job]
+    )
+    has_cancel_run = "Cancel Run" in buttons
+    assert has_cancel_run is False
