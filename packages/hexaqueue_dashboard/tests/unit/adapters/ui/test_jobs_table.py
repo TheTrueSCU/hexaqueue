@@ -26,6 +26,9 @@ class _FakeTable:
     def classes(self, *_args: object) -> _FakeTable:
         return self
 
+    def props(self, *_args: object) -> _FakeTable:
+        return self
+
     def add_slot(self, *_args: object, **_kwargs: object) -> None:
         return None
 
@@ -94,6 +97,13 @@ async def test_jobs_table_filtering_kpis_and_events(
     rows = jobs_mod.build_job_rows([p_job, r_job, d_job])
     assert rows[0]["can_hold"] is True
     assert rows[2]["can_cancel"] is False
+    r0_rank = rows[0]["status_rank"]
+    r1_rank = rows[1]["status_rank"]
+    r2_rank = rows[2]["status_rank"]
+    assert isinstance(r0_rank, int)
+    assert isinstance(r1_rank, int)
+    assert isinstance(r2_rank, int)
+    assert r1_rank < r0_rank < r2_rank
 
     queue = InMemoryJobQueueAdapter()
     controller = LocalSchedulerControllerAdapter(queue=queue)

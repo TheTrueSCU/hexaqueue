@@ -34,6 +34,40 @@ TERMINAL_DISPLAY_STATES: frozenset[str] = frozenset(
     {"COMPLETED", "FAILED", "TIMED_OUT", "CANCELLED", "SUCCEEDED", "PARTIALLY_FAILED"}
 )
 
+STATUS_SORT_RANK: dict[str, int] = {
+    "RUNNING": 0,
+    "PROVISIONING": 1,
+    "CLEANUP": 2,
+    "IN_PROGRESS": 3,
+    "PENDING": 4,
+    "SUBMITTED": 5,
+    "HELD": 6,
+    "BLOCKED": 7,
+    "FAILED": 8,
+    "PARTIALLY_FAILED": 9,
+    "TIMED_OUT": 10,
+    "CANCELLED": 11,
+    "SUCCEEDED": 12,
+    "COMPLETED": 13,
+}
+
+
+def status_sort_rank(display_status: str) -> int:
+    """Return semantic sort priority for a display status string.
+
+    Args:
+        display_status: Normalized display status (e.g. ``RUNNING``, ``PENDING``).
+
+    Returns:
+        Integer rank where active/pending/blocked/failed sort before terminal
+        completed states.
+
+    Notes/Architectural Intent:
+        Replaces alphabetical status sorting so operators see live, queued,
+        and failing work before historical completed items.
+    """
+    return STATUS_SORT_RANK.get(display_status.strip().upper(), 99)
+
 
 def resolve_job_display_status(job: JobSpec) -> str:
     """Resolve user-facing badge status string for a JobSpec.
@@ -106,5 +140,7 @@ __all__ = [
     "resolve_job_display_status",
     "resolve_run_display_status",
     "STATUS_BADGE_COLORS",
+    "STATUS_SORT_RANK",
+    "status_sort_rank",
     "TERMINAL_DISPLAY_STATES",
 ]

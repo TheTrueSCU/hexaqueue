@@ -181,6 +181,19 @@ def test_dashboard_ui_wcag_accessibility(
         f"Accessibility violations on Active Nodes & Topology view: {critical_nodes}"
     )
 
+    # 2d. Switch to History Explorer view and audit under WCAG 2.1 AA
+    page.get_by_role("button", name="Switch to History Explorer view").click()
+    expect(page.get_by_text("History Explorer", exact=True)).to_be_visible()
+
+    history_violations = run_axe_scan(page)
+    critical_history = [
+        v for v in history_violations if v.get("impact") in ("critical", "serious")
+    ]
+    crit_history_count = len(critical_history)
+    assert crit_history_count == 0, (
+        f"Accessibility violations on History Explorer view: {critical_history}"
+    )
+
     page.get_by_role("button", name="Switch to Jobs view").click()
     expect(page.get_by_text("wcag_audit_job")).to_be_visible()
 
