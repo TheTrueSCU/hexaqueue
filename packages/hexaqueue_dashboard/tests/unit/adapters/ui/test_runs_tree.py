@@ -82,6 +82,9 @@ async def test_runs_tree_builder_and_selection(
     assert children[0]["job_id"] == "j-root"
     assert children[0]["children"][0]["job_id"] == "j-child"
 
-    runs_mod.render_runs_section(pipeline, ident, runs_list, dag_jobs)
+    expanded: set[str] = {"run:r-dag"}
+    runs_mod.render_runs_section(
+        pipeline, ident, runs_list, dag_jobs, expanded_nodes=expanded
+    )
     await select_cbs[0](SimpleNamespace(value="run:r-dag"))
     await select_cbs[0](SimpleNamespace(value="job:j-root"))

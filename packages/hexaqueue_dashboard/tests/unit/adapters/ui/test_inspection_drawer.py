@@ -168,4 +168,6 @@ async def test_running_job_hides_explainability_and_completed_run_hides_cancel(
         pipeline, ident, finished_report, [running_job]
     )
     has_cancel_run = "Cancel Run" in buttons
+    has_run_log = "Run Event Log" in labels
     assert has_cancel_run is False
+    assert has_run_log is True

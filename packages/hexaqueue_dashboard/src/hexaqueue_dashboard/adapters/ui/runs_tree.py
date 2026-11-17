@@ -9,6 +9,7 @@ Notes/Architectural Intent:
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 from hexastack_auth.domain.models import Identity
 from hexastack_cqrs.infra.pipeline import ExecutionPipeline
@@ -157,8 +158,10 @@ def render_runs_section(
     jobs: list[JobSpec],
     *,
     filter_state: dict[str, str] | None = None,
+    expanded_nodes: set[str] | None = None,
     on_mutated: Callable[[], Awaitable[None]] | None = None,
     on_filter_run: Callable[[str], None] | None = None,
+    drawer_host: Any = None,
 ) -> None:
     """Render expandable Runs & nested DAG tree view.
 
@@ -168,8 +171,10 @@ def render_runs_section(
         runs: List of RunStatusReport instances.
         jobs: List of JobSpec instances.
         filter_state: Optional mutable dict persisting search/status filter values.
+        expanded_nodes: Optional mutable set persisting expanded tree node IDs.
         on_mutated: Optional async callback invoked after lifecycle mutations.
         on_filter_run: Optional callback to filter the jobs table to a run ID.
+        drawer_host: Optional persistent NiceGUI container for slide-over drawers.
     """
     active_filters = (
         filter_state if filter_state is not None else {"search": "", "status": "ALL"}
@@ -201,6 +206,7 @@ def render_runs_section(
                     jobs,
                     on_mutated=on_mutated,
                     on_filter_run=on_filter_run,
+                    drawer_host=drawer_host,
                 )
         elif node_key.startswith("job:"):
             job_id = node_key.split(":", 1)[1]
@@ -214,11 +220,25 @@ def render_runs_section(
                     all_jobs=jobs,
                     on_mutated=on_mutated,
                     on_filter_run=on_filter_run,
+                    drawer_host=drawer_host,
                 )
 
+    def _on_expand_tree_nodes(ev: object) -> None:
+        if expanded_nodes is None:
+            return
+        expanded_vals = getattr(ev, "value", None) or []
+        expanded_nodes.clear()
+        expanded_nodes.update(str(k) for k in expanded_vals)
+
     tree = ui.tree(
-        nodes, label_key="label", node_key="id", on_select=_on_select_tree_node
+        nodes,
+        label_key="label",
+        node_key="id",
+        on_select=_on_select_tree_node,
+        on_expand=_on_expand_tree_nodes,
     ).classes("w-full border rounded p-2 mt-1")
+    if expanded_nodes:
+        tree.expand(list(expanded_nodes))
     tree.add_slot(
         "default-header",
         """

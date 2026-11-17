@@ -48,6 +48,31 @@ from hexaqueue_worker.domain.telemetry import NodeTelemetryPulse
 
 _logger = logging.getLogger(__name__)
 
+JOB_STATUS_FILTER_OPTIONS: list[str] = [
+    "ALL",
+    "PENDING",
+    "SUBMITTED",
+    "PROVISIONING",
+    "RUNNING",
+    "CLEANUP",
+    "HELD",
+    "COMPLETED",
+    "SUCCEEDED",
+    "FAILED",
+    "CANCELLED",
+    "BLOCKED",
+]
+RUN_STATUS_FILTER_OPTIONS: list[str] = [
+    "ALL",
+    "PENDING",
+    "IN_PROGRESS",
+    "RUNNING",
+    "SUCCEEDED",
+    "COMPLETED",
+    "FAILED",
+    "CANCELLED",
+]
+
 
 def _resolve_static_dir() -> Path | None:
     """Resolve the static asset directory using PEP 451/616 importlib.resources.
@@ -154,6 +179,8 @@ async def _render_cluster_body_content(
     ],
     filter_state: dict[str, str],
     view_state: dict[str, str],
+    expanded_nodes: set[str],
+    drawer_host: Any,
     *,
     on_switch_view: Any,
     on_mutated: Any,
@@ -167,6 +194,8 @@ async def _render_cluster_body_content(
         snapshot: Current cluster snapshot tuple.
         filter_state: Mutable filter state mapping.
         view_state: Mutable active tab state mapping.
+        expanded_nodes: Mutable set persisting expanded Runs & DAG tree keys.
+        drawer_host: Persistent NiceGUI container outside refreshable blocks.
         on_switch_view: Callback to switch active tab and optional status filter.
         on_mutated: Async callback invoked after lifecycle mutations.
         on_filter_run: Callback to filter the jobs table to a run ID.
@@ -212,34 +241,44 @@ async def _render_cluster_body_content(
     )
 
     with ui.row().classes("w-full items-center gap-2 mt-4"):
-        jobs_btn_color = "primary" if view_state["tab"] == "jobs" else "grey-8"
-        nodes_btn_color = "primary" if view_state["tab"] == "nodes" else "grey-8"
+        tab = view_state["tab"]
         ui.button(
-            "Runs & Jobs",
+            "Jobs",
             on_click=lambda: on_switch_view("jobs"),
             icon="list_alt",
-            color=jobs_btn_color,
-        ).props('size="sm" aria-label="Switch to Runs and Jobs view"')
+            color="primary" if tab == "jobs" else "grey-8",
+        ).props('size="sm" aria-label="Switch to Jobs view"')
+        ui.button(
+            "Runs & DAG",
+            on_click=lambda: on_switch_view("runs"),
+            icon="account_tree",
+            color="primary" if tab == "runs" else "grey-8",
+        ).props('size="sm" aria-label="Switch to Runs and DAG view"')
         ui.button(
             "Active Nodes & Topology",
             on_click=lambda: on_switch_view("nodes"),
             icon="hub",
-            color=nodes_btn_color,
+            color="primary" if tab == "nodes" else "grey-8",
         ).props('size="sm" aria-label="Switch to Active Nodes and Topology view"')
 
-    if view_state["tab"] == "nodes":
+    if tab == "nodes":
         render_nodes_section(nodes, jobs)
         return
 
-    render_runs_section(
-        pipeline,
-        identity,
-        runs,
-        jobs,
-        filter_state=filter_state,
-        on_mutated=on_mutated,
-        on_filter_run=on_filter_run,
-    )
+    if tab == "runs":
+        render_runs_section(
+            pipeline,
+            identity,
+            runs,
+            jobs,
+            filter_state=filter_state,
+            expanded_nodes=expanded_nodes,
+            on_mutated=on_mutated,
+            on_filter_run=on_filter_run,
+            drawer_host=drawer_host,
+        )
+        return
+
     await render_jobs_section(
         pipeline,
         identity,
@@ -248,7 +287,42 @@ async def _render_cluster_body_content(
         on_mutated=on_mutated,
         on_filter_run=on_filter_run,
         filter_state=filter_state,
+        drawer_host=drawer_host,
     )
+
+
+def _sync_filter_controls(
+    view_state: dict[str, str],
+    filter_state: dict[str, str],
+    filter_controls: dict[str, Any],
+) -> None:
+    """Sync filter bar visibility and valid status options with the active tab.
+
+    Args:
+        view_state: Mutable active tab state mapping.
+        filter_state: Mutable search/status filter state mapping.
+        filter_controls: Mutable widget reference mapping.
+
+    Notes/Architectural Intent:
+        Extracted from `_render_console_panel` to keep cognitive complexity
+        low while updating tab-specific status options without recreating
+        input widgets.
+    """
+    tab = view_state["tab"]
+    filter_row = filter_controls.get("filter_row")
+    if filter_row is not None:
+        filter_row.set_visibility(tab in ("jobs", "runs"))
+    status_select = filter_controls.get("status_select")
+    if status_select is not None and tab in ("jobs", "runs"):
+        valid_opts = (
+            RUN_STATUS_FILTER_OPTIONS if tab == "runs" else JOB_STATUS_FILTER_OPTIONS
+        )
+        status_select.options = valid_opts
+        if filter_state["status"] not in valid_opts:
+            filter_state["status"] = "ALL"
+            status_select.value = "ALL"
+        if hasattr(status_select, "update"):
+            status_select.update()
 
 
 async def _render_console_panel(
@@ -277,6 +351,8 @@ async def _render_console_panel(
     filter_state: dict[str, str] = {"search": "", "status": "ALL"}
     filter_controls: dict[str, Any] = {}
     view_state: dict[str, str] = {"tab": "jobs"}
+    expanded_nodes: set[str] = set()
+    drawer_host = ui.column().classes("w-0 h-0")
 
     def _notify_live_badge(changed: bool) -> None:
         flag = "true" if changed else "false"
@@ -300,8 +376,12 @@ async def _render_console_panel(
     async def _handle_timer_tick() -> None:
         await _refresh_now(force=False)
 
+    def _sync_filter_visibility() -> None:
+        _sync_filter_controls(view_state, filter_state, filter_controls)
+
     def _filter_to_run(run_id: str) -> None:
         view_state["tab"] = "jobs"
+        _sync_filter_visibility()
         filter_state["search"] = run_id
         search_input = filter_controls.get("search_input")
         if search_input is not None:
@@ -310,6 +390,7 @@ async def _render_console_panel(
 
     def _switch_view(tab: str, *, status_filter: str | None = None) -> None:
         view_state["tab"] = tab
+        _sync_filter_visibility()
         if status_filter is not None:
             filter_state["status"] = status_filter
             status_select = filter_controls.get("status_select")
@@ -336,6 +417,8 @@ async def _render_console_panel(
             snapshot_box[0],
             filter_state,
             view_state,
+            expanded_nodes,
+            drawer_host,
             on_switch_view=_switch_view,
             on_mutated=_handle_manual_refresh,
             on_filter_run=_filter_to_run,
@@ -360,7 +443,9 @@ async def _render_console_panel(
                 'aria-label="Sign out"'
             ).tooltip("Sign out")
 
-    with ui.row().classes("w-full items-center gap-3 mt-4"):
+    filter_row = ui.row().classes("w-full items-center gap-3 mt-4")
+    filter_controls["filter_row"] = filter_row
+    with filter_row:
 
         def _on_search_change(ev: object) -> None:
             new_val = str(getattr(ev, "value", "") or "")
@@ -385,18 +470,7 @@ async def _render_console_panel(
         )
         filter_controls["status_select"] = (
             ui.select(
-                options=[
-                    "ALL",
-                    "PENDING",
-                    "RUNNING",
-                    "IN_PROGRESS",
-                    "HELD",
-                    "COMPLETED",
-                    "SUCCEEDED",
-                    "FAILED",
-                    "CANCELLED",
-                    "BLOCKED",
-                ],
+                options=JOB_STATUS_FILTER_OPTIONS,
                 value="ALL",
                 label="Status Filter",
                 on_change=_on_status_change,

@@ -9,6 +9,7 @@ Notes/Architectural Intent:
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 from hexastack_auth.domain.models import Identity
 from hexastack_cqrs.infra.pipeline import ExecutionPipeline
@@ -190,6 +191,7 @@ async def render_jobs_section(
     on_mutated: Callable[[], Awaitable[None]] | None = None,
     on_filter_run: Callable[[str], None] | None = None,
     filter_state: dict[str, str] | None = None,
+    drawer_host: Any = None,
 ) -> None:
     """Render sortable, filterable jobs table with status badges and lifecycle controls.
 
@@ -201,6 +203,7 @@ async def render_jobs_section(
         on_mutated: Optional callback invoked after a job mutation succeeds.
         on_filter_run: Optional callback to filter the jobs table to a run ID.
         filter_state: Optional mutable dict persisting search/status filter values.
+        drawer_host: Optional persistent NiceGUI container for slide-over drawers.
     """
     is_admin = "admin" in identity.roles
     resolved_jobs: list[JobSpec] = (
@@ -254,7 +257,7 @@ async def render_jobs_section(
                 <q-btn
                     dense flat round size="sm" icon="visibility" color="primary"
                     :aria-label="'Inspect job ' + props.row.job_id"
-                    @click="$parent.$emit('inspect_job', props.row)"
+                    @click.stop="$parent.$emit('inspect_job', props.row)"
                 >
                     <q-tooltip>Inspect job details, logs &amp; explainability</q-tooltip>
                 </q-btn>
@@ -262,7 +265,7 @@ async def render_jobs_section(
                     v-if="props.row.can_hold"
                     dense flat round size="sm" icon="pause_circle" color="purple-8"
                     :aria-label="'Hold job ' + props.row.job_id"
-                    @click="$parent.$emit('hold_job', props.row)"
+                    @click.stop="$parent.$emit('hold_job', props.row)"
                 >
                     <q-tooltip>Hold job</q-tooltip>
                 </q-btn>
@@ -270,7 +273,7 @@ async def render_jobs_section(
                     v-if="props.row.can_release"
                     dense flat round size="sm" icon="play_circle" color="green-8"
                     :aria-label="'Release job ' + props.row.job_id"
-                    @click="$parent.$emit('release_job', props.row)"
+                    @click.stop="$parent.$emit('release_job', props.row)"
                 >
                     <q-tooltip>Release job</q-tooltip>
                 </q-btn>
@@ -278,7 +281,7 @@ async def render_jobs_section(
                     v-if="props.row.can_cancel"
                     dense flat round size="sm" icon="cancel" color="red-8"
                     :aria-label="'Kill job ' + props.row.job_id"
-                    @click="$parent.$emit('cancel_job', props.row)"
+                    @click.stop="$parent.$emit('cancel_job', props.row)"
                 >
                     <q-tooltip>Kill job</q-tooltip>
                 </q-btn>
@@ -286,7 +289,7 @@ async def render_jobs_section(
                     v-if="props.row.can_cancel"
                     dense flat round size="sm" icon="stop_circle" color="grey-8"
                     :aria-label="'Cancel run ' + props.row.run_id"
-                    @click="$parent.$emit('cancel_run', props.row)"
+                    @click.stop="$parent.$emit('cancel_run', props.row)"
                 >
                     <q-tooltip>Cancel run</q-tooltip>
                 </q-btn>
@@ -298,9 +301,8 @@ async def render_jobs_section(
     jobs_by_id = {j.id: j for j in resolved_jobs}
     runs_by_id = {r.run_id: r for r in (runs or [])}
 
-    async def _on_inspect_job(ev: object) -> None:
-        args = getattr(ev, "args", {}) or {}
-        target_job = jobs_by_id.get(str(args.get("job_id", "")))
+    async def _inspect_row(row_data: dict[str, Any]) -> None:
+        target_job = jobs_by_id.get(str(row_data.get("job_id", "")))
         if target_job is not None:
             await open_job_inspection_drawer(
                 pipeline,
@@ -310,7 +312,20 @@ async def render_jobs_section(
                 all_jobs=resolved_jobs,
                 on_mutated=on_mutated,
                 on_filter_run=on_filter_run,
+                drawer_host=drawer_host,
             )
+
+    async def _on_inspect_job(ev: object) -> None:
+        args = getattr(ev, "args", {}) or {}
+        if isinstance(args, dict):
+            await _inspect_row(args)
+
+    async def _on_row_click(ev: object) -> None:
+        args = getattr(ev, "args", None)
+        if isinstance(args, list) and len(args) >= 2 and isinstance(args[1], dict):
+            await _inspect_row(args[1])
+        elif isinstance(args, dict):
+            await _inspect_row(args)
 
     async def _on_hold(ev: object) -> None:
         args = getattr(ev, "args", {}) or {}
@@ -341,6 +356,7 @@ async def render_jobs_section(
         )
 
     table.on("inspect_job", _on_inspect_job)
+    table.on("rowClick", _on_row_click)
     table.on("hold_job", _on_hold)
     table.on("release_job", _on_release)
     table.on("cancel_job", _on_cancel_job)
