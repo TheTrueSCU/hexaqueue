@@ -77,6 +77,7 @@ async def test_console_panel_refresh_and_filters(
     fake_ui = SimpleNamespace(
         card=lambda *_a, **_k: fake_el(),
         row=lambda *_a, **_k: fake_el(),
+        column=lambda *_a, **_k: fake_el(),
         label=lambda *_a, **_k: fake_el(),
         input=_fake_input,
         select=_fake_input,
@@ -117,7 +118,8 @@ async def test_console_panel_refresh_and_filters(
     assert "changed: false" in js_calls[1]
 
     captured_buttons["Active Nodes & Topology"]()
-    captured_buttons["Runs & Jobs"]()
+    captured_buttons["Runs & DAG"]()
+    captured_buttons["Jobs"]()
 
     captured_buttons["Sign Out"]()
     assert fake_storage.user.get("jwt") is None

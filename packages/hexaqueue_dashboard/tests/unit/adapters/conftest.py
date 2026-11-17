@@ -39,6 +39,15 @@ class FakeUIElement:
     def close(self) -> None:
         return None
 
+    def expand(self, *_args: object, **_kwargs: object) -> FakeUIElement:
+        return self
+
+    def clear(self) -> None:
+        return None
+
+    def set_visibility(self, *_args: object, **_kwargs: object) -> FakeUIElement:
+        return self
+
 
 @pytest.fixture
 def fake_el() -> type[FakeUIElement]:

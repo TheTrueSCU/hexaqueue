@@ -113,6 +113,7 @@ async def test_jobs_table_filtering_kpis_and_events(
         pipeline, ident, jobs=[p_job], on_mutated=_on_mutated
     )
     await events["inspect_job"](SimpleNamespace(args={"job_id": "j-pend"}))
+    await events["rowClick"](SimpleNamespace(args=[None, {"job_id": "j-pend"}, 0]))
     await events["hold_job"](SimpleNamespace(args={"job_id": "j-pend"}))
     await events["release_job"](SimpleNamespace(args={"job_id": "j-pend"}))
     await events["cancel_job"](SimpleNamespace(args={"job_id": "j-pend"}))

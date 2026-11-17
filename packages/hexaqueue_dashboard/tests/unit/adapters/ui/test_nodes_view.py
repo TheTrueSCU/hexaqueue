@@ -45,6 +45,8 @@ def test_build_node_rows_and_topology_svg(
 
     svg = nodes_mod.generate_cluster_topology_svg([pulse], [running_job])
     assert "<svg" in svg
+    assert "data:image/png;base64," in svg
+    assert 'xlink:href="/' not in svg
 
     # Exercise fallback SVG when Diagram raises
     monkeypatch.setattr(

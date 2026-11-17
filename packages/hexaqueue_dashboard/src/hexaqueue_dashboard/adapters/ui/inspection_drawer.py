@@ -9,6 +9,7 @@ Notes/Architectural Intent:
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from contextlib import nullcontext
 from typing import Any
 
 from hexastack_auth.domain.models import Identity
@@ -305,6 +306,7 @@ async def open_job_inspection_drawer(
     all_jobs: list[JobSpec] | None = None,
     on_mutated: Callable[[], Awaitable[None]] | None = None,
     on_filter_run: Callable[[str], None] | None = None,
+    drawer_host: Any = None,
 ) -> None:
     """Open slide-over inspection drawer for a job (logs, explainability, DAG links).
 
@@ -316,6 +318,7 @@ async def open_job_inspection_drawer(
         all_jobs: Optional list of all jobs for DAG link resolution.
         on_mutated: Optional async callback invoked after lifecycle mutations.
         on_filter_run: Optional callback to filter the jobs table to a run ID.
+        drawer_host: Optional persistent NiceGUI container outside refreshable blocks.
     """
     is_admin = "admin" in identity.roles
     display_status = resolve_job_display_status(job)
@@ -347,7 +350,13 @@ async def open_job_inspection_drawer(
     except Exception as exc:
         logs_error = str(exc)
 
+    host_ctx: Any = nullcontext()
+    if drawer_host is not None:
+        drawer_host.clear()
+        host_ctx = drawer_host
+
     with (
+        host_ctx,
         ui.dialog().props("position=right full-height") as drawer,
         ui.card().classes("w-[520px] max-w-full h-full overflow-y-auto p-6"),
     ):
@@ -440,6 +449,7 @@ async def open_run_inspection_drawer(
     *,
     on_mutated: Callable[[], Awaitable[None]] | None = None,
     on_filter_run: Callable[[str], None] | None = None,
+    drawer_host: Any = None,
 ) -> None:
     """Open slide-over inspection drawer for a pipeline Run and its child jobs.
 
@@ -450,12 +460,19 @@ async def open_run_inspection_drawer(
         all_jobs: All jobs in the current snapshot.
         on_mutated: Optional async callback invoked after lifecycle mutations.
         on_filter_run: Optional callback to filter the jobs table to a run ID.
+        drawer_host: Optional persistent NiceGUI container outside refreshable blocks.
     """
     run_status = resolve_run_display_status(run_report)
     badge_bg = STATUS_BADGE_COLORS.get(run_status, "#374151")
     run_jobs = [j for j in all_jobs if j.run_id == run_report.run_id]
 
+    host_ctx: Any = nullcontext()
+    if drawer_host is not None:
+        drawer_host.clear()
+        host_ctx = drawer_host
+
     with (
+        host_ctx,
         ui.dialog().props("position=right full-height") as drawer,
         ui.card().classes("w-[520px] max-w-full h-full overflow-y-auto p-6"),
     ):
