@@ -259,3 +259,8 @@ def test_apply_body_refresh_updates_nodes_table_in_place() -> None:
 
     nicegui_ui._apply_body_refresh(ui_state, next_data, body, force=True)
     assert body.refreshed == 1
+
+    # Different worker set falls back to full refresh
+    ui_state.node_table_ref["workers"] = ("node-other",)
+    nicegui_ui._apply_body_refresh(ui_state, next_data, body, force=False)
+    assert body.refreshed == 2
