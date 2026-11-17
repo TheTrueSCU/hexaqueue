@@ -171,9 +171,9 @@ runs:
                 if dashboard_url:
                     f.write(f'- **Dashboard**: {dashboard_url}\n')
                 else:
-                    f.write('- **Dashboard (via SSH tunnel)**: `http://127.0.0.1:8080/dashboard/ui` (`hq dashboard open`)\n')
+                    f.write('- **Dashboard (via SSH tunnel)**: \`http://127.0.0.1:8080/dashboard/ui\` (\`hq dashboard open\`)\n')
                 if selected_host:
-                    f.write(f'- **Cluster Tunnel**: `hq cluster tunnel --host {selected_host}`\n')
-                f.write('- **Cluster / Run / Job CLI**: `hq stat` · `hq nodes` · `hq top` · `hq status <run-or-job-id>` · `hq logs <job-id>`\n\n')
+                    f.write(f'- **Cluster Tunnel**: \`hq cluster tunnel --host {selected_host}\`\n')
+                f.write('- **Cluster / Run / Job CLI**: \`hq stat\` · \`hq nodes\` · \`hq top\` · \`hq status <run-or-job-id>\` · \`hq logs <job-id>\`\n\n')
         " || true
         fi
