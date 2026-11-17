@@ -46,8 +46,11 @@ from hexaqueue_dashboard.adapters.ui.logs_view import (
     render_live_logs_page,
 )
 from hexaqueue_dashboard.adapters.ui.nodes_view import (
+    build_node_metrics_histogram_svg,
     build_node_rows,
     generate_cluster_topology_svg,
+    open_node_inspection_drawer,
+    record_node_metrics_samples,
     render_nodes_section,
 )
 from hexaqueue_dashboard.adapters.ui.runs_tree import (
@@ -83,6 +86,7 @@ __all__ = [
     "build_history_run_rows",
     "build_job_rows",
     "build_log_pre_html",
+    "build_node_metrics_histogram_svg",
     "build_node_rows",
     "build_run_tree_nodes",
     "build_single_run_tree_node",
@@ -102,8 +106,10 @@ __all__ = [
     "open_cancel_run_dialog",
     "open_change_password_dialog",
     "open_job_inspection_drawer",
+    "open_node_inspection_drawer",
     "open_run_inspection_drawer",
     "paginate_history_items",
+    "record_node_metrics_samples",
     "refresh_active_drawer",
     "render_drawer_dag_links",
     "render_drawer_explain_and_logs",
@@ -124,7 +130,7 @@ __all__ = [
     "RunsTreeUIState",
     "sort_job_rows",
     "STATUS_BADGE_COLORS",
-    "status_sort_rank",
     "STATUS_SORT_RANK",
+    "status_sort_rank",
     "TERMINAL_DISPLAY_STATES",
 ]
