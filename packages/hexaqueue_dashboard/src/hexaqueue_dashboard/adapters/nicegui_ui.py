@@ -45,7 +45,10 @@ from hexaqueue_dashboard.adapters.ui.login import (
     resolve_session_identity,
 )
 from hexaqueue_dashboard.adapters.ui.logs_view import render_live_logs_page
-from hexaqueue_dashboard.adapters.ui.nodes_view import render_nodes_section
+from hexaqueue_dashboard.adapters.ui.nodes_view import (
+    record_node_metrics_samples,
+    render_nodes_section,
+)
 from hexaqueue_dashboard.adapters.ui.runs_tree import render_runs_section
 from hexaqueue_dashboard.adapters.ui.state import ConsoleUIState, DrawerUIState
 from hexaqueue_dashboard.adapters.ui.status import render_live_status_widget
@@ -379,10 +382,18 @@ async def _render_cluster_body_content(
         modular and well below the cognitive complexity threshold.
     """
     _stats, nodes, jobs, runs, _fp = snapshot
+    record_node_metrics_samples(ui_state.node_metrics_history, nodes)
     tab = ui_state.tab
 
     if tab == "nodes":
-        render_nodes_section(nodes, jobs)
+        render_nodes_section(
+            nodes,
+            jobs,
+            pipeline=pipeline,
+            identity=identity,
+            drawer_state=ui_state.drawer,
+            metrics_history=ui_state.node_metrics_history,
+        )
         return
 
     if tab == "fairshare":

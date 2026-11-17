@@ -9,18 +9,26 @@ Notes/Architectural Intent:
 from __future__ import annotations
 
 import base64
+import html
 import logging
 import re
 import tempfile
+from contextlib import nullcontext
 from pathlib import Path
+from uuid import uuid4
 
 from diagrams import Cluster, Diagram
 from diagrams.oci.compute import VM
 from diagrams.oci.database import Autonomous
 from diagrams.oci.storage import ObjectStorage
+from hexastack_auth.domain.models import Identity
+from hexastack_cqrs.infra.pipeline import ExecutionPipeline
+from hexastack_ui.adapters.nicegui import dispatch_command
 from nicegui import ui
 
+from hexaqueue_core.domain.cqrs import CreateBastionSessionCommand
 from hexaqueue_core.domain.job import JobSpec
+from hexaqueue_dashboard.adapters.ui.state import DrawerUIState
 from hexaqueue_worker.domain.telemetry import NodeTelemetryPulse
 
 _logger = logging.getLogger(__name__)
@@ -68,6 +76,13 @@ NODE_TABLE_COLUMNS: list[dict[str, object]] = [
         "field": "last_seen",
         "sortable": True,
         "align": "left",
+    },
+    {
+        "name": "actions",
+        "label": "Actions",
+        "field": "actions",
+        "sortable": False,
+        "align": "right",
     },
 ]
 
@@ -248,29 +263,335 @@ def generate_cluster_topology_svg(
     return _fallback_topology_svg(nodes)
 
 
+def record_node_metrics_samples(
+    history: dict[str, list[dict[str, float | str]]],
+    nodes: list[NodeTelemetryPulse],
+    *,
+    max_samples: int = 20,
+) -> None:
+    """Append current telemetry snapshots into a bounded per-worker buffer.
+
+    Args:
+        history: Mutable mapping of ``worker_id`` -> recent sample dicts.
+        nodes: Latest ``NodeTelemetryPulse`` list from the cluster snapshot.
+        max_samples: Maximum number of samples retained per worker node.
+
+    Notes/Architectural Intent:
+        Deduplicates consecutive samples sharing the exact same heartbeat
+        timestamp so SSE refreshes without new worker heartbeats do not
+        inflate or flatten the metrics histogram.
+    """
+    for pulse in nodes:
+        ts_label = pulse.timestamp.strftime("%H:%M:%S")
+        samples = history.setdefault(pulse.worker_id, [])
+        if samples and samples[-1].get("ts") == ts_label:
+            continue
+        ram_pct = (
+            (pulse.memory_used_mb / pulse.memory_total_mb) * 100.0
+            if pulse.memory_total_mb > 0
+            else 0.0
+        )
+        samples.append(
+            {
+                "cpu": round(float(pulse.cpu_utilization_pct), 1),
+                "ram_pct": round(ram_pct, 1),
+                "load_1m": round(float(pulse.load_average[0]), 2),
+                "ts": ts_label,
+            }
+        )
+        if len(samples) > max_samples:
+            del samples[: len(samples) - max_samples]
+
+
+def build_node_metrics_histogram_svg(
+    samples: list[dict[str, float | str]],
+    *,
+    metric_key: str = "cpu",
+    label: str = "CPU %",
+    bar_color: str = "#38bdf8",
+) -> str:
+    """Render an accessible inline SVG bar histogram of recent node metrics.
+
+    Args:
+        samples: Ordered telemetry sample dicts from ``record_node_metrics_samples``.
+        metric_key: Numeric key in each sample dict (e.g. ``"cpu"`` or ``"ram_pct"``).
+        label: Human-readable metric title rendered in the SVG aria-label.
+        bar_color: Hex fill color for histogram bars.
+
+    Returns:
+        Inline SVG string with ``role="img"`` and ``aria-label``.
+    """
+    width = 320
+    height = 72
+    if not samples:
+        return (
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+            f'role="img" aria-label="{html.escape(label)} histogram (no samples)">'
+            f'<rect width="{width}" height="{height}" rx="6" fill="#0f172a"/>'
+            '<text x="160" y="40" text-anchor="middle" fill="#cbd5e1" '
+            'font-family="monospace" font-size="11">Awaiting telemetry samples</text>'
+            "</svg>"
+        )
+
+    values = [max(0.0, min(100.0, float(s.get(metric_key, 0.0)))) for s in samples]
+    bar_w = max(8, int((width - 20) / max(len(values), 1)) - 3)
+    bars: list[str] = []
+    for idx, val in enumerate(values):
+        bar_h = max(3, int((val / 100.0) * (height - 20)))
+        x_pos = 10 + idx * (bar_w + 3)
+        y_pos = height - 8 - bar_h
+        ts = html.escape(str(samples[idx].get("ts", "")))
+        bars.append(
+            f'<rect x="{x_pos}" y="{y_pos}" width="{bar_w}" height="{bar_h}" '
+            f'rx="2" fill="{bar_color}"><title>{ts}: {val:.1f}%</title></rect>'
+        )
+    latest = values[-1]
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+        f'role="img" aria-label="{html.escape(label)} recent metrics histogram '
+        f'(latest {latest:.1f}%)">'
+        f'<rect width="{width}" height="{height}" rx="6" fill="#0f172a"/>'
+        f"{''.join(bars)}</svg>"
+    )
+
+
+def _render_bastion_launcher(
+    pipeline: ExecutionPipeline | None,
+    identity: Identity | None,
+    worker_id: str,
+    *,
+    auto_launch: bool = False,
+) -> None:
+    """Render Bastion Session Launcher button and output container inside node drawer."""
+    ui.label("Bastion Session Launcher").classes("text-sm font-semibold mt-4")
+    output_box = ui.column().classes("w-full gap-1 mt-1")
+
+    async def _launch_bastion() -> None:
+        output_box.clear()
+        if pipeline is None or identity is None:
+            with output_box:
+                ui.label("Session launcher unavailable in read-only mode.").classes(
+                    "text-xs text-slate-300"
+                )
+            return
+        is_admin = "admin" in identity.roles
+        session_id = f"bastion-{uuid4().hex[:8]}"
+        try:
+            info = await dispatch_command(
+                pipeline,
+                CreateBastionSessionCommand(
+                    node_id=worker_id,
+                    session_id=session_id,
+                    user_id=identity.user_id,
+                    elevate=is_admin,
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            with output_box:
+                ui.label(f"Bastion launch denied/failed: {exc}").classes(
+                    "text-xs text-red-400"
+                )
+            return
+
+        cli_cmd = f"hq node ssh {worker_id} --session {info.session_id} --admin"
+        with output_box:
+            ui.label(
+                f"Session {info.session_id} active (PID {info.pid}, user {info.user_id})"
+            ).classes("text-xs text-emerald-300 font-mono")
+            ui.html(
+                '<pre aria-label="Bastion CLI command" '
+                'style="background-color:#0f172a;color:#f8fafc;padding:8px;'
+                'border-radius:6px;font-size:0.75rem;overflow-x:auto;">'
+                f"{html.escape(cli_cmd)}</pre>",
+                sanitize=False,
+            )
+
+    ui.button(
+        "Launch Bastion Session",
+        icon="terminal",
+        on_click=_launch_bastion,
+    ).props(
+        f'size="sm" color="primary" aria-label="Launch bastion session on {worker_id}"'
+    ).classes("mt-1")
+    if auto_launch:
+        ui.timer(0.05, _launch_bastion, once=True)
+
+
+async def open_node_inspection_drawer(
+    pulse: NodeTelemetryPulse,
+    jobs: list[JobSpec] | None = None,
+    *,
+    pipeline: ExecutionPipeline | None = None,
+    identity: Identity | None = None,
+    drawer_state: DrawerUIState | None = None,
+    metrics_history: dict[str, list[dict[str, float | str]]] | None = None,
+    auto_launch_bastion: bool = False,
+) -> None:
+    """Open slide-over inspection drawer for a worker node with metrics & Bastion.
+
+    Args:
+        pulse: Target worker ``NodeTelemetryPulse`` snapshot.
+        jobs: Optional cluster ``JobSpec`` list to list leased active jobs.
+        pipeline: Optional CQRS ``ExecutionPipeline`` for Bastion launch dispatch.
+        identity: Optional authenticated operator ``Identity``.
+        drawer_state: Optional ``DrawerUIState`` hosting the persistent drawer.
+        metrics_history: Optional per-worker metrics history dictionary.
+        auto_launch_bastion: When ``True``, immediately triggers bastion creation.
+    """
+    samples = (metrics_history or {}).get(pulse.worker_id, [])
+    leased_jobs = [
+        j.id
+        for j in (jobs or [])
+        if j.assigned_worker_id == pulse.worker_id
+        and str(j.state) in ("RUNNING", "PROVISIONING", "CLEANUP")
+    ]
+    cached_hashes = list(getattr(pulse, "cached_collateral_hashes", []) or [])
+    host_ctx = (
+        drawer_state.host
+        if drawer_state is not None and drawer_state.host is not None
+        else nullcontext()
+    )
+    with (
+        host_ctx,
+        ui.dialog().props("position=right full-height") as drawer,
+        ui.card().classes("w-[520px] max-w-full h-full overflow-y-auto p-6"),
+    ):
+        with ui.row().classes("w-full items-center justify-between"):
+            ui.label(f"Node: {pulse.worker_id}").classes("text-lg font-bold")
+            ui.button(icon="close", on_click=drawer.close).props(
+                'flat round dense color="grey-3" aria-label="Close node inspection drawer"'
+            )
+        ui.label(
+            f"CPU: {pulse.cpu_utilization_pct:.1f}% | "
+            f"RAM: {pulse.memory_used_mb} / {pulse.memory_total_mb} MB | "
+            f"Load (1m): {pulse.load_average[0]:.2f}"
+        ).classes("text-sm text-slate-200 mt-1")
+        ui.label(
+            f"Active Leases ({len(leased_jobs)}): "
+            f"{', '.join(leased_jobs) if leased_jobs else 'Idle'}"
+        ).classes("text-xs font-mono text-slate-300 mt-1")
+
+        ui.label("Recent Metrics Histogram").classes("text-sm font-semibold mt-4")
+        cpu_svg = build_node_metrics_histogram_svg(
+            samples, metric_key="cpu", label="CPU %", bar_color="#38bdf8"
+        )
+        ram_svg = build_node_metrics_histogram_svg(
+            samples, metric_key="ram_pct", label="RAM %", bar_color="#34d399"
+        )
+        ui.html(
+            f'<div class="flex flex-col gap-2 mt-1">{cpu_svg}{ram_svg}</div>',
+            sanitize=False,
+        )
+
+        ui.label("Cached Collateral Hashes").classes("text-sm font-semibold mt-4")
+        if cached_hashes:
+            for digest in cached_hashes[:10]:
+                ui.label(str(digest)).classes("text-xs font-mono text-slate-300")
+        else:
+            ui.label("No cached collateral hashes reported.").classes(
+                "text-xs text-slate-400"
+            )
+
+        _render_bastion_launcher(
+            pipeline,
+            identity,
+            pulse.worker_id,
+            auto_launch=auto_launch_bastion,
+        )
+    drawer.open()
+
+
 def render_nodes_section(
     nodes: list[NodeTelemetryPulse],
     jobs: list[JobSpec] | None = None,
+    *,
+    pipeline: ExecutionPipeline | None = None,
+    identity: Identity | None = None,
+    drawer_state: DrawerUIState | None = None,
+    metrics_history: dict[str, list[dict[str, float | str]]] | None = None,
 ) -> None:
     """Render Active Nodes telemetry table and diagrams-generated topology SVG.
 
     Args:
         nodes: Active worker NodeTelemetryPulse list.
         jobs: Optional JobSpec list for worker job annotations.
+        pipeline: Optional CQRS ``ExecutionPipeline`` for Bastion session launch.
+        identity: Optional authenticated operator ``Identity``.
+        drawer_state: Optional ``DrawerUIState`` for persistent drawer hosting.
+        metrics_history: Optional per-worker metrics history dictionary.
     """
+    if metrics_history is not None:
+        record_node_metrics_samples(metrics_history, nodes)
+
     ui.label("Active Nodes & Cluster Topology").classes("text-lg font-semibold mt-4")
     if not nodes:
         ui.label("No active worker nodes reporting telemetry.").classes(
             "text-slate-300 text-sm"
         )
     else:
+        nodes_by_id = {n.worker_id: n for n in nodes}
         rows = build_node_rows(nodes, jobs)
-        ui.table(
+        table = ui.table(
             columns=NODE_TABLE_COLUMNS,
             rows=rows,
             row_key="worker_id",
             pagination={"rowsPerPage": 10, "sortBy": "worker_id", "descending": False},
         ).classes("w-full mt-2")
+        table.add_slot(
+            "body-cell-actions",
+            """
+            <q-td :props="props">
+                <div class="row justify-end q-gutter-xs no-wrap">
+                    <q-btn
+                        dense flat round size="sm" icon="visibility" color="primary"
+                        :aria-label="'Inspect node ' + props.row.worker_id"
+                        @click.stop="$parent.$emit('inspect_node', props.row)"
+                    >
+                        <q-tooltip>Inspect node metrics &amp; cached collateral</q-tooltip>
+                    </q-btn>
+                    <q-btn
+                        dense flat round size="sm" icon="terminal" color="purple-8"
+                        :aria-label="'Launch bastion session on ' + props.row.worker_id"
+                        @click.stop="$parent.$emit('launch_bastion', props.row)"
+                    >
+                        <q-tooltip>Launch Bastion SSH session</q-tooltip>
+                    </q-btn>
+                </div>
+            </q-td>
+            """,
+        )
+
+        async def _open_node_from_row(
+            worker_id: str, *, auto_bastion: bool = False
+        ) -> None:
+            pulse = nodes_by_id.get(worker_id)
+            if pulse is not None:
+                await open_node_inspection_drawer(
+                    pulse,
+                    jobs,
+                    pipeline=pipeline,
+                    identity=identity,
+                    drawer_state=drawer_state,
+                    metrics_history=metrics_history,
+                    auto_launch_bastion=auto_bastion,
+                )
+
+        async def _on_inspect_node(ev: object) -> None:
+            args = getattr(ev, "args", {}) or {}
+            await _open_node_from_row(str(args.get("worker_id", "")))
+
+        async def _on_row_click(ev: object) -> None:
+            args = getattr(ev, "args", None)
+            if isinstance(args, list) and len(args) >= 2 and isinstance(args[1], dict):
+                await _open_node_from_row(str(args[1].get("worker_id", "")))
+
+        async def _on_launch_bastion(ev: object) -> None:
+            args = getattr(ev, "args", {}) or {}
+            await _open_node_from_row(str(args.get("worker_id", "")), auto_bastion=True)
+
+        table.on("inspect_node", _on_inspect_node)
+        table.on("rowClick", _on_row_click)
+        table.on("launch_bastion", _on_launch_bastion)
 
     ui.label("Cluster Topology").classes("text-md font-semibold mt-4")
     svg_markup = generate_cluster_topology_svg(nodes, jobs)
@@ -284,8 +605,11 @@ def render_nodes_section(
 
 
 __all__ = [
+    "build_node_metrics_histogram_svg",
     "build_node_rows",
     "generate_cluster_topology_svg",
     "NODE_TABLE_COLUMNS",
+    "open_node_inspection_drawer",
+    "record_node_metrics_samples",
     "render_nodes_section",
 ]

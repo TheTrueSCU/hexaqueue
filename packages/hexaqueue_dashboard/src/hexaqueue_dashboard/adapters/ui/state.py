@@ -102,6 +102,9 @@ class ConsoleUIState:
     runs_tree: RunsTreeUIState = field(default_factory=RunsTreeUIState)
     history: HistoryUIState = field(default_factory=HistoryUIState)
     drawer: DrawerUIState = field(default_factory=DrawerUIState)
+    node_metrics_history: dict[str, list[dict[str, float | str]]] = field(
+        default_factory=dict
+    )
 
 
 __all__ = [
