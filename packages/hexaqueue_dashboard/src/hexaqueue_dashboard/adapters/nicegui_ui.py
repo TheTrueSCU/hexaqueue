@@ -54,30 +54,33 @@ from hexaqueue_worker.domain.telemetry import NodeTelemetryPulse
 
 _logger = logging.getLogger(__name__)
 
-JOB_STATUS_FILTER_OPTIONS: list[str] = [
-    "ALL",
-    "PENDING",
-    "SUBMITTED",
-    "PROVISIONING",
-    "RUNNING",
-    "CLEANUP",
-    "HELD",
-    "COMPLETED",
-    "SUCCEEDED",
-    "FAILED",
-    "CANCELLED",
-    "BLOCKED",
-]
-RUN_STATUS_FILTER_OPTIONS: list[str] = [
-    "ALL",
-    "PENDING",
-    "IN_PROGRESS",
-    "RUNNING",
-    "SUCCEEDED",
-    "COMPLETED",
-    "FAILED",
-    "CANCELLED",
-]
+JOB_STATUS_FILTER_OPTIONS: dict[str, str] = {
+    "ALL": "All Statuses",
+    "ACTIVE": "Active (Non-Terminal)",
+    "PENDING": "  \u2022 Pending",
+    "SUBMITTED": "  \u2022 Submitted",
+    "PROVISIONING": "  \u2022 Provisioning",
+    "RUNNING": "  \u2022 Running",
+    "CLEANUP": "  \u2022 Cleanup",
+    "HELD": "  \u2022 Held",
+    "BLOCKED": "  \u2022 Blocked",
+    "TERMINAL": "Inactive (Terminal)",
+    "COMPLETED": "  \u2022 Completed",
+    "FAILED": "  \u2022 Failed",
+    "CANCELLED": "  \u2022 Cancelled",
+}
+RUN_STATUS_FILTER_OPTIONS: dict[str, str] = {
+    "ALL": "All Statuses",
+    "ACTIVE": "Active (Non-Terminal)",
+    "PENDING": "  \u2022 Pending",
+    "IN_PROGRESS": "  \u2022 In Progress",
+    "RUNNING": "  \u2022 Running",
+    "TERMINAL": "Inactive (Terminal)",
+    "COMPLETED": "  \u2022 Completed",
+    "SUCCEEDED": "  \u2022 Succeeded",
+    "FAILED": "  \u2022 Failed",
+    "CANCELLED": "  \u2022 Cancelled",
+}
 
 
 def _resolve_static_dir() -> Path | None:

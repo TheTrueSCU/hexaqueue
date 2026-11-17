@@ -31,6 +31,7 @@ from hexaqueue_dashboard.adapters.ui.state import (
 from hexaqueue_dashboard.adapters.ui.status import (
     STATUS_BADGE_COLORS,
     TERMINAL_DISPLAY_STATES,
+    matches_status_filter,
     resolve_job_display_status,
     status_sort_rank,
 )
@@ -110,7 +111,7 @@ def filter_jobs(
     filtered: list[JobSpec] = []
     for job in jobs:
         display_status = resolve_job_display_status(job)
-        if target_status not in ("", "ALL") and display_status != target_status:
+        if not matches_status_filter(display_status, target_status):
             continue
         if needle:
             haystack = (
