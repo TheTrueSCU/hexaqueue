@@ -48,6 +48,31 @@ from hexaqueue_worker.domain.telemetry import NodeTelemetryPulse
 
 _logger = logging.getLogger(__name__)
 
+JOB_STATUS_FILTER_OPTIONS: list[str] = [
+    "ALL",
+    "PENDING",
+    "SUBMITTED",
+    "PROVISIONING",
+    "RUNNING",
+    "CLEANUP",
+    "HELD",
+    "COMPLETED",
+    "SUCCEEDED",
+    "FAILED",
+    "CANCELLED",
+    "BLOCKED",
+]
+RUN_STATUS_FILTER_OPTIONS: list[str] = [
+    "ALL",
+    "PENDING",
+    "IN_PROGRESS",
+    "RUNNING",
+    "SUCCEEDED",
+    "COMPLETED",
+    "FAILED",
+    "CANCELLED",
+]
+
 
 def _resolve_static_dir() -> Path | None:
     """Resolve the static asset directory using PEP 451/616 importlib.resources.
@@ -266,6 +291,40 @@ async def _render_cluster_body_content(
     )
 
 
+def _sync_filter_controls(
+    view_state: dict[str, str],
+    filter_state: dict[str, str],
+    filter_controls: dict[str, Any],
+) -> None:
+    """Sync filter bar visibility and valid status options with the active tab.
+
+    Args:
+        view_state: Mutable active tab state mapping.
+        filter_state: Mutable search/status filter state mapping.
+        filter_controls: Mutable widget reference mapping.
+
+    Notes/Architectural Intent:
+        Extracted from `_render_console_panel` to keep cognitive complexity
+        low while updating tab-specific status options without recreating
+        input widgets.
+    """
+    tab = view_state["tab"]
+    filter_row = filter_controls.get("filter_row")
+    if filter_row is not None:
+        filter_row.set_visibility(tab in ("jobs", "runs"))
+    status_select = filter_controls.get("status_select")
+    if status_select is not None and tab in ("jobs", "runs"):
+        valid_opts = (
+            RUN_STATUS_FILTER_OPTIONS if tab == "runs" else JOB_STATUS_FILTER_OPTIONS
+        )
+        status_select.options = valid_opts
+        if filter_state["status"] not in valid_opts:
+            filter_state["status"] = "ALL"
+            status_select.value = "ALL"
+        if hasattr(status_select, "update"):
+            status_select.update()
+
+
 async def _render_console_panel(
     pipeline: ExecutionPipeline,
     identity: Identity,
@@ -318,9 +377,7 @@ async def _render_console_panel(
         await _refresh_now(force=False)
 
     def _sync_filter_visibility() -> None:
-        filter_row = filter_controls.get("filter_row")
-        if filter_row is not None:
-            filter_row.set_visibility(view_state["tab"] in ("jobs", "runs"))
+        _sync_filter_controls(view_state, filter_state, filter_controls)
 
     def _filter_to_run(run_id: str) -> None:
         view_state["tab"] = "jobs"
@@ -413,18 +470,7 @@ async def _render_console_panel(
         )
         filter_controls["status_select"] = (
             ui.select(
-                options=[
-                    "ALL",
-                    "PENDING",
-                    "RUNNING",
-                    "IN_PROGRESS",
-                    "HELD",
-                    "COMPLETED",
-                    "SUCCEEDED",
-                    "FAILED",
-                    "CANCELLED",
-                    "BLOCKED",
-                ],
+                options=JOB_STATUS_FILTER_OPTIONS,
                 value="ALL",
                 label="Status Filter",
                 on_change=_on_status_change,

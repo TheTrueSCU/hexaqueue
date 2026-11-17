@@ -48,6 +48,9 @@ class FakeUIElement:
     def set_visibility(self, *_args: object, **_kwargs: object) -> FakeUIElement:
         return self
 
+    def update(self) -> None:
+        return None
+
 
 @pytest.fixture
 def fake_el() -> type[FakeUIElement]:
