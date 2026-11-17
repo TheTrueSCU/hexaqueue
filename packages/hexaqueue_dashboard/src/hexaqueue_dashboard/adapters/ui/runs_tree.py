@@ -27,6 +27,7 @@ from hexaqueue_dashboard.adapters.ui.state import (
 )
 from hexaqueue_dashboard.adapters.ui.status import (
     STATUS_BADGE_COLORS,
+    matches_status_filter,
     resolve_job_display_status,
     resolve_run_display_status,
 )
@@ -146,7 +147,7 @@ def build_run_tree_nodes(
     tree_nodes: list[dict[str, object]] = []
     for run in runs:
         run_status = resolve_run_display_status(run)
-        if target_status not in ("", "ALL") and run_status != target_status:
+        if not matches_status_filter(run_status, target_status):
             continue
         if needle and needle not in f"{run.run_id} {run.name or ''}".casefold():
             continue

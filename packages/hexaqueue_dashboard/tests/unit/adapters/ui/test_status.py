@@ -91,6 +91,13 @@ def test_resolve_job_and_run_display_status() -> None:
     assert part_status == "IN_PROGRESS"
     assert done_status == "SUCCEEDED"
 
+    assert status_mod.matches_status_filter("RUNNING", "ALL") is True
+    assert status_mod.matches_status_filter("RUNNING", "ACTIVE") is True
+    assert status_mod.matches_status_filter("COMPLETED", "ACTIVE") is False
+    assert status_mod.matches_status_filter("FAILED", "TERMINAL") is True
+    assert status_mod.matches_status_filter("PENDING", "TERMINAL") is False
+    assert status_mod.matches_status_filter("FAILED", "FAILED") is True
+
 
 def test_render_live_status_widget_modes(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify full and tunnel-only live status widget rendering."""

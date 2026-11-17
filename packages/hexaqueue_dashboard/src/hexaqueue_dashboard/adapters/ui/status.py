@@ -135,7 +135,33 @@ def render_live_status_widget(script_url: str | None, *, mode: str = "full") -> 
         ui.add_body_html(f'<script src="{script_url}" defer></script>')
 
 
+def matches_status_filter(display_status: str, target_status: str) -> bool:
+    """Evaluate whether a display status matches a filter key or group.
+
+    Args:
+        display_status: Normalized display status string (e.g. ``RUNNING``).
+        target_status: Filter key (``ALL``, ``ACTIVE``, ``TERMINAL``, ``INACTIVE``,
+            or an exact status string).
+
+    Returns:
+        ``True`` if the status matches the filter, otherwise ``False``.
+
+    Notes/Architectural Intent:
+        Shared by both the Jobs table and Runs tree so ``ACTIVE`` (non-terminal)
+        and ``TERMINAL`` / ``INACTIVE`` grouped filters behave uniformly.
+    """
+    normalized = target_status.strip().upper()
+    if normalized in ("", "ALL"):
+        return True
+    if normalized == "ACTIVE":
+        return display_status not in TERMINAL_DISPLAY_STATES
+    if normalized in ("TERMINAL", "INACTIVE"):
+        return display_status in TERMINAL_DISPLAY_STATES
+    return display_status == normalized
+
+
 __all__ = [
+    "matches_status_filter",
     "render_live_status_widget",
     "resolve_job_display_status",
     "resolve_run_display_status",
