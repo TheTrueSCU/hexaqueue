@@ -214,5 +214,6 @@ async def test_render_live_logs_page(
 
     assert badges == ["RUNNING"]
     assert timers[0].active is True
-    buttons["Back to Dashboard"]()
+    await timers[0].callback()
+    buttons["Open Console"]()
     assert navigated == ["/dashboard/ui"]

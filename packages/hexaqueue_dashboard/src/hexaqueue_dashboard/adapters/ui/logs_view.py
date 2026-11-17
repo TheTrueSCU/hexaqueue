@@ -8,6 +8,7 @@ and a full-viewport `/dashboard/ui/logs/{job_id}` page.
 from __future__ import annotations
 
 import html
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from hexastack_auth.domain.models import Identity
@@ -16,10 +17,10 @@ from hexastack_ui.adapters.nicegui import dispatch_query
 from nicegui import ui
 
 from hexaqueue_core.domain.cqrs import GetLogsQuery, ListJobsQuery
-from hexaqueue_core.domain.lifecycle import JobState
 from hexaqueue_core.ports.logging import LogChunk
 from hexaqueue_dashboard.adapters.ui.status import (
     STATUS_BADGE_COLORS,
+    TERMINAL_DISPLAY_STATES,
     resolve_job_display_status,
 )
 
@@ -96,9 +97,14 @@ async def fetch_job_logs(
         audit instrumentation remain uniform across the console.
     """
     try:
+        is_admin = "admin" in identity.roles
         logs = await dispatch_query(
             pipeline,
-            GetLogsQuery(job_id=job_id),
+            GetLogsQuery(
+                job_id=job_id,
+                user_id=identity.user_id,
+                elevate=is_admin,
+            ),
         )
         return list(logs), None
     except Exception as exc:  # noqa: BLE001
@@ -116,6 +122,7 @@ def render_live_log_viewer(
     full_page_url: str | None = None,
     max_height: str = "260px",
     heading: str = "Execution Logs",
+    on_poll: Callable[[], Awaitable[None]] | None = None,
 ) -> Any:
     """Render an execution log viewer with optional live-tail polling and full-page link.
 
@@ -129,6 +136,7 @@ def render_live_log_viewer(
         full_page_url: Optional URL to open the dedicated full-page log viewer.
         max_height: CSS `max-height` applied to the `<pre>` viewport.
         heading: Section heading label rendered above the log viewport.
+        on_poll: Optional async callback invoked after each log refresh.
 
     Returns:
         The created `ui.html` element (or `None` in headless fakes), allowing
@@ -179,6 +187,8 @@ def render_live_log_viewer(
             )
             if hasattr(log_box, "update"):
                 log_box.update()
+            if on_poll is not None:
+                await on_poll()
 
         ui.button(
             "Refresh Logs",
@@ -219,21 +229,23 @@ async def render_live_logs_page(
         Provides a focused single-job live tail workspace with semantic
         `<header>` and `<main>` landmarks for WCAG 2.1 AA compliance.
     """
-    logs, logs_error = await fetch_job_logs(pipeline, identity, job_id)
-    job = None
-    try:
-        is_admin = "admin" in identity.roles
-        jobs = await dispatch_query(
-            pipeline, ListJobsQuery(user_id=identity.user_id, elevate=is_admin)
-        )
-        job = next((item for item in jobs if item.id == job_id), None)
-    except Exception:  # noqa: BLE001
-        job = None
 
-    default_tail = job is not None and job.status.state in {
-        JobState.RUNNING,
-        JobState.PROVISIONING,
-    }
+    async def _fetch_job() -> Any:
+        try:
+            is_admin = "admin" in identity.roles
+            jobs = await dispatch_query(
+                pipeline, ListJobsQuery(user_id=identity.user_id, elevate=is_admin)
+            )
+            return next((item for item in jobs if item.id == job_id), None)
+        except Exception:  # noqa: BLE001
+            return None
+
+    logs, logs_error = await fetch_job_logs(pipeline, identity, job_id)
+    job = await _fetch_job()
+    initial_status = (
+        resolve_job_display_status(job.status) if job is not None else "UNKNOWN"
+    )
+    default_tail = initial_status not in TERMINAL_DISPLAY_STATES
 
     with (
         ui.element("header").classes(
@@ -243,20 +255,20 @@ async def render_live_logs_page(
         ui.row().classes("items-center gap-3"),
     ):
         ui.button(
-            "Back to Dashboard",
-            icon="arrow_back",
+            "Open Console",
+            icon="dashboard",
             on_click=lambda: ui.navigate.to(back_url),
-        ).props('flat color="grey-3" aria-label="Back to operator dashboard"')
+        ).props('flat color="grey-3" aria-label="Open operator dashboard"')
         ui.html(
             f'<h1 class="text-xl font-bold text-slate-50 m-0">'
             f"Live Log Stream: {html.escape(job_id)}</h1>",
             sanitize=False,
         )
+        badge_el = None
         if job is not None:
-            badge_label = resolve_job_display_status(job.status)
-            badge_color = STATUS_BADGE_COLORS.get(badge_label, "grey")
-            ui.badge(badge_label, color=badge_color).props(
-                f'aria-label="Job status {badge_label}"'
+            badge_color = STATUS_BADGE_COLORS.get(initial_status, "grey")
+            badge_el = ui.badge(initial_status, color=badge_color).props(
+                f'aria-label="Job status {initial_status}"'
             )
 
     with ui.element("main").classes("w-full max-w-6xl mx-auto px-6 py-4"):
@@ -264,6 +276,20 @@ async def render_live_logs_page(
             ui.label(
                 f"Job: {job.name} | Run: {job.run_id} | Command: {job.command}"
             ).classes("text-xs font-mono text-slate-300")
+
+        async def _refresh_job_badge() -> None:
+            latest = await _fetch_job()
+            if latest is None or badge_el is None:
+                return
+            next_status = resolve_job_display_status(latest.status)
+            next_color = STATUS_BADGE_COLORS.get(next_status, "grey")
+            badge_el.text = next_status
+            badge_el.props(
+                f'color="{next_color}" aria-label="Job status {next_status}"'
+            )
+            if hasattr(badge_el, "update"):
+                badge_el.update()
+
         render_live_log_viewer(
             logs,
             logs_error,
@@ -273,6 +299,7 @@ async def render_live_logs_page(
             default_live_tail=default_tail,
             max_height="calc(100vh - 230px)",
             heading="Live Execution Log Tail",
+            on_poll=_refresh_job_badge,
         )
 
 

@@ -154,3 +154,6 @@ async def test_node_metrics_histogram_and_bastion_drawer(
     await buttons["Launch Bastion Session"]()
     has_ssh_cmd = any("hq node ssh w-1" in chunk for chunk in html_out)
     assert has_ssh_cmd is True
+    assert "Close Bastion Session" in buttons
+    buttons["Close Bastion Session"]()
+    assert "Launch Bastion Session" in buttons

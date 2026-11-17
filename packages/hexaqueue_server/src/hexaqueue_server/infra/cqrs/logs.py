@@ -61,6 +61,28 @@ class LogsCqrsMixin(BaseCqrsService):
                 raise PermissionDeniedError(msg) from exc
 
         chunks = self.log_store.get(qry.job_id, [])
+        if not chunks:
+            get_logs_fn = getattr(self.controller, "get_logs", None)
+            if callable(get_logs_fn):
+                try:
+                    chunks = await get_logs_fn(qry.job_id, tail=qry.tail)
+                except Exception:  # noqa: BLE001
+                    chunks = []
+        if not chunks:
+            try:
+                target_job = await self.controller.get_job(qry.job_id)
+                if target_job.status.reason:
+                    chunks = [
+                        LogChunk(
+                            job_id=qry.job_id,
+                            stream="stdout",
+                            content=target_job.status.reason,
+                            offset=0,
+                            timestamp=target_job.updated_at,
+                        )
+                    ]
+            except Exception:  # noqa: BLE001
+                chunks = []
         if qry.tail is not None:
             return chunks[-qry.tail :]
         return chunks

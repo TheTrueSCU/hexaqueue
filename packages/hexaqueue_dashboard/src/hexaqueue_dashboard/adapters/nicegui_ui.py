@@ -165,6 +165,7 @@ async def _fetch_cluster_snapshot(
                 )
                 for n in nodes
             ],
+            "node_ts": [n.timestamp.isoformat() for n in nodes],
             "jobs_runs": {
                 "jobs": [
                     (
@@ -227,14 +228,22 @@ def _selective_refresh_needed(
     if tab in ("jobs", "runs"):
         refresh_body = next_parts.get("jobs_runs") != prev_parts.get("jobs_runs")
     elif tab == "nodes":
-        refresh_body = next_parts.get("nodes") != prev_parts.get("nodes")
+        refresh_body = next_parts.get("nodes") != prev_parts.get(
+            "nodes"
+        ) or next_parts.get("node_ts") != prev_parts.get("node_ts")
     elif tab == "fairshare":
         refresh_body = next_parts.get("jobs_runs") != prev_parts.get(
             "jobs_runs"
         ) or next_parts.get("nodes") != prev_parts.get("nodes")
     else:
         refresh_body = False
-    return True, refresh_kpi, refresh_body
+    any_changed = (
+        next_parts.get("kpi") != prev_parts.get("kpi")
+        or next_parts.get("nodes") != prev_parts.get("nodes")
+        or next_parts.get("jobs_runs") != prev_parts.get("jobs_runs")
+        or (tab == "nodes" and next_parts.get("node_ts") != prev_parts.get("node_ts"))
+    )
+    return any_changed, refresh_kpi, refresh_body
 
 
 def _render_kpi_cards(
