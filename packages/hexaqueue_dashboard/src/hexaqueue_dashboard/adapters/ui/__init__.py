@@ -5,6 +5,10 @@ Notes/Architectural Intent:
     tree, inspection drawer) into focused, independently testable view modules.
 """
 
+from hexaqueue_dashboard.adapters.ui.fairshare_view import (
+    build_fairshare_tree_nodes,
+    render_fairshare_section,
+)
 from hexaqueue_dashboard.adapters.ui.history_view import (
     build_history_run_rows,
     filter_history_runs,
@@ -29,6 +33,7 @@ from hexaqueue_dashboard.adapters.ui.jobs_table import (
     render_jobs_section,
 )
 from hexaqueue_dashboard.adapters.ui.login import (
+    open_change_password_dialog,
     render_login_panel,
     resolve_session_identity,
 )
@@ -65,6 +70,7 @@ from hexaqueue_dashboard.adapters.ui.status import (
 __all__ = [
     "ActiveDrawerState",
     "build_dag_job_subtree",
+    "build_fairshare_tree_nodes",
     "build_history_run_rows",
     "build_job_rows",
     "build_node_rows",
@@ -81,6 +87,7 @@ __all__ = [
     "HistoryUIState",
     "JobsTableUIState",
     "open_cancel_run_dialog",
+    "open_change_password_dialog",
     "open_job_inspection_drawer",
     "open_run_inspection_drawer",
     "paginate_history_items",
@@ -89,6 +96,7 @@ __all__ = [
     "render_drawer_explain_and_logs",
     "render_drawer_run_timeline",
     "render_drawer_state_timeline",
+    "render_fairshare_section",
     "render_history_section",
     "render_jobs_section",
     "render_live_status_widget",

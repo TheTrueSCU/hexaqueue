@@ -24,6 +24,7 @@ from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_worker.domain.telemetry import NodeTelemetryPulse
 
 _logger = logging.getLogger(__name__)
+_TOPOLOGY_SVG_CACHE: dict[tuple[str, ...], str] = {}
 
 NODE_TABLE_COLUMNS: list[dict[str, object]] = [
     {
@@ -170,16 +171,27 @@ def _fallback_topology_svg(nodes: list[NodeTelemetryPulse]) -> str:
 def generate_cluster_topology_svg(
     nodes: list[NodeTelemetryPulse],
     jobs: list[JobSpec] | None = None,
+    *,
+    force_refresh: bool = False,
 ) -> str:
     """Generate an up-to-date cluster topology SVG using `diagrams`.
 
     Args:
         nodes: Active worker NodeTelemetryPulse records.
         jobs: Optional JobSpec list to annotate running jobs per worker.
+        force_refresh: Bypass the structural worker-set cache and regenerate.
 
     Returns:
         Inline SVG markup string representing controller, ADB, CAS, and workers.
+
+    Notes/Architectural Intent:
+        Caches the rendered SVG by the sorted active `worker_id` tuple so
+        frequent telemetry heartbeats do not re-invoke Graphviz `dot` unless
+        workers join/leave or an explicit reload is requested.
     """
+    worker_key = tuple(sorted(pulse.worker_id for pulse in nodes))
+    if not force_refresh and worker_key in _TOPOLOGY_SVG_CACHE:
+        return _TOPOLOGY_SVG_CACHE[worker_key]
     running_by_worker: dict[str, int] = {}
     for job in jobs or []:
         if job.assigned_worker_id and str(job.state) in (
@@ -228,7 +240,9 @@ def generate_cluster_topology_svg(
                 svg_text = svg_path.read_text(encoding="utf-8")
                 svg_start = svg_text.find("<svg")
                 raw_svg = svg_text[svg_start:] if svg_start != -1 else svg_text
-                return _inline_svg_images(raw_svg)
+                inlined = _inline_svg_images(raw_svg)
+                _TOPOLOGY_SVG_CACHE[worker_key] = inlined
+                return inlined
     except Exception as exc:
         _logger.debug("Falling back to static topology SVG: %s", exc)
     return _fallback_topology_svg(nodes)

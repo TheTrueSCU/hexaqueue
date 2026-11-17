@@ -13,6 +13,7 @@ from nicegui import app as nicegui_app
 from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
 from hexaqueue_dashboard.adapters import nicegui_ui
 from hexaqueue_dashboard.adapters.auth import DashboardAuthManager
+from hexaqueue_dashboard.adapters.ui import fairshare_view as fairshare_mod
 from hexaqueue_dashboard.adapters.ui import history_view as history_mod
 from hexaqueue_dashboard.adapters.ui import jobs_table as jobs_mod
 from hexaqueue_dashboard.adapters.ui import nodes_view as nodes_mod
@@ -101,6 +102,7 @@ async def test_console_panel_refresh_and_filters(
     monkeypatch.setattr(jobs_mod, "ui", fake_ui)
     monkeypatch.setattr(nodes_mod, "ui", fake_ui)
     monkeypatch.setattr(history_mod, "ui", fake_ui)
+    monkeypatch.setattr(fairshare_mod, "ui", fake_ui)
 
     queue = InMemoryJobQueueAdapter()
     controller = LocalSchedulerControllerAdapter(queue=queue)
@@ -126,3 +128,21 @@ async def test_console_panel_refresh_and_filters(
 
     captured_buttons["Sign Out"]()
     assert fake_storage.user.get("jwt") is None
+
+    prev_fp = '{"kpi": {"node_count": 1}, "nodes": [["w-1", 10.0]], "jobs_runs": {"jobs": []}}'
+    next_node_fp = '{"kpi": {"node_count": 1}, "nodes": [["w-1", 25.0]], "jobs_runs": {"jobs": []}}'
+    any_j, kpi_j, body_j = nicegui_ui._selective_refresh_needed(
+        "jobs", prev_fp, next_node_fp, force=False
+    )
+    assert any_j is True
+    assert kpi_j is False
+    assert body_j is False
+    any_n, _kpi_n, body_n = nicegui_ui._selective_refresh_needed(
+        "nodes", prev_fp, next_node_fp, force=False
+    )
+    assert any_n is True
+    assert body_n is True
+    _any_h, _kpi_h, body_h = nicegui_ui._selective_refresh_needed(
+        "history", prev_fp, next_node_fp, force=False
+    )
+    assert body_h is False

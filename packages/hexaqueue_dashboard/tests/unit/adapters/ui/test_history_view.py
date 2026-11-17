@@ -39,6 +39,9 @@ async def test_history_explorer_pagination_and_drawers(
         def classes(self, *_a: object) -> _HistTable:
             return self
 
+        def add_slot(self, *_a: object, **_k: object) -> None:
+            return None
+
         def on(self, name: str, cb: Any) -> None:
             events[name] = cb
 

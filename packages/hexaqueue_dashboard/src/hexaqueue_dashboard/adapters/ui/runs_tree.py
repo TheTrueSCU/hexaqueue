@@ -215,6 +215,7 @@ def render_runs_section(
     on_mutated: Callable[[], Awaitable[None]] | None = None,
     on_filter_run: Callable[[str], None] | None = None,
     on_refresh: Callable[[], None] | None = None,
+    show_heading: bool = True,
     drawer_host: Any = None,
     filters: FilterUIState | None = None,
     tree_state: RunsTreeUIState | None = None,
@@ -232,6 +233,7 @@ def render_runs_section(
         on_mutated: Optional async callback invoked after lifecycle mutations.
         on_filter_run: Optional callback to filter the jobs table to a run ID.
         on_refresh: Optional callback to refresh the view when loading more runs.
+        show_heading: Whether to render the section heading above the tree.
         drawer_host: Optional persistent NiceGUI container for slide-over drawers.
         filters: Optional component-scoped FilterUIState.
         tree_state: Optional component-scoped RunsTreeUIState.
@@ -246,7 +248,8 @@ def render_runs_section(
         tree_state.expanded_nodes if tree_state is not None else expanded_nodes
     )
     resolved_host = drawer_state.host if drawer_state is not None else drawer_host
-    ui.label("Runs & DAG Tree").classes("text-lg font-semibold mt-4")
+    if show_heading:
+        ui.label("Runs & DAG Tree").classes("text-lg font-semibold mt-4")
     nodes = build_run_tree_nodes(
         runs,
         jobs,

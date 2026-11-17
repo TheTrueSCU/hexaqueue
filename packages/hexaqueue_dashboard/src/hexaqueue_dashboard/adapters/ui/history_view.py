@@ -67,18 +67,31 @@ def paginate_history_items[T](
     return items[start : start + safe_size], total_pages, clamped
 
 
+def _within_date_bounds(ts: Any, date_from: str, date_to: str) -> bool:
+    if not date_from and not date_to:
+        return True
+    day_str = ts.strftime("%Y-%m-%d") if hasattr(ts, "strftime") else str(ts or "")[:10]
+    if date_from and day_str < date_from:
+        return False
+    return not (date_to and day_str > date_to)
+
+
 def filter_history_runs(
     runs: list[RunStatusReport],
     *,
     search_text: str = "",
     status_filter: str = "ALL",
+    date_from: str = "",
+    date_to: str = "",
 ) -> list[RunStatusReport]:
-    """Filter RunStatusReport records by substring search and display status.
+    """Filter RunStatusReport records by substring search, status, and date range.
 
     Args:
         runs: Source RunStatusReport list.
         search_text: Case-insensitive substring matched against run ID or name.
         status_filter: Target run display status or ``ALL``.
+        date_from: Optional inclusive start date (``YYYY-MM-DD``).
+        date_to: Optional inclusive end date (``YYYY-MM-DD``).
 
     Returns:
         Filtered list of RunStatusReport instances sorted newest-first.
@@ -89,6 +102,8 @@ def filter_history_runs(
     for run in runs:
         run_status = resolve_run_display_status(run)
         if target_status not in ("", "ALL") and run_status != target_status:
+            continue
+        if not _within_date_bounds(run.updated_at, date_from, date_to):
             continue
         if needle and needle not in f"{run.run_id} {run.name or ''}".casefold():
             continue
@@ -133,6 +148,18 @@ def _extract_clicked_row(ev: object) -> dict[str, Any]:
     return args if isinstance(args, dict) else {}
 
 
+_STATUS_BADGE_SLOT = """
+        <q-td :props="props">
+            <q-badge
+                :style="{ backgroundColor: props.row.badge_bg, color: '#ffffff', fontWeight: 700 }"
+                class="px-2 py-1 text-xs rounded"
+            >
+                {{ props.value }}
+            </q-badge>
+        </q-td>
+        """
+
+
 def _render_history_runs_table(
     pipeline: ExecutionPipeline,
     identity: Identity,
@@ -145,7 +172,11 @@ def _render_history_runs_table(
     on_filter_run: Callable[[str], None] | None,
 ) -> tuple[int, int, int]:
     filtered_runs = filter_history_runs(
-        runs, search_text=history_state.search, status_filter=history_state.status
+        runs,
+        search_text=history_state.search,
+        status_filter=history_state.status,
+        date_from=history_state.date_from,
+        date_to=history_state.date_to,
     )
     page_runs, total_pages, clamped_page = paginate_history_items(
         filtered_runs, history_state.page, history_state.page_size
@@ -156,6 +187,7 @@ def _render_history_runs_table(
         rows=build_history_run_rows(page_runs),
         row_key="run_id",
     ).classes("w-full mt-2")
+    table.add_slot("body-cell-status", _STATUS_BADGE_SLOT)
     runs_by_id = {r.run_id: r for r in runs}
 
     async def _on_run_click(ev: object) -> None:
@@ -188,11 +220,17 @@ def _render_history_jobs_table(
     on_filter_run: Callable[[str], None] | None,
 ) -> tuple[int, int, int]:
     filtered_jobs = sorted(
-        filter_jobs(
-            jobs,
-            search_text=history_state.search,
-            status_filter=history_state.status,
-        ),
+        [
+            j
+            for j in filter_jobs(
+                jobs,
+                search_text=history_state.search,
+                status_filter=history_state.status,
+            )
+            if _within_date_bounds(
+                j.updated_at, history_state.date_from, history_state.date_to
+            )
+        ],
         key=lambda j: str(j.updated_at or ""),
         reverse=True,
     )
@@ -205,6 +243,7 @@ def _render_history_jobs_table(
         rows=build_job_rows(page_jobs),
         row_key="job_id",
     ).classes("w-full mt-2")
+    table.add_slot("body-cell-status", _STATUS_BADGE_SLOT)
     jobs_by_id = {j.id: j for j in jobs}
     runs_by_id = {r.run_id: r for r in runs}
 
@@ -280,14 +319,14 @@ def render_history_section(
             if val != history_state.search:
                 history_state.search = val
                 history_state.page = 1
-                _trigger_refresh()
+                _render_results()
 
         def _on_status(ev: object) -> None:
             val = str(getattr(ev, "value", "ALL") or "ALL")
             if val != history_state.status:
                 history_state.status = val
                 history_state.page = 1
-                _trigger_refresh()
+                _render_results()
 
         ui.input(
             label="History Search",
@@ -331,51 +370,85 @@ def render_history_section(
             on_change=_on_status,
         ).props('aria-label="Filter history by status"').classes("w-44")
 
-    if history_state.kind == "runs":
-        total_count, total_pages, clamped_page = _render_history_runs_table(
-            pipeline,
-            identity,
-            runs,
-            jobs,
-            history_state,
-            drawer_state,
-            on_mutated=on_mutated,
-            on_filter_run=on_filter_run,
-        )
-    else:
-        total_count, total_pages, clamped_page = _render_history_jobs_table(
-            pipeline,
-            identity,
-            runs,
-            jobs,
-            history_state,
-            drawer_state,
-            on_mutated=on_mutated,
-            on_filter_run=on_filter_run,
-        )
+        def _on_date_from(ev: object) -> None:
+            val = str(getattr(ev, "value", "") or "")
+            if val != history_state.date_from:
+                history_state.date_from = val
+                history_state.page = 1
+                _render_results()
 
-    with ui.row().classes("w-full items-center justify-between mt-3"):
-        ui.label(
-            f"Page {clamped_page} of {total_pages} ({total_count} matching records)"
-        ).classes("text-xs text-slate-300")
-        with ui.row().classes("gap-2"):
+        def _on_date_to(ev: object) -> None:
+            val = str(getattr(ev, "value", "") or "")
+            if val != history_state.date_to:
+                history_state.date_to = val
+                history_state.page = 1
+                _render_results()
 
-            def _prev_page() -> None:
-                if history_state.page > 1:
-                    history_state.page -= 1
-                    _trigger_refresh()
+        ui.input(
+            label="From Date",
+            value=history_state.date_from,
+            on_change=_on_date_from,
+        ).props('type="date" clearable aria-label="History start date"').classes("w-40")
+        ui.input(
+            label="To Date",
+            value=history_state.date_to,
+            on_change=_on_date_to,
+        ).props('type="date" clearable aria-label="History end date"').classes("w-40")
 
-            def _next_page() -> None:
-                if history_state.page < total_pages:
-                    history_state.page += 1
-                    _trigger_refresh()
+    results_box = ui.column().classes("w-full")
 
-            ui.button("Previous", on_click=_prev_page, icon="chevron_left").props(
-                'size="sm" color="primary" aria-label="Previous history page"'
-            )
-            ui.button("Next", on_click=_next_page, icon="chevron_right").props(
-                'size="sm" color="primary" aria-label="Next history page"'
-            )
+    def _render_results() -> None:
+        results_box.clear()
+        with results_box:
+            if history_state.kind == "runs":
+                total_count, total_pages, clamped_page = _render_history_runs_table(
+                    pipeline,
+                    identity,
+                    runs,
+                    jobs,
+                    history_state,
+                    drawer_state,
+                    on_mutated=on_mutated,
+                    on_filter_run=on_filter_run,
+                )
+            else:
+                total_count, total_pages, clamped_page = _render_history_jobs_table(
+                    pipeline,
+                    identity,
+                    runs,
+                    jobs,
+                    history_state,
+                    drawer_state,
+                    on_mutated=on_mutated,
+                    on_filter_run=on_filter_run,
+                )
+
+            with ui.row().classes("w-full items-center justify-between mt-3"):
+                ui.label(
+                    f"Page {clamped_page} of {total_pages} ({total_count} matching records)"
+                ).classes("text-xs text-slate-300")
+                with ui.row().classes("gap-2"):
+
+                    def _prev_page() -> None:
+                        if history_state.page > 1:
+                            history_state.page -= 1
+                            _render_results()
+
+                    def _next_page() -> None:
+                        if history_state.page < total_pages:
+                            history_state.page += 1
+                            _render_results()
+
+                    ui.button(
+                        "Previous", on_click=_prev_page, icon="chevron_left"
+                    ).props(
+                        'size="sm" color="primary" aria-label="Previous history page"'
+                    )
+                    ui.button("Next", on_click=_next_page, icon="chevron_right").props(
+                        'size="sm" color="primary" aria-label="Next history page"'
+                    )
+
+    _render_results()
 
 
 __all__ = [

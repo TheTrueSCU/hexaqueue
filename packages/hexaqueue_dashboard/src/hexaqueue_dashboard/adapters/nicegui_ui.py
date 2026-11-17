@@ -32,6 +32,7 @@ from hexaqueue_core.domain.cqrs import (
 )
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_dashboard.adapters.auth import DashboardAuthManager
+from hexaqueue_dashboard.adapters.ui.fairshare_view import render_fairshare_section
 from hexaqueue_dashboard.adapters.ui.history_view import render_history_section
 from hexaqueue_dashboard.adapters.ui.inspection_drawer import refresh_active_drawer
 from hexaqueue_dashboard.adapters.ui.jobs_table import (
@@ -39,6 +40,7 @@ from hexaqueue_dashboard.adapters.ui.jobs_table import (
     render_jobs_section,
 )
 from hexaqueue_dashboard.adapters.ui.login import (
+    open_change_password_dialog,
     render_login_panel,
     resolve_session_identity,
 )
@@ -131,20 +133,94 @@ async def _fetch_cluster_snapshot(
     )
     fingerprint = json.dumps(
         {
-            "stats": {
+            "kpi": {
                 "total_jobs": stats.total_jobs,
                 "pending_jobs": stats.pending_jobs,
                 "running_jobs": stats.running_jobs,
                 "completed_jobs": stats.completed_jobs,
                 "failed_jobs": stats.failed_jobs,
+                "node_count": len(nodes),
             },
-            "nodes": len(nodes),
-            "jobs": [(j.id, str(j.state), str(j.outcome)) for j in jobs],
-            "runs": [(r.run_id, str(r.state), str(r.outcome)) for r in runs],
+            "nodes": [
+                (
+                    n.worker_id,
+                    n.active_jobs,
+                    round(n.cpu_utilization_pct, 1),
+                    n.memory_used_mb,
+                    round(n.load_average[0], 2),
+                )
+                for n in nodes
+            ],
+            "jobs_runs": {
+                "jobs": [
+                    (
+                        j.id,
+                        str(j.state),
+                        str(j.outcome),
+                        j.assigned_worker_id,
+                        str(j.updated_at),
+                    )
+                    for j in jobs
+                ],
+                "runs": [
+                    (
+                        r.run_id,
+                        str(r.state),
+                        str(r.outcome),
+                        r.completed_jobs,
+                        r.running_jobs,
+                        r.failed_jobs,
+                    )
+                    for r in runs
+                ],
+            },
         },
         sort_keys=True,
     )
     return stats, nodes, jobs, runs, fingerprint
+
+
+def _selective_refresh_needed(
+    tab: str,
+    prev_fp: str,
+    next_fp: str,
+    *,
+    force: bool,
+) -> tuple[bool, bool, bool]:
+    """Determine (any_changed, refresh_kpi, refresh_body) for selective SSE updates.
+
+    Args:
+        tab: Active console tab identifier.
+        prev_fp: Previous JSON snapshot fingerprint.
+        next_fp: Next JSON snapshot fingerprint.
+        force: Whether manual/forced refresh was requested.
+
+    Returns:
+        Tuple of ``(any_changed, refresh_kpi, refresh_body)``.
+
+    Notes/Architectural Intent:
+        Prevents background node heartbeats from re-rendering the Jobs table or
+        DAG tree, and keeps History Explorer steady while browsing pages.
+    """
+    any_changed = force or next_fp != prev_fp
+    if force:
+        return True, True, True
+    if not any_changed:
+        return False, False, False
+    prev_parts = json.loads(prev_fp)
+    next_parts = json.loads(next_fp)
+    refresh_kpi = next_parts.get("kpi") != prev_parts.get("kpi")
+    if tab in ("jobs", "runs"):
+        refresh_body = next_parts.get("jobs_runs") != prev_parts.get("jobs_runs")
+    elif tab == "nodes":
+        refresh_body = next_parts.get("nodes") != prev_parts.get("nodes")
+    elif tab == "fairshare":
+        refresh_body = next_parts.get("jobs_runs") != prev_parts.get(
+            "jobs_runs"
+        ) or next_parts.get("nodes") != prev_parts.get("nodes")
+    else:
+        refresh_body = False
+    return True, refresh_kpi, refresh_body
 
 
 def _render_kpi_cards(
@@ -254,6 +330,17 @@ def _render_kpi_and_tabs(
             icon="history",
             color="primary" if tab == "history" else "grey-8",
         ).props('size="sm" aria-label="Switch to History Explorer view"')
+        ui.button(
+            "Fair-Share & Quotas",
+            on_click=lambda: on_switch_view("fairshare"),
+            icon="pie_chart",
+            color="primary" if tab == "fairshare" else "grey-8",
+        ).props('size="sm" aria-label="Switch to Fair-Share and Quotas view"')
+
+    if tab == "jobs":
+        ui.label("Jobs").classes("text-lg font-semibold mt-4")
+    elif tab == "runs":
+        ui.label("Runs & DAG Tree").classes("text-lg font-semibold mt-4")
 
 
 async def _render_cluster_body_content(
@@ -294,6 +381,10 @@ async def _render_cluster_body_content(
         render_nodes_section(nodes, jobs)
         return
 
+    if tab == "fairshare":
+        await render_fairshare_section(pipeline, identity, nodes, _stats)
+        return
+
     if tab == "history":
         render_history_section(
             pipeline,
@@ -317,6 +408,7 @@ async def _render_cluster_body_content(
             on_mutated=on_mutated,
             on_filter_run=on_filter_run,
             on_refresh=on_refresh,
+            show_heading=False,
             filters=ui_state.filters,
             tree_state=ui_state.runs_tree,
             drawer_state=ui_state.drawer,
@@ -331,6 +423,7 @@ async def _render_cluster_body_content(
         on_mutated=on_mutated,
         on_filter_run=on_filter_run,
         on_refresh=on_refresh,
+        show_heading=False,
         filters=ui_state.filters,
         table_state=ui_state.jobs_table,
         drawer_state=ui_state.drawer,
@@ -365,10 +458,47 @@ def _sync_filter_controls(ui_state: ConsoleUIState) -> None:
             status_select.update()
 
 
+def _render_console_header(
+    identity: Identity,
+    roles_label: str,
+    live_status_js_url: str | None,
+    auth_manager: DashboardAuthManager | None,
+    on_refresh: Any,
+) -> None:
+    """Render top navigation header with live badge, refresh, password rotation, and sign-out."""
+    with ui.header().classes("items-center justify-between px-6"):
+        ui.label("Hexaqueue Operator Console").classes("text-lg font-bold")
+        with ui.row().classes("items-center gap-3"):
+            render_live_status_widget(live_status_js_url)
+            ui.label(f"{identity.user_id} ({roles_label})").classes("text-sm")
+            ui.button(
+                "Refresh",
+                on_click=on_refresh,
+                icon="refresh",
+            ).props('aria-label="Refresh cluster status"').tooltip("Refresh status")
+            if auth_manager is not None:
+                ui.button(
+                    "Change Password",
+                    on_click=lambda: open_change_password_dialog(
+                        auth_manager, identity
+                    ),
+                    icon="key",
+                ).props('aria-label="Change password"').tooltip("Rotate password")
+
+            def _logout() -> None:
+                nicegui_app.storage.user.pop("jwt", None)
+                ui.navigate.reload()
+
+            ui.button("Sign Out", on_click=_logout, icon="logout").props(
+                'aria-label="Sign out"'
+            ).tooltip("Sign out")
+
+
 async def _render_console_panel(
     pipeline: ExecutionPipeline,
     identity: Identity,
     *,
+    auth_manager: DashboardAuthManager | None = None,
     live_status_js_url: str | None = None,
 ) -> None:
     """Render the authenticated Hexaqueue operator console.
@@ -376,6 +506,7 @@ async def _render_console_panel(
     Args:
         pipeline: Shared CQRS ExecutionPipeline.
         identity: Verified caller Identity.
+        auth_manager: Optional DashboardAuthManager for password rotation.
         live_status_js_url: Optional URL for the static `live_status.js` script.
     """
     roles_label = ", ".join(sorted(identity.roles))
@@ -405,10 +536,15 @@ async def _render_console_panel(
     async def _refresh_now(*, force: bool = False) -> None:
         _, _, _, _, prev_fp = snapshot_box[0]
         next_data = await _fetch_cluster_snapshot(pipeline, identity)
-        changed = force or next_data[4] != prev_fp
-        if changed:
+        any_changed, refresh_kpi, refresh_body = _selective_refresh_needed(
+            ui_state.tab, prev_fp, next_data[4], force=force
+        )
+        if any_changed:
             snapshot_box[0] = next_data
-            _refresh_views()
+            if refresh_kpi:
+                _kpi_and_tabs.refresh()
+            if refresh_body:
+                _cluster_body.refresh()
             await refresh_active_drawer(
                 pipeline,
                 identity,
@@ -418,7 +554,7 @@ async def _render_console_panel(
                 on_mutated=_handle_manual_refresh,
                 on_filter_run=_filter_to_run,
             )
-        _notify_live_badge(changed)
+        _notify_live_badge(any_changed)
 
     async def _handle_manual_refresh() -> None:
         await _refresh_now(force=True)
@@ -475,24 +611,13 @@ async def _render_console_panel(
             on_refresh=_refresh_views,
         )
 
-    with ui.header().classes("items-center justify-between px-6"):
-        ui.label("Hexaqueue Operator Console").classes("text-lg font-bold")
-        with ui.row().classes("items-center gap-3"):
-            render_live_status_widget(live_status_js_url)
-            ui.label(f"{identity.user_id} ({roles_label})").classes("text-sm")
-            ui.button(
-                "Refresh",
-                on_click=_handle_manual_refresh,
-                icon="refresh",
-            ).props('aria-label="Refresh cluster status"').tooltip("Refresh status")
-
-            def _logout() -> None:
-                nicegui_app.storage.user.pop("jwt", None)
-                ui.navigate.reload()
-
-            ui.button("Sign Out", on_click=_logout, icon="logout").props(
-                'aria-label="Sign out"'
-            ).tooltip("Sign out")
+    _render_console_header(
+        identity,
+        roles_label,
+        live_status_js_url,
+        auth_manager,
+        _handle_manual_refresh,
+    )
 
     _kpi_and_tabs()
 
@@ -588,6 +713,7 @@ def mount_dashboard_ui(
         await _render_console_panel(
             pipeline,
             identity,
+            auth_manager=manager,
             live_status_js_url=live_status_js_url,
         )
 

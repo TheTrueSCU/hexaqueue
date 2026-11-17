@@ -194,6 +194,35 @@ def test_dashboard_ui_wcag_accessibility(
         f"Accessibility violations on History Explorer view: {critical_history}"
     )
 
+    # 2e. Switch to Fair-Share & Quotas view and audit under WCAG 2.1 AA
+    page.get_by_role("button", name="Switch to Fair-Share and Quotas view").click()
+    expect(page.get_by_text("Fair-Share & OCI Pool Quotas")).to_be_visible()
+    expect(page.get_by_text("Pool: hq-worker-pool-a1")).to_be_visible()
+
+    fairshare_violations = run_axe_scan(page)
+    critical_fairshare = [
+        v for v in fairshare_violations if v.get("impact") in ("critical", "serious")
+    ]
+    crit_fairshare_count = len(critical_fairshare)
+    assert crit_fairshare_count == 0, (
+        f"Accessibility violations on Fair-Share view: {critical_fairshare}"
+    )
+
+    # 2f. Open Change Password modal and audit under WCAG 2.1 AA
+    page.get_by_role("button", name="Change password").click()
+    page.wait_for_timeout(350)
+    expect(page.get_by_text("Update Password")).to_be_visible()
+
+    pw_violations = run_axe_scan(page)
+    critical_pw = [
+        v for v in pw_violations if v.get("impact") in ("critical", "serious")
+    ]
+    crit_pw_count = len(critical_pw)
+    assert crit_pw_count == 0, (
+        f"Accessibility violations in Change Password modal: {critical_pw}"
+    )
+    page.get_by_role("button", name="Cancel password change").click()
+
     page.get_by_role("button", name="Switch to Jobs view").click()
     expect(page.get_by_text("wcag_audit_job")).to_be_visible()
 
