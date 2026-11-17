@@ -48,15 +48,18 @@ from hexaqueue_dashboard.adapters.ui.state import (
     ConsoleUIState,
     DrawerUIState,
     FilterUIState,
+    HistoryUIState,
     JobsTableUIState,
     RunsTreeUIState,
 )
 from hexaqueue_dashboard.adapters.ui.status import (
     STATUS_BADGE_COLORS,
+    STATUS_SORT_RANK,
     TERMINAL_DISPLAY_STATES,
     render_live_status_widget,
     resolve_job_display_status,
     resolve_run_display_status,
+    status_sort_rank,
 )
 
 __all__ = [
