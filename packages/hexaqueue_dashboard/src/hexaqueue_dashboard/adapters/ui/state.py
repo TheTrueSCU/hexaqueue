@@ -67,11 +67,13 @@ class RunsTreeUIState:
 
 @dataclass
 class HistoryUIState:
-    """Search, scope, and pagination state for the History Explorer tab."""
+    """Search, scope, date-bound, and pagination state for the History Explorer tab."""
 
     kind: str = "jobs"
     search: str = ""
     status: str = "ALL"
+    date_from: str = ""
+    date_to: str = ""
     page: int = 1
     page_size: int = 25
 

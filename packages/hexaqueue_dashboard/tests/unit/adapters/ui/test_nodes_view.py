@@ -58,6 +58,7 @@ def test_build_node_rows_and_topology_svg(
     assert str(icon_file) not in inlined_svg
 
     # Exercise fallback SVG when Diagram raises
+    nodes_mod._TOPOLOGY_SVG_CACHE.clear()
     monkeypatch.setattr(
         nodes_mod,
         "Diagram",

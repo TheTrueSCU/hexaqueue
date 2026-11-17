@@ -7,9 +7,11 @@ Notes/Architectural Intent:
 
 from __future__ import annotations
 
+from fastapi import HTTPException
 from hexastack_auth.domain.models import Identity
 from nicegui import app as nicegui_app
 from nicegui import ui
+from pydantic import SecretStr
 
 from hexaqueue_dashboard.adapters.auth import DashboardAuthManager
 from hexaqueue_dashboard.adapters.ui.status import render_live_status_widget
@@ -72,7 +74,91 @@ def render_login_panel(
         password.on("keydown.enter", _handle_login)
 
 
+def open_change_password_dialog(
+    auth_manager: DashboardAuthManager,
+    identity: Identity,
+) -> None:
+    """Open an accessible Change Password modal backed by `rotate_password()`.
+
+    Args:
+        auth_manager: DashboardAuthManager handling credential verification & hashing.
+        identity: Verified caller Identity whose credential is being rotated.
+
+    Notes/Architectural Intent:
+        Mirrors `hq auth rotate-password` in the web console without coupling
+        to `hexaqueue_cli`, enforcing password confirmation and current
+        credential verification.
+    """
+    with ui.dialog() as dialog, ui.card().classes("w-96 max-w-full p-6 gap-3"):
+        ui.label("Change Password").classes("text-lg font-bold")
+        current_input = (
+            ui.input(
+                "Current Password",
+                password=True,
+                password_toggle_button=True,
+            )
+            .props('aria-label="Current Password"')
+            .classes("w-full")
+        )
+        new_input = (
+            ui.input(
+                "New Password",
+                password=True,
+                password_toggle_button=True,
+            )
+            .props('aria-label="New Password"')
+            .classes("w-full")
+        )
+        confirm_input = (
+            ui.input(
+                "Confirm New Password",
+                password=True,
+                password_toggle_button=True,
+            )
+            .props('aria-label="Confirm New Password"')
+            .classes("w-full")
+        )
+        status_label = ui.label("").classes("text-xs text-red-400")
+
+        def _submit_rotation() -> None:
+            cur_val = str(current_input.value or "")
+            new_val = str(new_input.value or "")
+            conf_val = str(confirm_input.value or "")
+            if not cur_val or not new_val:
+                status_label.text = "Current and new passwords are required."
+                return
+            if new_val != conf_val:
+                status_label.text = "New passwords do not match."
+                return
+            if len(new_val) < 8:
+                status_label.text = "New password must be at least 8 characters."
+                return
+            try:
+                auth_manager.rotate_password(
+                    identity.user_id,
+                    SecretStr(cur_val),
+                    SecretStr(new_val),
+                )
+            except HTTPException as exc:
+                status_label.text = str(exc.detail)
+                return
+            ui.notify("Password updated.", type="positive")
+            dialog.close()
+
+        confirm_input.on("keydown.enter", _submit_rotation)
+        with ui.row().classes("w-full justify-end gap-2 mt-2"):
+            ui.button("Cancel", on_click=dialog.close).props(
+                'color="grey-8" aria-label="Cancel password change"'
+            )
+            ui.button("Update Password", on_click=_submit_rotation).props(
+                'color="primary" aria-label="Confirm password change"'
+            )
+
+    dialog.open()
+
+
 __all__ = [
+    "open_change_password_dialog",
     "render_login_panel",
     "resolve_session_identity",
 ]

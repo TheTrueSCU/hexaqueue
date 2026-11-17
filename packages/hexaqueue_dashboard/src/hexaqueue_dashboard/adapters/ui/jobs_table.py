@@ -304,6 +304,7 @@ async def render_jobs_section(
     on_mutated: Callable[[], Awaitable[None]] | None = None,
     on_filter_run: Callable[[str], None] | None = None,
     on_refresh: Callable[[], None] | None = None,
+    show_heading: bool = True,
     filter_state: dict[str, str] | None = None,
     pagination_state: dict[str, Any] | None = None,
     drawer_host: Any = None,
@@ -321,6 +322,7 @@ async def render_jobs_section(
         on_mutated: Optional callback invoked after a job mutation succeeds.
         on_filter_run: Optional callback to filter the jobs table to a run ID.
         on_refresh: Optional callback to refresh the view when loading more rows.
+        show_heading: Whether to render the section heading above the table.
         filter_state: Optional mutable dict persisting search/status filter values.
         pagination_state: Optional mutable dict persisting sort/page state across refreshes.
         drawer_host: Optional persistent NiceGUI container for slide-over drawers.
@@ -347,7 +349,8 @@ async def render_jobs_section(
         )
     )
     active_filters = resolved_filter
-    ui.label("Jobs").classes("text-lg font-semibold mt-4")
+    if show_heading:
+        ui.label("Jobs").classes("text-lg font-semibold mt-4")
     if not resolved_jobs:
         ui.label("No jobs in queue.").classes("text-slate-400")
         return
