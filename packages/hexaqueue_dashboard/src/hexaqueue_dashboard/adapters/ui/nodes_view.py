@@ -393,7 +393,7 @@ def _render_bastion_launcher(
                 )
             return
 
-        cli_cmd = f"hq node ssh {worker_id} --session {info.session_id} --admin"
+        cli_cmd = f"hq node ssh {worker_id} --user {info.user_id} --admin"
         with output_box:
             ui.label(
                 f"Session {info.session_id} active (PID {info.pid}, user {info.user_id})"
