@@ -211,7 +211,7 @@ class DashboardAuthManager:
             principal_id=admin_user or os.environ.get("HEXAQUEUE_ADMIN_USER", "rjdw"),
             hashed_secret=admin_password_hash
             or os.environ.get("HEXAQUEUE_ADMIN_PASSWORD_HASH"),
-            roles=frozenset({"admin"}),
+            roles=frozenset({"admin", "user"}),
         )
         self._seed_bootstrap_principal(
             principal_id=ci_user or os.environ.get("HEXAQUEUE_CI_USER", "hexaqueue-ci"),
@@ -226,15 +226,24 @@ class DashboardAuthManager:
         hashed_secret: str | None,
         roles: frozenset[str],
     ) -> None:
-        """Seed an env-configured principal if not already present in the policy store."""
+        """Seed or merge roles for an env-configured bootstrap principal."""
         if not hashed_secret:
             return
-        if self._rbac_store.get_principal(principal_id) is None:
+        existing = self._rbac_store.get_principal(principal_id)
+        if existing is None:
             self._rbac_store.upsert_principal(
                 RbacPrincipal(
                     principal_id=principal_id,
                     hashed_secret=hashed_secret,
                     roles=roles,
+                )
+            )
+        elif not roles.issubset(existing.roles):
+            self._rbac_store.upsert_principal(
+                RbacPrincipal(
+                    principal_id=existing.principal_id,
+                    hashed_secret=existing.hashed_secret,
+                    roles=existing.roles | roles,
                 )
             )
 

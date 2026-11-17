@@ -566,7 +566,9 @@ def _render_console_header(
                         str(getattr(ev, "value", active_role) or active_role)
                     ),
                 ).props(
-                    'dense outlined dark options-dense aria-label="Select active view role"'
+                    'dense outlined dark options-dense bg-color="grey-10" '
+                    'label-color="white" color="white" '
+                    'aria-label="Select active view role"'
                 ).classes("w-36")
             ui.label(f"{identity.user_id} ({roles_label})").classes("text-sm")
             ui.button(

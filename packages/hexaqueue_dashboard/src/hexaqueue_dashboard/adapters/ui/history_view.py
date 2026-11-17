@@ -32,6 +32,7 @@ HISTORY_JOB_COLUMNS: list[dict[str, object]] = [
     {"name": "job_id", "label": "Job ID", "field": "job_id", "align": "left"},
     {"name": "run_id", "label": "Run ID", "field": "run_id", "align": "left"},
     {"name": "name", "label": "Name", "field": "name", "align": "left"},
+    {"name": "owner", "label": "Owner", "field": "owner", "align": "left"},
     {"name": "status", "label": "Status", "field": "status", "align": "center"},
     {"name": "updated_at", "label": "Updated", "field": "updated_at", "align": "left"},
 ]
@@ -39,6 +40,7 @@ HISTORY_JOB_COLUMNS: list[dict[str, object]] = [
 HISTORY_RUN_COLUMNS: list[dict[str, object]] = [
     {"name": "run_id", "label": "Run ID", "field": "run_id", "align": "left"},
     {"name": "name", "label": "Name", "field": "name", "align": "left"},
+    {"name": "owner", "label": "Owner", "field": "owner", "align": "left"},
     {"name": "status", "label": "Status", "field": "status", "align": "center"},
     {"name": "progress", "label": "Jobs", "field": "progress", "align": "center"},
     {"name": "updated_at", "label": "Updated", "field": "updated_at", "align": "left"},
@@ -105,7 +107,10 @@ def filter_history_runs(
             continue
         if not _within_date_bounds(run.updated_at, date_from, date_to):
             continue
-        if needle and needle not in f"{run.run_id} {run.name or ''}".casefold():
+        if (
+            needle
+            and needle not in f"{run.run_id} {run.name or ''} {run.owner}".casefold()
+        ):
             continue
         matched.append(run)
     return sorted(matched, key=lambda r: str(r.updated_at or ""), reverse=True)
@@ -132,6 +137,7 @@ def build_history_run_rows(runs: list[RunStatusReport]) -> list[dict[str, object
             {
                 "run_id": run.run_id,
                 "name": run.name or run.run_id,
+                "owner": run.owner,
                 "status": run_status,
                 "badge_bg": STATUS_BADGE_COLORS.get(run_status, "#374151"),
                 "progress": f"{run.completed_jobs}/{run.total_jobs}",

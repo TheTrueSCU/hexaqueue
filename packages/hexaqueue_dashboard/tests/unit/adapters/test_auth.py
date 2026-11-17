@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Annotated
 
 import pytest
@@ -281,3 +282,28 @@ def test_dashboard_rotate_password_endpoint(monkeypatch: pytest.MonkeyPatch) -> 
         )
         new_code = new_login.status_code
         assert new_code == 200
+
+
+def test_bootstrap_admin_merges_user_role(tmp_path: Path) -> None:
+    """Verify existing bootstrap admin principal merges missing user role."""
+    store = SqliteRbacPolicyAdapter(tmp_path / "rbac.db")
+    base_mgr = DashboardAuthManager(
+        jwt_secret="test-jwt-secret-key-at-least-32-bytes-long",
+        rbac_store=store,
+    )
+    existing_hash = base_mgr.hash_secret("keep-secret")
+    store.upsert_principal(
+        RbacPrincipal(
+            principal_id="rjdw",
+            hashed_secret=existing_hash,
+            roles=frozenset({"admin"}),
+        )
+    )
+    restarted_mgr = DashboardAuthManager(
+        jwt_secret="test-jwt-secret-key-at-least-32-bytes-long",
+        rbac_store=store,
+        admin_user="rjdw",
+        admin_password_hash=base_mgr.hash_secret("ignored"),
+    )
+    ident = restarted_mgr.authenticate_user("rjdw", "keep-secret")
+    assert ident.roles == frozenset({"admin", "user"})

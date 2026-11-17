@@ -37,6 +37,7 @@ class RunSpec(BaseModel):
 
     id: str = Field(description="Unique run identifier")
     name: str = Field(description="Run name")
+    owner: str = Field(default="default", description="Owner identity")
     jobs: list[JobSpec] = Field(default_factory=list, description="Constituent jobs")
     tags: list[str] = Field(default_factory=list, description="Metadata tags")
     notifications: list[NotificationPolicy] = Field(

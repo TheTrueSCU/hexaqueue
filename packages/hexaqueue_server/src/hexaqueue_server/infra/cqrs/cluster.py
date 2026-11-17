@@ -56,6 +56,7 @@ class ClusterCqrsMixin(BaseCqrsService):
         req = IngestionRequest(
             filename=cmd.name,
             job_id=cmd.user_id,
+            owner=cmd.user_id or "default",
             kind=cmd.kind,
             sha256_checksum=cmd.checksum_sha256.lower().strip().zfill(64),
             size_bytes=cmd.size_bytes,

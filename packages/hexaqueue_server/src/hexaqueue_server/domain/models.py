@@ -111,6 +111,7 @@ class RunStatusReport(BaseModel):
     outputs: dict[str, Any] = Field(
         default_factory=dict, description="Step outputs map"
     )
+    owner: str = Field(default="default", description="Run owner identity")
     pending_jobs: int = Field(ge=0, description="Pending jobs count")
     run_id: str = Field(description="Run identifier")
     running_jobs: int = Field(ge=0, description="Running jobs count")

@@ -104,6 +104,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
         bundle = CollateralBundle(
             id=collateral_id,
             job_id=request.job_id,
+            owner=request.owner,
             filename=request.filename,
             size_bytes=request.size_bytes,
             sha256_checksum=request.sha256_checksum,
@@ -184,33 +185,25 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
         if actual_sha.lower() != bundle.sha256_checksum.lower():
             # Checksum mismatch: reject bundle and cleanup staging
             dest_path.unlink()
-            rejected_bundle = CollateralBundle(
-                id=bundle.id,
-                job_id=bundle.job_id,
-                filename=bundle.filename,
-                size_bytes=actual_size,
-                sha256_checksum=bundle.sha256_checksum,
-                kind=bundle.kind,
-                tier=bundle.tier,
-                state=CollateralState.REJECTED,
-                staging_uri=bundle.staging_uri,
-                quarantine_reason=f"SHA-256 checksum mismatch: expected {bundle.sha256_checksum}, got {actual_sha}",
+            rejected_bundle = bundle.model_copy(
+                update={
+                    "size_bytes": actual_size,
+                    "state": CollateralState.REJECTED,
+                    "quarantine_reason": (
+                        f"SHA-256 checksum mismatch: expected {bundle.sha256_checksum}, "
+                        f"got {actual_sha}"
+                    ),
+                }
             )
             self._bundles[collateral_id] = rejected_bundle
             msg = f"Checksum mismatch for collateral '{collateral_id}'"
             raise ChecksumMismatchError(msg)
 
-        uploaded_bundle = CollateralBundle(
-            id=bundle.id,
-            job_id=bundle.job_id,
-            filename=bundle.filename,
-            size_bytes=actual_size,
-            sha256_checksum=bundle.sha256_checksum,
-            kind=bundle.kind,
-            tier=bundle.tier,
-            state=CollateralState.UPLOADED,
-            staging_uri=bundle.staging_uri,
-            ttl_seconds=bundle.ttl_seconds,
+        uploaded_bundle = bundle.model_copy(
+            update={
+                "size_bytes": actual_size,
+                "state": CollateralState.UPLOADED,
+            }
         )
         self._bundles[collateral_id] = uploaded_bundle
         return uploaded_bundle
@@ -226,18 +219,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
             raise HexaqueueError(msg)
 
         # Scanning phase
-        scanning_bundle = CollateralBundle(
-            id=bundle.id,
-            job_id=bundle.job_id,
-            filename=bundle.filename,
-            size_bytes=bundle.size_bytes,
-            sha256_checksum=bundle.sha256_checksum,
-            kind=bundle.kind,
-            tier=bundle.tier,
-            state=CollateralState.SCANNING,
-            staging_uri=bundle.staging_uri,
-            ttl_seconds=bundle.ttl_seconds,
-        )
+        scanning_bundle = bundle.model_copy(update={"state": CollateralState.SCANNING})
         self._bundles[collateral_id] = scanning_bundle
 
         if self._security_port:
@@ -268,18 +250,11 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
                     if inspect.isawaitable(put_res):
                         await put_res
 
-            approved_bundle = CollateralBundle(
-                id=bundle.id,
-                job_id=bundle.job_id,
-                filename=bundle.filename,
-                size_bytes=bundle.size_bytes,
-                sha256_checksum=bundle.sha256_checksum,
-                kind=bundle.kind,
-                tier=bundle.tier,
-                state=CollateralState.APPROVED,
-                staging_uri=bundle.staging_uri,
-                active_uri=str(active_path),
-                ttl_seconds=bundle.ttl_seconds,
+            approved_bundle = bundle.model_copy(
+                update={
+                    "state": CollateralState.APPROVED,
+                    "active_uri": str(active_path),
+                }
             )
             self._bundles[collateral_id] = approved_bundle
             return approved_bundle
@@ -290,35 +265,23 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
             quarantine_path = quarantine_target_dir / bundle.filename
             shutil.move(staged_path, quarantine_path)
 
-            quarantined_bundle = CollateralBundle(
-                id=bundle.id,
-                job_id=bundle.job_id,
-                filename=bundle.filename,
-                size_bytes=bundle.size_bytes,
-                sha256_checksum=bundle.sha256_checksum,
-                kind=bundle.kind,
-                tier=bundle.tier,
-                state=CollateralState.QUARANTINED,
-                staging_uri=str(quarantine_path),
-                quarantine_reason=reason or "Threat detected during security scan",
-                ttl_seconds=bundle.ttl_seconds,
+            quarantined_bundle = bundle.model_copy(
+                update={
+                    "state": CollateralState.QUARANTINED,
+                    "staging_uri": str(quarantine_path),
+                    "quarantine_reason": reason
+                    or "Threat detected during security scan",
+                }
             )
             self._bundles[collateral_id] = quarantined_bundle
             return quarantined_bundle
 
         # Rejected
-        rejected_bundle = CollateralBundle(
-            id=bundle.id,
-            job_id=bundle.job_id,
-            filename=bundle.filename,
-            size_bytes=bundle.size_bytes,
-            sha256_checksum=bundle.sha256_checksum,
-            kind=bundle.kind,
-            tier=bundle.tier,
-            state=CollateralState.REJECTED,
-            staging_uri=bundle.staging_uri,
-            quarantine_reason=reason or "Security scan rejected artifact",
-            ttl_seconds=bundle.ttl_seconds,
+        rejected_bundle = bundle.model_copy(
+            update={
+                "state": CollateralState.REJECTED,
+                "quarantine_reason": reason or "Security scan rejected artifact",
+            }
         )
         self._bundles[collateral_id] = rejected_bundle
         return rejected_bundle

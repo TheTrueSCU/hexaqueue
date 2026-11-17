@@ -61,6 +61,16 @@ from hexaqueue_server.ports.controller import SchedulerControllerPort
 from hexaqueue_server.ports.storage import SchedulerStoragePort
 
 
+def _resolve_run_owner(run_spec: Any) -> str:
+    """Resolve run owner from RunSpec.owner or legacy `owner:` tag."""
+    if getattr(run_spec, "owner", "default") != "default":
+        return str(run_spec.owner)
+    for tag in getattr(run_spec, "tags", ()):
+        if tag.startswith("owner:"):
+            return str(tag.split(":", 1)[1])
+    return "default"
+
+
 class LocalSchedulerControllerAdapter(SchedulerControllerPort):
     """In-process scheduler controller implementation."""
 
@@ -470,6 +480,8 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             ]
             burn_report = self._governor.compute_burn_meter(active_jobs)
 
+        resolved_owner = _resolve_run_owner(submission.run_spec)
+
         return RunStatusReport(
             burn_report=burn_report,
             completed_jobs=completed,
@@ -479,6 +491,7 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
             free_tier_active=free_tier_active,
             name=submission.run_spec.name,
             outcome=run_outcome,
+            owner=resolved_owner,
             pending_jobs=pending,
             run_id=run_id,
             running_jobs=running,

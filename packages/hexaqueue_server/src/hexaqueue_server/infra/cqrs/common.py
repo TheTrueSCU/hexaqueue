@@ -56,6 +56,8 @@ def _extract_job_owner(job: JobSpec) -> str:
     Returns:
         Resolved owner identity string.
     """
+    if getattr(job, "owner", "default") != "default":
+        return job.owner
     for tag in job.tags:
         if tag.startswith("owner:"):
             return tag.split(":", 1)[1]
