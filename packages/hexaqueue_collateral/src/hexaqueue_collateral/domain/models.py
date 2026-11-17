@@ -29,6 +29,7 @@ class IngestionRequest(BaseModel):
 
     filename: str = Field(description="Artifact filename")
     job_id: str = Field(description="Job identifier")
+    owner: str = Field(default="default", description="Owner identity")
     kind: CollateralKind = Field(
         default=CollateralKind.BUNDLE, description="Collateral classification"
     )

@@ -108,7 +108,7 @@ def build_single_run_tree_node(
                 build_dag_job_subtree(job, jobs_by_id, children_map, visited)
             )
 
-    run_label = f"{run.name or run.run_id} — {run.completed_jobs}/{run.total_jobs} jobs"
+    run_label = f"{run.name or run.run_id} [{run.owner}] — {run.completed_jobs}/{run.total_jobs} jobs"
     return {
         "id": f"run:{run.run_id}",
         "label": run_label,
@@ -116,6 +116,7 @@ def build_single_run_tree_node(
         "badge_bg": STATUS_BADGE_COLORS.get(run_status, "#374151"),
         "kind": "run",
         "run_id": run.run_id,
+        "owner": run.owner,
         "children": job_children,
     }
 
@@ -149,7 +150,10 @@ def build_run_tree_nodes(
         run_status = resolve_run_display_status(run)
         if not matches_status_filter(run_status, target_status):
             continue
-        if needle and needle not in f"{run.run_id} {run.name or ''}".casefold():
+        if (
+            needle
+            and needle not in f"{run.run_id} {run.name or ''} {run.owner}".casefold()
+        ):
             continue
         tree_nodes.append(
             build_single_run_tree_node(run, jobs_by_run.get(run.run_id, []))

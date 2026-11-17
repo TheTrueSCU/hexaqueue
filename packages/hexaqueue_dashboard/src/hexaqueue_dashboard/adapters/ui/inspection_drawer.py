@@ -441,7 +441,7 @@ def _render_job_drawer_contents(
         ui.label(f"Job: {job.name}").classes("text-lg font-bold")
         ui.button(
             "Close", on_click=lambda: _close_drawer(drawer_state, drawer), icon="close"
-        ).props('flat aria-label="Close inspection drawer"')
+        ).props('flat color="grey-3" aria-label="Close inspection drawer"')
 
     ui.html(
         f'<span style="display:inline-block;padding:3px 10px;border-radius:6px;'
@@ -449,7 +449,7 @@ def _render_job_drawer_contents(
         f'color:#ffffff;">{display_status}</span>',
         sanitize=False,
     )
-    ui.label(f"Job ID: {job.id} | Run ID: {job.run_id}").classes(
+    ui.label(f"Job ID: {job.id} | Run ID: {job.run_id} | Owner: {job.owner}").classes(
         "font-mono text-xs text-slate-300 mt-2"
     )
     ui.label(f"Command: {job.command}").classes("font-mono text-xs text-slate-300")
@@ -543,7 +543,7 @@ def _render_run_drawer_contents(
         )
         ui.button(
             "Close", on_click=lambda: _close_drawer(drawer_state, drawer), icon="close"
-        ).props('flat aria-label="Close inspection drawer"')
+        ).props('flat color="grey-3" aria-label="Close inspection drawer"')
 
     ui.html(
         f'<span style="display:inline-block;padding:3px 10px;border-radius:6px;'

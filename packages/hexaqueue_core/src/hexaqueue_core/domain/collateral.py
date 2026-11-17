@@ -113,6 +113,7 @@ class CollateralBundle(BaseModel):
 
     id: str = Field(description="Unique collateral identifier")
     job_id: str = Field(description="Associated job ID")
+    owner: str = Field(default="default", description="Owner identity")
     filename: str = Field(description="Original filename")
     size_bytes: int = Field(ge=0, description="Size in bytes")
     sha256_checksum: str = Field(

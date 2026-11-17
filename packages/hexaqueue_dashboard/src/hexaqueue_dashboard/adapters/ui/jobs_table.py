@@ -60,6 +60,13 @@ JOB_TABLE_COLUMNS: list[dict[str, object]] = [
         "align": "left",
     },
     {
+        "name": "owner",
+        "label": "Owner",
+        "field": "owner",
+        "sortable": True,
+        "align": "left",
+    },
+    {
         "name": "status",
         "label": "Status",
         "field": "status",
@@ -115,7 +122,7 @@ def filter_jobs(
             continue
         if needle:
             haystack = (
-                f"{job.id} {job.run_id} {job.name} {job.assigned_worker_id or ''}"
+                f"{job.id} {job.run_id} {job.name} {job.owner} {job.assigned_worker_id or ''}"
             ).casefold()
             if needle not in haystack:
                 continue
@@ -177,6 +184,7 @@ def build_job_rows(jobs: list[JobSpec]) -> list[dict[str, object]]:
                 "job_id": job.id,
                 "run_id": job.run_id,
                 "name": job.name,
+                "owner": job.owner,
                 "status": display_status,
                 "status_rank": status_sort_rank(display_status),
                 "badge_bg": STATUS_BADGE_COLORS.get(display_status, "#374151"),

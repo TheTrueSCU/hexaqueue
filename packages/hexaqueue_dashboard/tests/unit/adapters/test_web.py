@@ -186,10 +186,15 @@ def test_dashboard_run_and_suite_submission(
     assert suite_resp2.status_code == 201
     assert suite_resp2.json()["run_id"] == "suite-dash-101"
 
-    # 3. List and Get Jobs
-    jobs_resp = client.get("/dashboard/jobs")
+    # 3. List and Get Jobs (alice sees her own jobs; anonymous default sees none)
+    anon_jobs_resp = client.get("/dashboard/jobs")
+    assert anon_jobs_resp.status_code == 200
+    assert anon_jobs_resp.json() == []
+
+    jobs_resp = client.get("/dashboard/jobs", headers={"X-Hexaqueue-User": "alice"})
     assert jobs_resp.status_code == 200
     assert len(jobs_resp.json()) >= 1
+    assert all(j["owner"] == "alice" for j in jobs_resp.json())
 
     single_job_resp = client.get(
         "/dashboard/jobs/job-dash-2", headers={"X-Hexaqueue-User": "charlie"}

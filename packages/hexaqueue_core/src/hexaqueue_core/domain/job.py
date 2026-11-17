@@ -61,6 +61,7 @@ class JobSpec(BaseModel):
         default_factory=list, description="Notification policies"
     )
     user: str = Field(default="default", description="User identifier or account")
+    owner: str = Field(default="default", description="Owner identity")
     priority: int = Field(
         default=100, description="Base priority level (higher runs sooner)"
     )
@@ -110,11 +111,20 @@ class JobSpec(BaseModel):
 
     @model_validator(mode="after")
     def validate_invariants(self) -> Self:
-        """Validate job invariants."""
+        """Validate job invariants and synchronize user/owner defaults."""
         if not self.id.strip():
             msg = "Job id cannot be empty"
             raise ValueError(msg)
         if not self.command.strip():
             msg = "Job command cannot be empty"
             raise ValueError(msg)
+        if self.owner == "default" and self.user != "default":
+            object.__setattr__(self, "owner", self.user)
+        elif self.owner == "default":
+            for tag in self.tags:
+                if tag.startswith("owner:"):
+                    object.__setattr__(self, "owner", tag.split(":", 1)[1])
+                    break
+        if self.user == "default" and self.owner != "default":
+            object.__setattr__(self, "user", self.owner)
         return self
