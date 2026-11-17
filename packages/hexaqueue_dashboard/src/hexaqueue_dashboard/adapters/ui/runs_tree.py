@@ -20,6 +20,11 @@ from hexaqueue_dashboard.adapters.ui.inspection_drawer import (
     open_job_inspection_drawer,
     open_run_inspection_drawer,
 )
+from hexaqueue_dashboard.adapters.ui.state import (
+    DrawerUIState,
+    FilterUIState,
+    RunsTreeUIState,
+)
 from hexaqueue_dashboard.adapters.ui.status import (
     STATUS_BADGE_COLORS,
     resolve_job_display_status,
@@ -162,6 +167,9 @@ def render_runs_section(
     on_mutated: Callable[[], Awaitable[None]] | None = None,
     on_filter_run: Callable[[str], None] | None = None,
     drawer_host: Any = None,
+    filters: FilterUIState | None = None,
+    tree_state: RunsTreeUIState | None = None,
+    drawer_state: DrawerUIState | None = None,
 ) -> None:
     """Render expandable Runs & nested DAG tree view.
 
@@ -175,10 +183,19 @@ def render_runs_section(
         on_mutated: Optional async callback invoked after lifecycle mutations.
         on_filter_run: Optional callback to filter the jobs table to a run ID.
         drawer_host: Optional persistent NiceGUI container for slide-over drawers.
+        filters: Optional component-scoped FilterUIState.
+        tree_state: Optional component-scoped RunsTreeUIState.
+        drawer_state: Optional component-scoped DrawerUIState.
     """
     active_filters = (
-        filter_state if filter_state is not None else {"search": "", "status": "ALL"}
+        filters.as_dict()
+        if filters is not None
+        else (filter_state or {"search": "", "status": "ALL"})
     )
+    resolved_expanded = (
+        tree_state.expanded_nodes if tree_state is not None else expanded_nodes
+    )
+    resolved_host = drawer_state.host if drawer_state is not None else drawer_host
     ui.label("Runs & DAG Tree").classes("text-lg font-semibold mt-4")
     nodes = build_run_tree_nodes(
         runs,
@@ -206,7 +223,8 @@ def render_runs_section(
                     jobs,
                     on_mutated=on_mutated,
                     on_filter_run=on_filter_run,
-                    drawer_host=drawer_host,
+                    drawer_host=resolved_host,
+                    drawer_state=drawer_state,
                 )
         elif node_key.startswith("job:"):
             job_id = node_key.split(":", 1)[1]
@@ -220,15 +238,16 @@ def render_runs_section(
                     all_jobs=jobs,
                     on_mutated=on_mutated,
                     on_filter_run=on_filter_run,
-                    drawer_host=drawer_host,
+                    drawer_host=resolved_host,
+                    drawer_state=drawer_state,
                 )
 
     def _on_expand_tree_nodes(ev: object) -> None:
-        if expanded_nodes is None:
+        if resolved_expanded is None:
             return
         expanded_vals = getattr(ev, "value", None) or []
-        expanded_nodes.clear()
-        expanded_nodes.update(str(k) for k in expanded_vals)
+        resolved_expanded.clear()
+        resolved_expanded.update(str(k) for k in expanded_vals)
 
     tree = ui.tree(
         nodes,
@@ -237,8 +256,8 @@ def render_runs_section(
         on_select=_on_select_tree_node,
         on_expand=_on_expand_tree_nodes,
     ).classes("w-full border rounded p-2 mt-1")
-    if expanded_nodes:
-        tree.expand(list(expanded_nodes))
+    if resolved_expanded:
+        tree.expand(list(resolved_expanded))
     tree.add_slot(
         "default-header",
         """

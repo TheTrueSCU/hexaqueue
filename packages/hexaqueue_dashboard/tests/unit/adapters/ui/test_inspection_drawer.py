@@ -14,6 +14,7 @@ from hexaqueue_core.domain.lifecycle import JobState, JobStatus, TerminalOutcome
 from hexaqueue_core.domain.run import RunSpec
 from hexaqueue_core.ports.logging import LogChunk
 from hexaqueue_dashboard.adapters.ui import inspection_drawer as drawer_mod
+from hexaqueue_dashboard.adapters.ui.state import DrawerUIState
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
 from hexaqueue_server.domain.models import RunSubmission
 from hexaqueue_server.infra.cqrs import create_hexaqueue_execution_pipeline
@@ -171,3 +172,27 @@ async def test_running_job_hides_explainability_and_completed_run_hides_cancel(
     has_run_log = "Run Event Log" in labels
     assert has_cancel_run is False
     assert has_run_log is True
+
+    # Exercise live in-place drawer refresh for both job and run drawers
+    html_calls: list[str] = []
+    fake_ui.html = lambda markup, **_k: html_calls.append(str(markup)) or fake_el()
+    drawer_state = DrawerUIState(host=fake_el())
+    pending_job = running_job.model_copy(
+        update={"status": JobStatus(state=JobState.PENDING)}
+    )
+    await drawer_mod.open_job_inspection_drawer(
+        pipeline, ident, pending_job, drawer_state=drawer_state
+    )
+    assert drawer_state.active is not None
+    await drawer_mod.refresh_active_drawer(
+        pipeline, ident, drawer_state, [running_job], [finished_report]
+    )
+    has_running_badge = any("RUNNING" in h for h in html_calls)
+    assert has_running_badge is True
+
+    await drawer_mod.open_run_inspection_drawer(
+        pipeline, ident, finished_report, [running_job], drawer_state=drawer_state
+    )
+    await drawer_mod.refresh_active_drawer(
+        pipeline, ident, drawer_state, [running_job], [finished_report]
+    )

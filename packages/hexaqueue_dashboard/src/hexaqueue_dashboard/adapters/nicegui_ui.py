@@ -32,6 +32,7 @@ from hexaqueue_core.domain.cqrs import (
 )
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_dashboard.adapters.auth import DashboardAuthManager
+from hexaqueue_dashboard.adapters.ui.inspection_drawer import refresh_active_drawer
 from hexaqueue_dashboard.adapters.ui.jobs_table import (
     compute_filtered_kpi_counts,
     render_jobs_section,
@@ -42,6 +43,7 @@ from hexaqueue_dashboard.adapters.ui.login import (
 )
 from hexaqueue_dashboard.adapters.ui.nodes_view import render_nodes_section
 from hexaqueue_dashboard.adapters.ui.runs_tree import render_runs_section
+from hexaqueue_dashboard.adapters.ui.state import ConsoleUIState, DrawerUIState
 from hexaqueue_dashboard.adapters.ui.status import render_live_status_widget
 from hexaqueue_server.domain.models import RunStatusReport
 from hexaqueue_worker.domain.telemetry import NodeTelemetryPulse
@@ -175,16 +177,14 @@ def _render_kpi_and_tabs(
         list[RunStatusReport],
         str,
     ],
-    filter_state: dict[str, str],
-    view_state: dict[str, str],
+    ui_state: ConsoleUIState,
     on_switch_view: Any,
 ) -> None:
     """Render summary KPI cards and view switcher tabs above the filter bar.
 
     Args:
         snapshot: Current cluster snapshot tuple.
-        filter_state: Mutable filter state mapping.
-        view_state: Mutable active tab state mapping.
+        ui_state: Unified ConsoleUIState holding active tab and filters.
         on_switch_view: Callback to switch active tab and optional status filter.
 
     Notes/Architectural Intent:
@@ -194,8 +194,8 @@ def _render_kpi_and_tabs(
     stats, nodes, jobs, _runs, _fp = snapshot
     total_cnt, running_cnt, pending_cnt, is_filtered = compute_filtered_kpi_counts(
         jobs,
-        search_text=filter_state.get("search", ""),
-        status_filter=filter_state.get("status", "ALL"),
+        search_text=ui_state.filters.search,
+        status_filter=ui_state.filters.status,
     )
     total_label = (
         f"Total Jobs: {total_cnt} / {stats.total_jobs}"
@@ -228,7 +228,7 @@ def _render_kpi_and_tabs(
     )
 
     with ui.row().classes("w-full items-center gap-2 mt-4"):
-        tab = view_state["tab"]
+        tab = ui_state.tab
         ui.button(
             "Jobs",
             on_click=lambda: on_switch_view("jobs"),
@@ -259,10 +259,7 @@ async def _render_cluster_body_content(
         list[RunStatusReport],
         str,
     ],
-    filter_state: dict[str, str],
-    view_state: dict[str, str],
-    expanded_nodes: set[str],
-    drawer_host: Any,
+    ui_state: ConsoleUIState,
     *,
     on_mutated: Any,
     on_filter_run: Any,
@@ -273,10 +270,7 @@ async def _render_cluster_body_content(
         pipeline: Shared CQRS ExecutionPipeline.
         identity: Verified caller Identity.
         snapshot: Current cluster snapshot tuple.
-        filter_state: Mutable filter state mapping.
-        view_state: Mutable active tab state mapping.
-        expanded_nodes: Mutable set persisting expanded Runs & DAG tree keys.
-        drawer_host: Persistent NiceGUI container outside refreshable blocks.
+        ui_state: Unified ConsoleUIState holding tab, filters, and drawer state.
         on_mutated: Async callback invoked after lifecycle mutations.
         on_filter_run: Callback to filter the jobs table to a run ID.
 
@@ -285,7 +279,7 @@ async def _render_cluster_body_content(
         modular and well below the cognitive complexity threshold.
     """
     _stats, nodes, jobs, runs, _fp = snapshot
-    tab = view_state["tab"]
+    tab = ui_state.tab
 
     if tab == "nodes":
         render_nodes_section(nodes, jobs)
@@ -297,11 +291,11 @@ async def _render_cluster_body_content(
             identity,
             runs,
             jobs,
-            filter_state=filter_state,
-            expanded_nodes=expanded_nodes,
             on_mutated=on_mutated,
             on_filter_run=on_filter_run,
-            drawer_host=drawer_host,
+            filters=ui_state.filters,
+            tree_state=ui_state.runs_tree,
+            drawer_state=ui_state.drawer,
         )
         return
 
@@ -312,40 +306,35 @@ async def _render_cluster_body_content(
         runs=runs,
         on_mutated=on_mutated,
         on_filter_run=on_filter_run,
-        filter_state=filter_state,
-        drawer_host=drawer_host,
+        filters=ui_state.filters,
+        table_state=ui_state.jobs_table,
+        drawer_state=ui_state.drawer,
     )
 
 
-def _sync_filter_controls(
-    view_state: dict[str, str],
-    filter_state: dict[str, str],
-    filter_controls: dict[str, Any],
-) -> None:
+def _sync_filter_controls(ui_state: ConsoleUIState) -> None:
     """Sync filter bar visibility and valid status options with the active tab.
 
     Args:
-        view_state: Mutable active tab state mapping.
-        filter_state: Mutable search/status filter state mapping.
-        filter_controls: Mutable widget reference mapping.
+        ui_state: Unified ConsoleUIState holding tab and FilterUIState.
 
     Notes/Architectural Intent:
         Extracted from `_render_console_panel` to keep cognitive complexity
         low while updating tab-specific status options without recreating
         input widgets.
     """
-    tab = view_state["tab"]
-    filter_row = filter_controls.get("filter_row")
+    tab = ui_state.tab
+    filter_row = ui_state.filters.controls.get("filter_row")
     if filter_row is not None:
         filter_row.set_visibility(tab in ("jobs", "runs"))
-    status_select = filter_controls.get("status_select")
+    status_select = ui_state.filters.controls.get("status_select")
     if status_select is not None and tab in ("jobs", "runs"):
         valid_opts = (
             RUN_STATUS_FILTER_OPTIONS if tab == "runs" else JOB_STATUS_FILTER_OPTIONS
         )
         status_select.options = valid_opts
-        if filter_state["status"] not in valid_opts:
-            filter_state["status"] = "ALL"
+        if ui_state.filters.status not in valid_opts:
+            ui_state.filters.status = "ALL"
             status_select.value = "ALL"
         if hasattr(status_select, "update"):
             status_select.update()
@@ -374,11 +363,8 @@ async def _render_console_panel(
             str,
         ]
     ] = [await _fetch_cluster_snapshot(pipeline, identity)]
-    filter_state: dict[str, str] = {"search": "", "status": "ALL"}
-    filter_controls: dict[str, Any] = {}
-    view_state: dict[str, str] = {"tab": "jobs"}
-    expanded_nodes: set[str] = set()
     drawer_host = ui.column().classes("w-0 h-0")
+    ui_state = ConsoleUIState(drawer=DrawerUIState(host=drawer_host))
 
     def _notify_live_badge(changed: bool) -> None:
         flag = "true" if changed else "false"
@@ -398,6 +384,15 @@ async def _render_console_panel(
         if changed:
             snapshot_box[0] = next_data
             _refresh_views()
+            await refresh_active_drawer(
+                pipeline,
+                identity,
+                ui_state.drawer,
+                next_data[2],
+                next_data[3],
+                on_mutated=_handle_manual_refresh,
+                on_filter_run=_filter_to_run,
+            )
         _notify_live_badge(changed)
 
     async def _handle_manual_refresh() -> None:
@@ -407,46 +402,41 @@ async def _render_console_panel(
         await _refresh_now(force=False)
 
     def _sync_filter_visibility() -> None:
-        _sync_filter_controls(view_state, filter_state, filter_controls)
+        _sync_filter_controls(ui_state)
 
     def _filter_to_run(run_id: str) -> None:
-        view_state["tab"] = "jobs"
+        ui_state.tab = "jobs"
         _sync_filter_visibility()
-        filter_state["search"] = run_id
-        search_input = filter_controls.get("search_input")
+        ui_state.filters.search = run_id
+        search_input = ui_state.filters.controls.get("search_input")
         if search_input is not None:
             search_input.value = run_id
         _refresh_views()
 
     def _switch_view(tab: str, *, status_filter: str | None = None) -> None:
-        view_state["tab"] = tab
+        ui_state.tab = tab
         _sync_filter_visibility()
         if status_filter is not None:
-            filter_state["status"] = status_filter
-            status_select = filter_controls.get("status_select")
+            ui_state.filters.status = status_filter
+            status_select = ui_state.filters.controls.get("status_select")
             if status_select is not None:
                 status_select.value = status_filter
         _refresh_views()
 
     def _clear_filters() -> None:
-        filter_state["search"] = ""
-        filter_state["status"] = "ALL"
-        search_input = filter_controls.get("search_input")
+        ui_state.filters.search = ""
+        ui_state.filters.status = "ALL"
+        search_input = ui_state.filters.controls.get("search_input")
         if search_input is not None:
             search_input.value = ""
-        status_select = filter_controls.get("status_select")
+        status_select = ui_state.filters.controls.get("status_select")
         if status_select is not None:
             status_select.value = "ALL"
         _refresh_views()
 
     @ui.refreshable
     def _kpi_and_tabs() -> None:
-        _render_kpi_and_tabs(
-            snapshot_box[0],
-            filter_state,
-            view_state,
-            _switch_view,
-        )
+        _render_kpi_and_tabs(snapshot_box[0], ui_state, _switch_view)
 
     @ui.refreshable
     async def _cluster_body() -> None:
@@ -454,10 +444,7 @@ async def _render_console_panel(
             pipeline,
             identity,
             snapshot_box[0],
-            filter_state,
-            view_state,
-            expanded_nodes,
-            drawer_host,
+            ui_state,
             on_mutated=_handle_manual_refresh,
             on_filter_run=_filter_to_run,
         )
@@ -484,22 +471,22 @@ async def _render_console_panel(
     _kpi_and_tabs()
 
     filter_row = ui.row().classes("w-full items-center gap-3 mt-4")
-    filter_controls["filter_row"] = filter_row
+    ui_state.filters.controls["filter_row"] = filter_row
     with filter_row:
 
         def _on_search_change(ev: object) -> None:
             new_val = str(getattr(ev, "value", "") or "")
-            if new_val != filter_state["search"]:
-                filter_state["search"] = new_val
+            if new_val != ui_state.filters.search:
+                ui_state.filters.search = new_val
                 _refresh_views()
 
         def _on_status_change(ev: object) -> None:
             new_val = str(getattr(ev, "value", "ALL") or "ALL")
-            if new_val != filter_state["status"]:
-                filter_state["status"] = new_val
+            if new_val != ui_state.filters.status:
+                ui_state.filters.status = new_val
                 _refresh_views()
 
-        filter_controls["search_input"] = (
+        ui_state.filters.controls["search_input"] = (
             ui.input(
                 label="Search Jobs / Runs / Workers",
                 placeholder="Filter by job ID, run ID, name, or worker...",
@@ -508,7 +495,7 @@ async def _render_console_panel(
             .props('clearable aria-label="Filter jobs by ID, run ID, name, or worker"')
             .classes("w-80")
         )
-        filter_controls["status_select"] = (
+        ui_state.filters.controls["status_select"] = (
             ui.select(
                 options=JOB_STATUS_FILTER_OPTIONS,
                 value="ALL",
