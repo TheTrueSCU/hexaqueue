@@ -117,6 +117,8 @@ async def test_console_panel_refresh_and_filters(
         res = on_change_cb(SimpleNamespace(value="user"))
         if inspect.isawaitable(res):
             await res
+        else:
+            assert res is None
     captured_buttons["Clear Filters"]()
 
     js_calls.clear()
