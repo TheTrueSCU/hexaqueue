@@ -15,6 +15,7 @@ import re
 import tempfile
 from contextlib import nullcontext
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from diagrams import Cluster, Diagram
@@ -364,15 +365,58 @@ def _render_bastion_launcher(
 ) -> None:
     """Render Bastion Session Launcher button and output container inside node drawer."""
     ui.label("Bastion Session Launcher").classes("text-sm font-semibold mt-4")
-    output_box = ui.column().classes("w-full gap-1 mt-1")
+    controls_box = ui.column().classes("w-full gap-2 mt-1")
+
+    def _close_bastion() -> None:
+        _render_controls(active_info=None, error_msg=None)
+
+    def _render_controls(
+        *, active_info: Any = None, error_msg: str | None = None
+    ) -> None:
+        controls_box.clear()
+        with controls_box:
+            if error_msg:
+                ui.label(f"Bastion launch denied/failed: {error_msg}").classes(
+                    "text-xs text-red-400"
+                )
+            if active_info is not None:
+                cli_cmd = (
+                    f"hq node ssh {worker_id} --user {active_info.user_id} --admin"
+                )
+                ui.label(
+                    f"Session {active_info.session_id} active "
+                    f"(PID {active_info.pid}, user {active_info.user_id})"
+                ).classes("text-xs text-emerald-300 font-mono")
+                ui.html(
+                    '<pre aria-label="Bastion CLI command" '
+                    'style="background-color:#0f172a;color:#f8fafc;padding:8px;'
+                    'border-radius:6px;font-size:0.75rem;overflow-x:auto;">'
+                    f"{html.escape(cli_cmd)}</pre>",
+                    sanitize=False,
+                )
+                ui.button(
+                    "Close Bastion Session",
+                    icon="close",
+                    on_click=_close_bastion,
+                ).props(
+                    f'size="sm" color="negative" '
+                    f'aria-label="Close bastion session on {worker_id}"'
+                )
+            else:
+                ui.button(
+                    "Launch Bastion Session",
+                    icon="terminal",
+                    on_click=_launch_bastion,
+                ).props(
+                    f'size="sm" color="primary" '
+                    f'aria-label="Launch bastion session on {worker_id}"'
+                )
 
     async def _launch_bastion() -> None:
-        output_box.clear()
         if pipeline is None or identity is None:
-            with output_box:
-                ui.label("Session launcher unavailable in read-only mode.").classes(
-                    "text-xs text-slate-300"
-                )
+            _render_controls(
+                error_msg="Session launcher unavailable in read-only mode."
+            )
             return
         is_admin = "admin" in identity.roles
         session_id = f"bastion-{uuid4().hex[:8]}"
@@ -387,32 +431,11 @@ def _render_bastion_launcher(
                 ),
             )
         except Exception as exc:  # noqa: BLE001
-            with output_box:
-                ui.label(f"Bastion launch denied/failed: {exc}").classes(
-                    "text-xs text-red-400"
-                )
+            _render_controls(error_msg=str(exc))
             return
+        _render_controls(active_info=info)
 
-        cli_cmd = f"hq node ssh {worker_id} --user {info.user_id} --admin"
-        with output_box:
-            ui.label(
-                f"Session {info.session_id} active (PID {info.pid}, user {info.user_id})"
-            ).classes("text-xs text-emerald-300 font-mono")
-            ui.html(
-                '<pre aria-label="Bastion CLI command" '
-                'style="background-color:#0f172a;color:#f8fafc;padding:8px;'
-                'border-radius:6px;font-size:0.75rem;overflow-x:auto;">'
-                f"{html.escape(cli_cmd)}</pre>",
-                sanitize=False,
-            )
-
-    ui.button(
-        "Launch Bastion Session",
-        icon="terminal",
-        on_click=_launch_bastion,
-    ).props(
-        f'size="sm" color="primary" aria-label="Launch bastion session on {worker_id}"'
-    ).classes("mt-1")
+    _render_controls()
     if auto_launch:
         ui.timer(0.05, _launch_bastion, once=True)
 

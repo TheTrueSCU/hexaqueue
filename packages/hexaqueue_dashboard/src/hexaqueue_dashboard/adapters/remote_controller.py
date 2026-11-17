@@ -19,6 +19,7 @@ from hexaqueue_core.domain.lifecycle import TerminalOutcome
 from hexaqueue_core.domain.node import ComputeNodeProfile
 from hexaqueue_core.domain.retry import DeadLetterRecord
 from hexaqueue_core.domain.telemetry import NodeTelemetryPulse
+from hexaqueue_core.ports.logging import LogChunk
 from hexaqueue_server.domain.memento import (
     DagRewindReport,
     PlacementSimulationReport,
@@ -224,6 +225,22 @@ class HttpSchedulerControllerAdapter(SchedulerControllerPort):
         """
         data = await self._request("GET", "/v1/jobs")
         return [JobSpec.model_validate(item) for item in data]
+
+    async def get_logs(self, job_id: str, *, tail: int | None = None) -> list[LogChunk]:
+        """Retrieve execution log chunks for a job from the remote controller.
+
+        Args:
+            job_id: Target job identifier.
+            tail: Optional maximum number of trailing log chunks.
+
+        Returns:
+            List of LogChunk entries.
+        """
+        path = f"/v1/jobs/{job_id}/logs"
+        if tail is not None:
+            path = f"{path}?tail={tail}"
+        data = await self._request("GET", path)
+        return [LogChunk.model_validate(item) for item in data]
 
     async def list_runs(self) -> list[RunStatusReport]:
         """Retrieve all currently registered pipeline runs from the remote controller.
