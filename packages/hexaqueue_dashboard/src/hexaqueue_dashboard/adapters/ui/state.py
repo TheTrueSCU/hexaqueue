@@ -97,6 +97,7 @@ class ConsoleUIState:
     """
 
     tab: str = "jobs"
+    active_role: str = "user"
     filters: FilterUIState = field(default_factory=FilterUIState)
     jobs_table: JobsTableUIState = field(default_factory=JobsTableUIState)
     runs_tree: RunsTreeUIState = field(default_factory=RunsTreeUIState)

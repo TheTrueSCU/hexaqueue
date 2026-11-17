@@ -222,7 +222,10 @@ async def render_live_logs_page(
     logs, logs_error = await fetch_job_logs(pipeline, identity, job_id)
     job = None
     try:
-        jobs = await dispatch_query(pipeline, ListJobsQuery())
+        is_admin = "admin" in identity.roles
+        jobs = await dispatch_query(
+            pipeline, ListJobsQuery(user_id=identity.user_id, elevate=is_admin)
+        )
         job = next((item for item in jobs if item.id == job_id), None)
     except Exception:  # noqa: BLE001
         job = None

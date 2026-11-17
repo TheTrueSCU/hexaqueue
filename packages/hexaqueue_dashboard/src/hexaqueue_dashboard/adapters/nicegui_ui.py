@@ -113,6 +113,8 @@ def _resolve_static_dir() -> Path | None:
 async def _fetch_cluster_snapshot(
     pipeline: ExecutionPipeline,
     identity: Identity,
+    *,
+    elevate_admin: bool | None = None,
 ) -> tuple[
     ClusterStatsReport,
     list[NodeTelemetryPulse],
@@ -125,11 +127,16 @@ async def _fetch_cluster_snapshot(
     Args:
         pipeline: Shared CQRS ExecutionPipeline.
         identity: Verified caller Identity.
+        elevate_admin: Optional view-role override bounded by ``identity.roles``.
 
     Returns:
         Tuple of ``(stats, nodes, jobs, runs, fingerprint)``.
     """
-    is_admin = "admin" in identity.roles
+    is_admin = (
+        ("admin" in identity.roles)
+        if elevate_admin is None
+        else (elevate_admin and "admin" in identity.roles)
+    )
     stats: ClusterStatsReport = await dispatch_query(pipeline, GetQueueStatsQuery())
     nodes: list[NodeTelemetryPulse] = await dispatch_query(pipeline, GetNodesQuery())
     jobs: list[JobSpec] = await dispatch_query(
@@ -253,6 +260,43 @@ def _render_kpi_cards(
                 ui.label(label_text).classes("font-semibold")
 
 
+def _resolve_is_admin_view(identity: Identity, active_role: str) -> bool:
+    """Return True only when the operator holds ``admin`` and is viewing as admin."""
+    return active_role == "admin" and "admin" in identity.roles
+
+
+def _apply_role_switch(
+    identity: Identity,
+    ui_state: ConsoleUIState,
+    new_role: str,
+) -> None:
+    """Update active view role and reset admin-only tabs when stepping down."""
+    ui_state.active_role = new_role
+    if not _resolve_is_admin_view(identity, new_role) and ui_state.tab in (
+        "nodes",
+        "fairshare",
+    ):
+        ui_state.tab = "jobs"
+    _sync_filter_controls(ui_state)
+
+
+def _render_tab_fieldset(
+    legend_label: str, buttons: list[tuple[str, str, str, str, Any]]
+) -> None:
+    """Render a native `<fieldset>` + `<legend>` tab group container."""
+    with ui.element("fieldset").classes(
+        "border border-slate-700 rounded px-3 pb-2 pt-1 flex flex-wrap items-center gap-2"
+    ):
+        with ui.element("legend").classes(
+            "px-2 text-xs font-semibold uppercase tracking-wider text-slate-300"
+        ):
+            ui.label(legend_label)
+        for label, icon, color, aria_label, on_click in buttons:
+            ui.button(label, on_click=on_click, icon=icon, color=color).props(
+                f'size="sm" aria-label="{aria_label}"'
+            )
+
+
 def _render_kpi_and_tabs(
     snapshot: tuple[
         ClusterStatsReport,
@@ -263,17 +307,21 @@ def _render_kpi_and_tabs(
     ],
     ui_state: ConsoleUIState,
     on_switch_view: Any,
+    *,
+    is_admin_view: bool = True,
 ) -> None:
-    """Render summary KPI cards and view switcher tabs above the filter bar.
+    """Render summary KPI cards and role-grouped view tabs above the filter bar.
 
     Args:
         snapshot: Current cluster snapshot tuple.
         ui_state: Unified ConsoleUIState holding active tab and filters.
         on_switch_view: Callback to switch active tab and optional status filter.
+        is_admin_view: Whether admin-only KPIs and tab group are visible.
 
     Notes/Architectural Intent:
         Rendered in its own refreshable slot above the persistent filter row so
-        tab-scoped filters appear visually below the tabs without losing focus.
+        tab-scoped filters appear visually below the tabs without losing focus,
+        with `<fieldset>`/`<legend>` containers separating User and Admin tabs.
     """
     stats, nodes, jobs, _runs, _fp = snapshot
     total_cnt, running_cnt, pending_cnt, is_filtered = compute_filtered_kpi_counts(
@@ -286,63 +334,81 @@ def _render_kpi_and_tabs(
         if is_filtered
         else f"Total Jobs: {total_cnt}"
     )
-    _render_kpi_cards(
-        [
-            (
-                total_label,
-                "Show all jobs",
-                lambda: on_switch_view("jobs", status_filter="ALL"),
-            ),
-            (
-                f"Running: {running_cnt}",
-                "Filter to running jobs",
-                lambda: on_switch_view("jobs", status_filter="RUNNING"),
-            ),
-            (
-                f"Pending: {pending_cnt}",
-                "Filter to pending jobs",
-                lambda: on_switch_view("jobs", status_filter="PENDING"),
-            ),
+    kpi_cards: list[tuple[str, str, Any]] = [
+        (
+            total_label,
+            "Show all jobs",
+            lambda: on_switch_view("jobs", status_filter="ALL"),
+        ),
+        (
+            f"Running: {running_cnt}",
+            "Filter to running jobs",
+            lambda: on_switch_view("jobs", status_filter="RUNNING"),
+        ),
+        (
+            f"Pending: {pending_cnt}",
+            "Filter to pending jobs",
+            lambda: on_switch_view("jobs", status_filter="PENDING"),
+        ),
+    ]
+    if is_admin_view:
+        kpi_cards.append(
             (
                 f"Active Nodes: {len(nodes)}",
                 "View active nodes and cluster topology",
                 lambda: on_switch_view("nodes"),
-            ),
-        ]
-    )
+            )
+        )
+    _render_kpi_cards(kpi_cards)
 
-    with ui.row().classes("w-full items-center gap-2 mt-4"):
+    with ui.row().classes("w-full items-stretch flex-wrap gap-3 mt-4"):
         tab = ui_state.tab
-        ui.button(
-            "Jobs",
-            on_click=lambda: on_switch_view("jobs"),
-            icon="list_alt",
-            color="primary" if tab == "jobs" else "grey-8",
-        ).props('size="sm" aria-label="Switch to Jobs view"')
-        ui.button(
-            "Runs & DAG",
-            on_click=lambda: on_switch_view("runs"),
-            icon="account_tree",
-            color="primary" if tab == "runs" else "grey-8",
-        ).props('size="sm" aria-label="Switch to Runs and DAG view"')
-        ui.button(
-            "Active Nodes & Topology",
-            on_click=lambda: on_switch_view("nodes"),
-            icon="hub",
-            color="primary" if tab == "nodes" else "grey-8",
-        ).props('size="sm" aria-label="Switch to Active Nodes and Topology view"')
-        ui.button(
-            "History Explorer",
-            on_click=lambda: on_switch_view("history"),
-            icon="history",
-            color="primary" if tab == "history" else "grey-8",
-        ).props('size="sm" aria-label="Switch to History Explorer view"')
-        ui.button(
-            "Fair-Share & Quotas",
-            on_click=lambda: on_switch_view("fairshare"),
-            icon="pie_chart",
-            color="primary" if tab == "fairshare" else "grey-8",
-        ).props('size="sm" aria-label="Switch to Fair-Share and Quotas view"')
+        _render_tab_fieldset(
+            "User",
+            [
+                (
+                    "Jobs",
+                    "list_alt",
+                    "primary" if tab == "jobs" else "grey-8",
+                    "Switch to Jobs view",
+                    lambda: on_switch_view("jobs"),
+                ),
+                (
+                    "Runs & DAG",
+                    "account_tree",
+                    "primary" if tab == "runs" else "grey-8",
+                    "Switch to Runs and DAG view",
+                    lambda: on_switch_view("runs"),
+                ),
+                (
+                    "History Explorer",
+                    "history",
+                    "primary" if tab == "history" else "grey-8",
+                    "Switch to History Explorer view",
+                    lambda: on_switch_view("history"),
+                ),
+            ],
+        )
+        if is_admin_view:
+            _render_tab_fieldset(
+                "Admin",
+                [
+                    (
+                        "Active Nodes & Topology",
+                        "hub",
+                        "primary" if tab == "nodes" else "grey-8",
+                        "Switch to Active Nodes and Topology view",
+                        lambda: on_switch_view("nodes"),
+                    ),
+                    (
+                        "Fair-Share & Quotas",
+                        "pie_chart",
+                        "primary" if tab == "fairshare" else "grey-8",
+                        "Switch to Fair-Share and Quotas view",
+                        lambda: on_switch_view("fairshare"),
+                    ),
+                ],
+            )
 
     if tab == "jobs":
         ui.label("Jobs").classes("text-lg font-semibold mt-4")
@@ -383,9 +449,12 @@ async def _render_cluster_body_content(
     """
     _stats, nodes, jobs, runs, _fp = snapshot
     record_node_metrics_samples(ui_state.node_metrics_history, nodes)
+    is_admin_view = _resolve_is_admin_view(identity, ui_state.active_role)
+    if not is_admin_view and ui_state.tab in ("nodes", "fairshare"):
+        ui_state.tab = "jobs"
     tab = ui_state.tab
 
-    if tab == "nodes":
+    if tab == "nodes" and is_admin_view:
         render_nodes_section(
             nodes,
             jobs,
@@ -396,7 +465,7 @@ async def _render_cluster_body_content(
         )
         return
 
-    if tab == "fairshare":
+    if tab == "fairshare" and is_admin_view:
         await render_fairshare_section(pipeline, identity, nodes, _stats)
         return
 
@@ -479,12 +548,26 @@ def _render_console_header(
     live_status_js_url: str | None,
     auth_manager: DashboardAuthManager | None,
     on_refresh: Any,
+    *,
+    active_role: str = "user",
+    on_role_change: Any = None,
 ) -> None:
-    """Render top navigation header with live badge, refresh, password rotation, and sign-out."""
+    """Render top navigation header with live badge, role switcher, refresh, password rotation, and sign-out."""
     with ui.header().classes("items-center justify-between px-6"):
         ui.label("Hexaqueue Operator Console").classes("text-lg font-bold")
         with ui.row().classes("items-center gap-3"):
             render_live_status_widget(live_status_js_url)
+            if len(identity.roles) > 1 and on_role_change is not None:
+                ui.select(
+                    options=sorted(identity.roles),
+                    value=active_role,
+                    label="Viewing as",
+                    on_change=lambda ev: on_role_change(
+                        str(getattr(ev, "value", active_role) or active_role)
+                    ),
+                ).props(
+                    'dense outlined dark options-dense aria-label="Select active view role"'
+                ).classes("w-36")
             ui.label(f"{identity.user_id} ({roles_label})").classes("text-sm")
             ui.button(
                 "Refresh",
@@ -509,6 +592,56 @@ def _render_console_header(
             ).tooltip("Sign out")
 
 
+def _render_filter_bar(
+    ui_state: ConsoleUIState,
+    on_refresh_views: Any,
+    on_clear_filters: Any,
+) -> None:
+    """Render persistent search, status filter, and clear-filters controls."""
+    filter_row = ui.row().classes("w-full items-center gap-3 mt-4")
+    ui_state.filters.controls["filter_row"] = filter_row
+    with filter_row:
+
+        def _on_search_change(ev: object) -> None:
+            new_val = str(getattr(ev, "value", "") or "")
+            if new_val != ui_state.filters.search:
+                ui_state.filters.search = new_val
+                on_refresh_views()
+
+        def _on_status_change(ev: object) -> None:
+            new_val = str(getattr(ev, "value", "ALL") or "ALL")
+            if new_val != ui_state.filters.status:
+                ui_state.filters.status = new_val
+                on_refresh_views()
+
+        ui_state.filters.controls["search_input"] = (
+            ui.input(
+                label="Search Jobs / Runs / Workers",
+                placeholder="Filter by job ID, run ID, name, or worker...",
+                on_change=_on_search_change,
+            )
+            .props('clearable aria-label="Filter jobs by ID, run ID, name, or worker"')
+            .classes("w-80")
+        )
+        ui_state.filters.controls["status_select"] = (
+            ui.select(
+                options=JOB_STATUS_FILTER_OPTIONS,
+                value="ALL",
+                label="Status Filter",
+                on_change=_on_status_change,
+            )
+            .props('aria-label="Filter jobs by status"')
+            .classes("w-48")
+        )
+        ui.button(
+            "Clear Filters",
+            on_click=on_clear_filters,
+            icon="filter_alt_off",
+        ).props(
+            'size="sm" color="primary" aria-label="Clear search and status filters"'
+        ).tooltip("Reset search and status filters")
+
+
 async def _render_console_panel(
     pipeline: ExecutionPipeline,
     identity: Identity,
@@ -525,6 +658,12 @@ async def _render_console_panel(
         live_status_js_url: Optional URL for the static `live_status.js` script.
     """
     roles_label = ", ".join(sorted(identity.roles))
+    default_role = "admin" if "admin" in identity.roles else "user"
+    drawer_host = ui.column().classes("w-0 h-0")
+    ui_state = ConsoleUIState(
+        active_role=default_role,
+        drawer=DrawerUIState(host=drawer_host),
+    )
     snapshot_box: list[
         tuple[
             ClusterStatsReport,
@@ -533,9 +672,13 @@ async def _render_console_panel(
             list[RunStatusReport],
             str,
         ]
-    ] = [await _fetch_cluster_snapshot(pipeline, identity)]
-    drawer_host = ui.column().classes("w-0 h-0")
-    ui_state = ConsoleUIState(drawer=DrawerUIState(host=drawer_host))
+    ] = [
+        await _fetch_cluster_snapshot(
+            pipeline,
+            identity,
+            elevate_admin=_resolve_is_admin_view(identity, ui_state.active_role),
+        )
+    ]
 
     def _notify_live_badge(changed: bool) -> None:
         flag = "true" if changed else "false"
@@ -550,7 +693,11 @@ async def _render_console_panel(
 
     async def _refresh_now(*, force: bool = False) -> None:
         _, _, _, _, prev_fp = snapshot_box[0]
-        next_data = await _fetch_cluster_snapshot(pipeline, identity)
+        next_data = await _fetch_cluster_snapshot(
+            pipeline,
+            identity,
+            elevate_admin=_resolve_is_admin_view(identity, ui_state.active_role),
+        )
         any_changed, refresh_kpi, refresh_body = _selective_refresh_needed(
             ui_state.tab, prev_fp, next_data[4], force=force
         )
@@ -612,7 +759,12 @@ async def _render_console_panel(
 
     @ui.refreshable
     def _kpi_and_tabs() -> None:
-        _render_kpi_and_tabs(snapshot_box[0], ui_state, _switch_view)
+        _render_kpi_and_tabs(
+            snapshot_box[0],
+            ui_state,
+            _switch_view,
+            is_admin_view=_resolve_is_admin_view(identity, ui_state.active_role),
+        )
 
     @ui.refreshable
     async def _cluster_body() -> None:
@@ -626,58 +778,24 @@ async def _render_console_panel(
             on_refresh=_refresh_views,
         )
 
+    async def _on_role_change(new_role: str) -> None:
+        _apply_role_switch(identity, ui_state, new_role)
+        await _refresh_now(force=True)
+        _refresh_views()
+
     _render_console_header(
         identity,
         roles_label,
         live_status_js_url,
         auth_manager,
         _handle_manual_refresh,
+        active_role=ui_state.active_role,
+        on_role_change=_on_role_change,
     )
 
     _kpi_and_tabs()
 
-    filter_row = ui.row().classes("w-full items-center gap-3 mt-4")
-    ui_state.filters.controls["filter_row"] = filter_row
-    with filter_row:
-
-        def _on_search_change(ev: object) -> None:
-            new_val = str(getattr(ev, "value", "") or "")
-            if new_val != ui_state.filters.search:
-                ui_state.filters.search = new_val
-                _refresh_views()
-
-        def _on_status_change(ev: object) -> None:
-            new_val = str(getattr(ev, "value", "ALL") or "ALL")
-            if new_val != ui_state.filters.status:
-                ui_state.filters.status = new_val
-                _refresh_views()
-
-        ui_state.filters.controls["search_input"] = (
-            ui.input(
-                label="Search Jobs / Runs / Workers",
-                placeholder="Filter by job ID, run ID, name, or worker...",
-                on_change=_on_search_change,
-            )
-            .props('clearable aria-label="Filter jobs by ID, run ID, name, or worker"')
-            .classes("w-80")
-        )
-        ui_state.filters.controls["status_select"] = (
-            ui.select(
-                options=JOB_STATUS_FILTER_OPTIONS,
-                value="ALL",
-                label="Status Filter",
-                on_change=_on_status_change,
-            )
-            .props('aria-label="Filter jobs by status"')
-            .classes("w-48")
-        )
-        ui.button(
-            "Clear Filters",
-            on_click=_clear_filters,
-            icon="filter_alt_off",
-        ).props(
-            'size="sm" color="primary" aria-label="Clear search and status filters"'
-        ).tooltip("Reset search and status filters")
+    _render_filter_bar(ui_state, _refresh_views, _clear_filters)
 
     await _cluster_body()
     ui.timer(2.0, _handle_timer_tick)

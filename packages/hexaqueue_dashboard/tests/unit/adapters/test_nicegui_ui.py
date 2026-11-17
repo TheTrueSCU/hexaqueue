@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from types import SimpleNamespace
 from typing import Any
 
@@ -77,6 +78,7 @@ async def test_console_panel_refresh_and_filters(
         return fake_el()
 
     fake_ui = SimpleNamespace(
+        element=lambda *_a, **_k: fake_el(),
         card=lambda *_a, **_k: fake_el(),
         row=lambda *_a, **_k: fake_el(),
         column=lambda *_a, **_k: fake_el(),
@@ -107,14 +109,20 @@ async def test_console_panel_refresh_and_filters(
     queue = InMemoryJobQueueAdapter()
     controller = LocalSchedulerControllerAdapter(queue=queue)
     pipeline = create_hexaqueue_execution_pipeline(controller=controller)
-    ident = Identity(user_id="rjdw", roles=frozenset({"admin"}))
+    ident = Identity(user_id="rjdw", roles=frozenset({"admin", "user"}))
 
     await nicegui_ui._render_console_panel(pipeline, ident)
 
     for on_change_cb in captured_on_changes:
-        on_change_cb(SimpleNamespace(value="r-test"))
+        res = on_change_cb(SimpleNamespace(value="user"))
+        if inspect.isawaitable(res):
+            awaited = await res
+            assert awaited is None
+        else:
+            assert res is None
     captured_buttons["Clear Filters"]()
 
+    js_calls.clear()
     await captured_buttons["Refresh"]()
     await captured_timers[0]()
     assert len(js_calls) >= 2
@@ -146,3 +154,56 @@ async def test_console_panel_refresh_and_filters(
         "history", prev_fp, next_node_fp, force=False
     )
     assert body_h is False
+
+
+def test_role_view_gating_and_fieldset_tab_groups(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_el: Any,
+) -> None:
+    """Verify Viewing-as role bounding and User/Admin `<fieldset>` tab groups."""
+    from hexaqueue_core.domain.cqrs import ClusterStatsReport
+    from hexaqueue_dashboard.adapters.ui.state import ConsoleUIState
+
+    admin_ident = Identity(user_id="rjdw", roles=frozenset({"admin", "user"}))
+    user_ident = Identity(user_id="bob", roles=frozenset({"user"}))
+
+    assert nicegui_ui._resolve_is_admin_view(admin_ident, "admin") is True
+    assert nicegui_ui._resolve_is_admin_view(admin_ident, "user") is False
+    assert nicegui_ui._resolve_is_admin_view(user_ident, "admin") is False
+
+    seen_buttons: list[str] = []
+    seen_elements: list[str] = []
+    fake_ui = SimpleNamespace(
+        element=lambda tag, *_a, **_k: seen_elements.append(tag) or fake_el(),
+        card=lambda *_a, **_k: fake_el(),
+        row=lambda *_a, **_k: fake_el(),
+        label=lambda *_a, **_k: fake_el(),
+        button=lambda label="", *_a, **_k: seen_buttons.append(label) or fake_el(),
+    )
+    monkeypatch.setattr(nicegui_ui, "ui", fake_ui)
+
+    stats = ClusterStatsReport(
+        total_jobs=0,
+        pending_jobs=0,
+        running_jobs=0,
+        completed_jobs=0,
+        failed_jobs=0,
+        active_workers=0,
+    )
+    snapshot = (stats, [], [], [], "{}")
+    ui_state = ConsoleUIState()
+
+    nicegui_ui._render_kpi_and_tabs(
+        snapshot, ui_state, lambda *_a, **_k: None, is_admin_view=False
+    )
+    assert "Active Nodes & Topology" not in seen_buttons
+    assert seen_elements.count("fieldset") == 1
+
+    seen_buttons.clear()
+    seen_elements.clear()
+    nicegui_ui._render_kpi_and_tabs(
+        snapshot, ui_state, lambda *_a, **_k: None, is_admin_view=True
+    )
+    assert "Active Nodes & Topology" in seen_buttons
+    assert "Fair-Share & Quotas" in seen_buttons
+    assert seen_elements.count("fieldset") == 2
