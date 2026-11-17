@@ -240,6 +240,10 @@ class DashboardAuthManager:
             )
         elif not roles.issubset(existing.roles):
             self._rbac_store.upsert_principal(
+                existing.model_copy(update={"roles": existing.roles | roles})
+            )
+        elif not roles.issubset(existing.roles):
+            self._rbac_store.upsert_principal(
                 RbacPrincipal(
                     principal_id=existing.principal_id,
                     hashed_secret=existing.hashed_secret,

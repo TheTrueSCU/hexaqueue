@@ -532,6 +532,7 @@ def render_nodes_section(
     identity: Identity | None = None,
     drawer_state: DrawerUIState | None = None,
     metrics_history: dict[str, list[dict[str, float | str]]] | None = None,
+    node_table_ref: dict[str, Any] | None = None,
 ) -> None:
     """Render Active Nodes telemetry table and diagrams-generated topology SVG.
 
@@ -542,12 +543,16 @@ def render_nodes_section(
         identity: Optional authenticated operator ``Identity``.
         drawer_state: Optional ``DrawerUIState`` for persistent drawer hosting.
         metrics_history: Optional per-worker metrics history dictionary.
+        node_table_ref: Optional mutable dict storing live ``ui.table`` handle for
+            flicker-free in-place heartbeat updates.
     """
     if metrics_history is not None:
         record_node_metrics_samples(metrics_history, nodes)
 
     ui.label("Active Nodes & Cluster Topology").classes("text-lg font-semibold mt-4")
     if not nodes:
+        if node_table_ref is not None:
+            node_table_ref.clear()
         ui.label("No active worker nodes reporting telemetry.").classes(
             "text-slate-300 text-sm"
         )
@@ -560,6 +565,11 @@ def render_nodes_section(
             row_key="worker_id",
             pagination={"rowsPerPage": 10, "sortBy": "worker_id", "descending": False},
         ).classes("w-full mt-2")
+        if node_table_ref is not None:
+            node_table_ref["table"] = table
+            node_table_ref["workers"] = tuple(sorted(nodes_by_id))
+            node_table_ref["nodes_by_id"] = nodes_by_id
+            node_table_ref["jobs"] = jobs
         table.add_slot(
             "body-cell-actions",
             """
@@ -587,11 +597,19 @@ def render_nodes_section(
         async def _open_node_from_row(
             worker_id: str, *, auto_bastion: bool = False
         ) -> None:
-            pulse = nodes_by_id.get(worker_id)
+            current_nodes = (
+                node_table_ref.get("nodes_by_id", nodes_by_id)
+                if node_table_ref is not None
+                else nodes_by_id
+            )
+            current_jobs = (
+                node_table_ref.get("jobs", jobs) if node_table_ref is not None else jobs
+            )
+            pulse = current_nodes.get(worker_id)
             if pulse is not None:
                 await open_node_inspection_drawer(
                     pulse,
-                    jobs,
+                    current_jobs,
                     pipeline=pipeline,
                     identity=identity,
                     drawer_state=drawer_state,

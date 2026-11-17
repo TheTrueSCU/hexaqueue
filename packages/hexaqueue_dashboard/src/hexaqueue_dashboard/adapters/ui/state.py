@@ -106,6 +106,7 @@ class ConsoleUIState:
     node_metrics_history: dict[str, list[dict[str, float | str]]] = field(
         default_factory=dict
     )
+    node_table_ref: dict[str, Any] = field(default_factory=dict)
 
 
 __all__ = [

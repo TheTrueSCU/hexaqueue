@@ -46,6 +46,7 @@ from hexaqueue_dashboard.adapters.ui.login import (
 )
 from hexaqueue_dashboard.adapters.ui.logs_view import render_live_logs_page
 from hexaqueue_dashboard.adapters.ui.nodes_view import (
+    build_node_rows,
     record_node_metrics_samples,
     render_nodes_section,
 )
@@ -193,6 +194,42 @@ async def _fetch_cluster_snapshot(
         sort_keys=True,
     )
     return stats, nodes, jobs, runs, fingerprint
+
+
+def _try_update_nodes_table_in_place(
+    ui_state: ConsoleUIState,
+    nodes: list[Any],
+    jobs: list[JobSpec],
+) -> bool:
+    """Update the active nodes table rows in place without tearing down the tab."""
+    table = ui_state.node_table_ref.get("table")
+    prev_workers = ui_state.node_table_ref.get("workers")
+    next_workers = tuple(sorted(n.worker_id for n in nodes))
+    if table is None or not nodes or prev_workers != next_workers:
+        return False
+    record_node_metrics_samples(ui_state.node_metrics_history, nodes)
+    ui_state.node_table_ref["nodes_by_id"] = {n.worker_id: n for n in nodes}
+    ui_state.node_table_ref["jobs"] = jobs
+    table.rows = build_node_rows(nodes, jobs)
+    table.update()
+    return True
+
+
+def _apply_body_refresh(
+    ui_state: ConsoleUIState,
+    next_data: tuple[Any, list[Any], list[JobSpec], list[Any], str],
+    cluster_body: Any,
+    *,
+    force: bool,
+) -> None:
+    """Refresh cluster body, updating the active nodes table in place when possible."""
+    if (
+        not force
+        and ui_state.tab == "nodes"
+        and _try_update_nodes_table_in_place(ui_state, next_data[1], next_data[2])
+    ):
+        return
+    cluster_body.refresh()
 
 
 def _selective_refresh_needed(
@@ -471,8 +508,10 @@ async def _render_cluster_body_content(
             identity=identity,
             drawer_state=ui_state.drawer,
             metrics_history=ui_state.node_metrics_history,
+            node_table_ref=ui_state.node_table_ref,
         )
         return
+    ui_state.node_table_ref.clear()
 
     if tab == "fairshare" and is_admin_view:
         await render_fairshare_section(pipeline, identity, nodes, _stats)
@@ -717,7 +756,7 @@ async def _render_console_panel(
             if refresh_kpi:
                 _kpi_and_tabs.refresh()
             if refresh_body:
-                _cluster_body.refresh()
+                _apply_body_refresh(ui_state, next_data, _cluster_body, force=force)
             await refresh_active_drawer(
                 pipeline,
                 identity,

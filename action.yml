@@ -165,5 +165,15 @@ runs:
                         src = n.get('source', 'N/A')
                         f.write(f'| \`{host}\` | {prov} | \`{user}\` | **{st}** | {lat} | {src} |\n')
                     f.write('\n')
+                dashboard_url = os.environ.get('HEXAQUEUE_DASHBOARD_URL', '').strip()
+                selected_host = '$SELECTED_HOST'.strip()
+                f.write('#### Dashboard & CLI Status\n\n')
+                if dashboard_url:
+                    f.write(f'- **Dashboard**: {dashboard_url}\n')
+                else:
+                    f.write('- **Dashboard (via SSH tunnel)**: `http://127.0.0.1:8080/dashboard/ui` (`hq dashboard open`)\n')
+                if selected_host:
+                    f.write(f'- **Cluster Tunnel**: `hq cluster tunnel --host {selected_host}`\n')
+                f.write('- **Cluster / Run / Job CLI**: `hq stat` · `hq nodes` · `hq top` · `hq status <run-or-job-id>` · `hq logs <job-id>`\n\n')
         " || true
         fi
