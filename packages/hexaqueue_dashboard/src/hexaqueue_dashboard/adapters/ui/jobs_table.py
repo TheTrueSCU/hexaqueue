@@ -23,6 +23,11 @@ from hexaqueue_dashboard.adapters.ui.inspection_drawer import (
     open_cancel_run_dialog,
     open_job_inspection_drawer,
 )
+from hexaqueue_dashboard.adapters.ui.state import (
+    DrawerUIState,
+    FilterUIState,
+    JobsTableUIState,
+)
 from hexaqueue_dashboard.adapters.ui.status import (
     STATUS_BADGE_COLORS,
     TERMINAL_DISPLAY_STATES,
@@ -182,6 +187,94 @@ def build_job_rows(jobs: list[JobSpec]) -> list[dict[str, object]]:
     return rows
 
 
+def _wire_jobs_table_events(
+    table: Any,
+    pipeline: ExecutionPipeline,
+    identity: Identity,
+    resolved_jobs: list[JobSpec],
+    runs: list[RunStatusReport] | None,
+    *,
+    on_mutated: Callable[[], Awaitable[None]] | None,
+    on_filter_run: Callable[[str], None] | None,
+    resolved_pagination: dict[str, Any] | None,
+    resolved_host: Any,
+    drawer_state: DrawerUIState | None,
+) -> None:
+    """Attach row-click, inspection, pagination, and lifecycle handlers to `ui.table`."""
+    jobs_by_id = {j.id: j for j in resolved_jobs}
+    runs_by_id = {r.run_id: r for r in (runs or [])}
+
+    async def _inspect_row(row_data: dict[str, Any]) -> None:
+        target_job = jobs_by_id.get(str(row_data.get("job_id", "")))
+        if target_job is not None:
+            await open_job_inspection_drawer(
+                pipeline,
+                identity,
+                target_job,
+                run_report=runs_by_id.get(target_job.run_id),
+                all_jobs=resolved_jobs,
+                on_mutated=on_mutated,
+                on_filter_run=on_filter_run,
+                drawer_host=resolved_host,
+                drawer_state=drawer_state,
+            )
+
+    async def _on_inspect_job(ev: object) -> None:
+        args = getattr(ev, "args", {}) or {}
+        if isinstance(args, dict):
+            await _inspect_row(args)
+
+    async def _on_row_click(ev: object) -> None:
+        args = getattr(ev, "args", None)
+        if isinstance(args, list) and len(args) >= 2 and isinstance(args[1], dict):
+            await _inspect_row(args[1])
+        elif isinstance(args, dict):
+            await _inspect_row(args)
+
+    async def _on_hold(ev: object) -> None:
+        args = getattr(ev, "args", {}) or {}
+        await dispatch_lifecycle_action(
+            pipeline, identity, "hold", str(args.get("job_id", "")), on_mutated
+        )
+
+    async def _on_release(ev: object) -> None:
+        args = getattr(ev, "args", {}) or {}
+        await dispatch_lifecycle_action(
+            pipeline, identity, "release", str(args.get("job_id", "")), on_mutated
+        )
+
+    async def _on_cancel_job(ev: object) -> None:
+        args = getattr(ev, "args", {}) or {}
+        await dispatch_lifecycle_action(
+            pipeline, identity, "cancel_job", str(args.get("job_id", "")), on_mutated
+        )
+
+    def _on_cancel_run(ev: object) -> None:
+        args = getattr(ev, "args", {}) or {}
+        run_id = str(args.get("run_id", ""))
+        open_cancel_run_dialog(
+            run_id,
+            lambda: dispatch_lifecycle_action(
+                pipeline, identity, "cancel_run", run_id, on_mutated
+            ),
+        )
+
+    def _on_pagination_update(ev: object) -> None:
+        if resolved_pagination is None:
+            return
+        args = getattr(ev, "args", None)
+        if isinstance(args, dict):
+            resolved_pagination.update(args)
+
+    table.on("update:pagination", _on_pagination_update)
+    table.on("inspect_job", _on_inspect_job)
+    table.on("rowClick", _on_row_click)
+    table.on("hold_job", _on_hold)
+    table.on("release_job", _on_release)
+    table.on("cancel_job", _on_cancel_job)
+    table.on("cancel_run", _on_cancel_run)
+
+
 async def render_jobs_section(
     pipeline: ExecutionPipeline,
     identity: Identity,
@@ -191,7 +284,11 @@ async def render_jobs_section(
     on_mutated: Callable[[], Awaitable[None]] | None = None,
     on_filter_run: Callable[[str], None] | None = None,
     filter_state: dict[str, str] | None = None,
+    pagination_state: dict[str, Any] | None = None,
     drawer_host: Any = None,
+    filters: FilterUIState | None = None,
+    table_state: JobsTableUIState | None = None,
+    drawer_state: DrawerUIState | None = None,
 ) -> None:
     """Render sortable, filterable jobs table with status badges and lifecycle controls.
 
@@ -203,8 +300,21 @@ async def render_jobs_section(
         on_mutated: Optional callback invoked after a job mutation succeeds.
         on_filter_run: Optional callback to filter the jobs table to a run ID.
         filter_state: Optional mutable dict persisting search/status filter values.
+        pagination_state: Optional mutable dict persisting sort/page state across refreshes.
         drawer_host: Optional persistent NiceGUI container for slide-over drawers.
+        filters: Optional component-scoped FilterUIState.
+        table_state: Optional component-scoped JobsTableUIState.
+        drawer_state: Optional component-scoped DrawerUIState.
     """
+    resolved_filter = (
+        filters.as_dict()
+        if filters is not None
+        else (filter_state or {"search": "", "status": "ALL"})
+    )
+    resolved_pagination = (
+        table_state.pagination if table_state is not None else pagination_state
+    )
+    resolved_host = drawer_state.host if drawer_state is not None else drawer_host
     is_admin = "admin" in identity.roles
     resolved_jobs: list[JobSpec] = (
         jobs
@@ -214,9 +324,7 @@ async def render_jobs_section(
             ListJobsQuery(user_id=identity.user_id, elevate=is_admin),
         )
     )
-    active_filters = (
-        filter_state if filter_state is not None else {"search": "", "status": "ALL"}
-    )
+    active_filters = resolved_filter
     ui.label("Jobs").classes("text-lg font-semibold mt-4")
     if not resolved_jobs:
         ui.label("No jobs in queue.").classes("text-slate-400")
@@ -228,12 +336,17 @@ async def render_jobs_section(
         status_filter=active_filters.get("status", "ALL"),
     )
     rows = build_job_rows(filtered)
+    active_pagination = (
+        resolved_pagination
+        if resolved_pagination is not None
+        else {"rowsPerPage": 15, "sortBy": "updated_at", "descending": True}
+    )
 
     table = ui.table(
         columns=JOB_TABLE_COLUMNS,
         rows=rows,
         row_key="job_id",
-        pagination={"rowsPerPage": 15, "sortBy": "job_id", "descending": False},
+        pagination=dict(active_pagination),
     ).classes("w-full mt-2")
 
     table.add_slot(
@@ -298,69 +411,18 @@ async def render_jobs_section(
         """,
     )
 
-    jobs_by_id = {j.id: j for j in resolved_jobs}
-    runs_by_id = {r.run_id: r for r in (runs or [])}
-
-    async def _inspect_row(row_data: dict[str, Any]) -> None:
-        target_job = jobs_by_id.get(str(row_data.get("job_id", "")))
-        if target_job is not None:
-            await open_job_inspection_drawer(
-                pipeline,
-                identity,
-                target_job,
-                run_report=runs_by_id.get(target_job.run_id),
-                all_jobs=resolved_jobs,
-                on_mutated=on_mutated,
-                on_filter_run=on_filter_run,
-                drawer_host=drawer_host,
-            )
-
-    async def _on_inspect_job(ev: object) -> None:
-        args = getattr(ev, "args", {}) or {}
-        if isinstance(args, dict):
-            await _inspect_row(args)
-
-    async def _on_row_click(ev: object) -> None:
-        args = getattr(ev, "args", None)
-        if isinstance(args, list) and len(args) >= 2 and isinstance(args[1], dict):
-            await _inspect_row(args[1])
-        elif isinstance(args, dict):
-            await _inspect_row(args)
-
-    async def _on_hold(ev: object) -> None:
-        args = getattr(ev, "args", {}) or {}
-        await dispatch_lifecycle_action(
-            pipeline, identity, "hold", str(args.get("job_id", "")), on_mutated
-        )
-
-    async def _on_release(ev: object) -> None:
-        args = getattr(ev, "args", {}) or {}
-        await dispatch_lifecycle_action(
-            pipeline, identity, "release", str(args.get("job_id", "")), on_mutated
-        )
-
-    async def _on_cancel_job(ev: object) -> None:
-        args = getattr(ev, "args", {}) or {}
-        await dispatch_lifecycle_action(
-            pipeline, identity, "cancel_job", str(args.get("job_id", "")), on_mutated
-        )
-
-    def _on_cancel_run(ev: object) -> None:
-        args = getattr(ev, "args", {}) or {}
-        run_id = str(args.get("run_id", ""))
-        open_cancel_run_dialog(
-            run_id,
-            lambda: dispatch_lifecycle_action(
-                pipeline, identity, "cancel_run", run_id, on_mutated
-            ),
-        )
-
-    table.on("inspect_job", _on_inspect_job)
-    table.on("rowClick", _on_row_click)
-    table.on("hold_job", _on_hold)
-    table.on("release_job", _on_release)
-    table.on("cancel_job", _on_cancel_job)
-    table.on("cancel_run", _on_cancel_run)
+    _wire_jobs_table_events(
+        table,
+        pipeline,
+        identity,
+        resolved_jobs,
+        runs,
+        on_mutated=on_mutated,
+        on_filter_run=on_filter_run,
+        resolved_pagination=resolved_pagination,
+        resolved_host=resolved_host,
+        drawer_state=drawer_state,
+    )
 
 
 __all__ = [

@@ -109,9 +109,23 @@ async def test_jobs_table_filtering_kpis_and_events(
         nonlocal mutated
         mutated += 1
 
+    pagination: dict[str, Any] = {
+        "rowsPerPage": 15,
+        "sortBy": "job_id",
+        "descending": False,
+    }
     await jobs_mod.render_jobs_section(
-        pipeline, ident, jobs=[p_job], on_mutated=_on_mutated
+        pipeline,
+        ident,
+        jobs=[p_job],
+        on_mutated=_on_mutated,
+        pagination_state=pagination,
     )
+    events["update:pagination"](
+        SimpleNamespace(args={"sortBy": "status", "descending": True, "page": 2})
+    )
+    assert pagination["sortBy"] == "status"
+    assert pagination["descending"] is True
     await events["inspect_job"](SimpleNamespace(args={"job_id": "j-pend"}))
     await events["rowClick"](SimpleNamespace(args=[None, {"job_id": "j-pend"}, 0]))
     await events["hold_job"](SimpleNamespace(args={"job_id": "j-pend"}))

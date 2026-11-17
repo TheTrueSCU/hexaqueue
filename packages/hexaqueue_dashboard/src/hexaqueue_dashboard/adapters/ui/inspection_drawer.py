@@ -28,6 +28,7 @@ from hexaqueue_core.domain.cqrs import (
 from hexaqueue_core.domain.explainability import SchedulingDecisionReport
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.ports.logging import LogChunk
+from hexaqueue_dashboard.adapters.ui.state import ActiveDrawerState, DrawerUIState
 from hexaqueue_dashboard.adapters.ui.status import (
     STATUS_BADGE_COLORS,
     TERMINAL_DISPLAY_STATES,
@@ -355,37 +356,37 @@ def render_drawer_explain_and_logs(
     )
 
 
-async def open_job_inspection_drawer(
+def _clear_active_drawer(drawer_state: DrawerUIState | None, drawer: Any) -> None:
+    if (
+        drawer_state is not None
+        and drawer_state.active is not None
+        and drawer_state.active.dialog is drawer
+    ):
+        drawer_state.active = None
+
+
+def _close_drawer(drawer_state: DrawerUIState | None, drawer: Any) -> None:
+    _clear_active_drawer(drawer_state, drawer)
+    drawer.close()
+
+
+async def _fetch_job_drawer_details(
     pipeline: ExecutionPipeline,
     identity: Identity,
     job: JobSpec,
-    *,
-    run_report: RunStatusReport | None = None,
-    all_jobs: list[JobSpec] | None = None,
-    on_mutated: Callable[[], Awaitable[None]] | None = None,
-    on_filter_run: Callable[[str], None] | None = None,
-    drawer_host: Any = None,
-) -> None:
-    """Open slide-over inspection drawer for a job (logs, explainability, DAG links).
-
-    Args:
-        pipeline: Shared CQRS ExecutionPipeline.
-        identity: Verified caller Identity.
-        job: Target JobSpec to inspect.
-        run_report: Optional parent RunStatusReport.
-        all_jobs: Optional list of all jobs for DAG link resolution.
-        on_mutated: Optional async callback invoked after lifecycle mutations.
-        on_filter_run: Optional callback to filter the jobs table to a run ID.
-        drawer_host: Optional persistent NiceGUI container outside refreshable blocks.
-    """
+) -> tuple[
+    SchedulingDecisionReport | None,
+    str | None,
+    list[LogChunk],
+    str | None,
+    bool,
+]:
     is_admin = "admin" in identity.roles
     display_status = resolve_job_display_status(job)
-    badge_bg = STATUS_BADGE_COLORS.get(display_status, "#374151")
     show_explainability = (
         display_status not in ("RUNNING", "CLEANUP")
         and display_status not in TERMINAL_DISPLAY_STATES
     )
-
     explain_report: SchedulingDecisionReport | None = None
     explain_error: str | None = None
     if show_explainability:
@@ -408,94 +409,275 @@ async def open_job_inspection_drawer(
     except Exception as exc:
         logs_error = str(exc)
 
+    return explain_report, explain_error, logs, logs_error, show_explainability
+
+
+def _render_job_drawer_contents(
+    drawer: Any,
+    pipeline: ExecutionPipeline,
+    identity: Identity,
+    job: JobSpec,
+    explain_report: SchedulingDecisionReport | None,
+    explain_error: str | None,
+    logs: list[LogChunk],
+    logs_error: str | None,
+    *,
+    show_explainability: bool,
+    run_report: RunStatusReport | None,
+    all_jobs: list[JobSpec] | None,
+    on_mutated: Callable[[], Awaitable[None]] | None,
+    on_filter_run: Callable[[str], None] | None,
+    drawer_state: DrawerUIState | None,
+) -> None:
+    display_status = resolve_job_display_status(job)
+    badge_bg = STATUS_BADGE_COLORS.get(display_status, "#374151")
+
+    with ui.row().classes("w-full items-center justify-between mb-3"):
+        ui.label(f"Job: {job.name}").classes("text-lg font-bold")
+        ui.button(
+            "Close", on_click=lambda: _close_drawer(drawer_state, drawer), icon="close"
+        ).props('flat aria-label="Close inspection drawer"')
+
+    ui.html(
+        f'<span style="display:inline-block;padding:3px 10px;border-radius:6px;'
+        f"font-size:0.75rem;font-weight:700;background-color:{badge_bg};"
+        f'color:#ffffff;">{display_status}</span>',
+        sanitize=False,
+    )
+    ui.label(f"Job ID: {job.id} | Run ID: {job.run_id}").classes(
+        "font-mono text-xs text-slate-300 mt-2"
+    )
+    ui.label(f"Command: {job.command}").classes("font-mono text-xs text-slate-300")
+
+    with ui.row().classes("w-full flex-wrap gap-2 mt-3"):
+        if on_filter_run is not None:
+
+            def _filter_to_run() -> None:
+                _close_drawer(drawer_state, drawer)
+                on_filter_run(job.run_id)
+
+            ui.button(
+                "Filter Table to Run", on_click=_filter_to_run, icon="filter_alt"
+            ).props(
+                'size="sm" color="primary" aria-label="Filter jobs table to this run"'
+            )
+
+        if run_report is not None:
+
+            async def _jump_to_run() -> None:
+                _close_drawer(drawer_state, drawer)
+                await open_run_inspection_drawer(
+                    pipeline,
+                    identity,
+                    run_report,
+                    all_jobs or [],
+                    on_mutated=on_mutated,
+                    on_filter_run=on_filter_run,
+                    drawer_state=drawer_state,
+                )
+
+            ui.button("Inspect Run", on_click=_jump_to_run, icon="account_tree").props(
+                'size="sm" color="primary" aria-label="Inspect parent run"'
+            )
+
+        if display_status not in TERMINAL_DISPLAY_STATES:
+
+            async def _kill_this() -> None:
+                _close_drawer(drawer_state, drawer)
+                await dispatch_lifecycle_action(
+                    pipeline, identity, "cancel_job", job.id, on_mutated
+                )
+
+            ui.button(
+                "Kill Job", on_click=_kill_this, icon="cancel", color="negative"
+            ).props('size="sm" aria-label="Kill inspected job"')
+
+    render_drawer_dag_links(
+        drawer,
+        pipeline,
+        identity,
+        job,
+        run_report=run_report,
+        all_jobs=all_jobs,
+        on_mutated=on_mutated,
+        on_filter_run=on_filter_run,
+    )
+    render_drawer_state_timeline(job)
+    render_drawer_explain_and_logs(
+        explain_report,
+        explain_error,
+        logs,
+        logs_error,
+        show_explainability=show_explainability,
+    )
+
+
+def _render_run_drawer_contents(
+    drawer: Any,
+    pipeline: ExecutionPipeline,
+    identity: Identity,
+    run_report: RunStatusReport,
+    run_jobs: list[JobSpec],
+    all_jobs: list[JobSpec],
+    *,
+    on_mutated: Callable[[], Awaitable[None]] | None,
+    on_filter_run: Callable[[str], None] | None,
+    drawer_state: DrawerUIState | None,
+) -> None:
+    run_status = resolve_run_display_status(run_report)
+    badge_bg = STATUS_BADGE_COLORS.get(run_status, "#374151")
+
+    with ui.row().classes("w-full items-center justify-between mb-3"):
+        ui.label(f"Run: {run_report.name or run_report.run_id}").classes(
+            "text-lg font-bold"
+        )
+        ui.button(
+            "Close", on_click=lambda: _close_drawer(drawer_state, drawer), icon="close"
+        ).props('flat aria-label="Close inspection drawer"')
+
+    ui.html(
+        f'<span style="display:inline-block;padding:3px 10px;border-radius:6px;'
+        f"font-size:0.75rem;font-weight:700;background-color:{badge_bg};"
+        f'color:#ffffff;">{run_status}</span>',
+        sanitize=False,
+    )
+    ui.label(
+        f"Run ID: {run_report.run_id} | "
+        f"Completed: {run_report.completed_jobs}/{run_report.total_jobs} | "
+        f"Running: {run_report.running_jobs} | Failed: {run_report.failed_jobs}"
+    ).classes("font-mono text-xs text-slate-300 mt-2")
+
+    with ui.row().classes("w-full flex-wrap gap-2 mt-3"):
+        if on_filter_run is not None:
+
+            def _filter_to_run() -> None:
+                _close_drawer(drawer_state, drawer)
+                on_filter_run(run_report.run_id)
+
+            ui.button(
+                "Filter Jobs Table to Run",
+                on_click=_filter_to_run,
+                icon="filter_alt",
+            ).props(
+                'size="sm" color="primary" aria-label="Filter jobs table to this run"'
+            )
+
+        has_outstanding = (run_report.pending_jobs + run_report.running_jobs) > 0
+        if run_status not in TERMINAL_DISPLAY_STATES and has_outstanding:
+
+            def _cancel_this_run() -> None:
+                _close_drawer(drawer_state, drawer)
+                open_cancel_run_dialog(
+                    run_report.run_id,
+                    lambda: dispatch_lifecycle_action(
+                        pipeline,
+                        identity,
+                        "cancel_run",
+                        run_report.run_id,
+                        on_mutated,
+                    ),
+                )
+
+            ui.button(
+                "Cancel Run",
+                on_click=_cancel_this_run,
+                icon="stop_circle",
+                color="negative",
+            ).props('size="sm" aria-label="Cancel inspected run"')
+
+    render_drawer_run_timeline(run_report, run_jobs)
+
+    ui.label("Jobs in Run").classes("text-sm font-semibold mt-4")
+    for job in run_jobs:
+
+        async def _inspect_child(target: JobSpec = job) -> None:
+            _close_drawer(drawer_state, drawer)
+            await open_job_inspection_drawer(
+                pipeline,
+                identity,
+                target,
+                run_report=run_report,
+                all_jobs=all_jobs,
+                on_mutated=on_mutated,
+                on_filter_run=on_filter_run,
+                drawer_state=drawer_state,
+            )
+
+        ui.button(
+            f"{job.name} ({resolve_job_display_status(job)})",
+            on_click=_inspect_child,
+            icon="visibility",
+        ).props(f'flat align="left" aria-label="Inspect job {job.id}"').classes(
+            "w-full justify-start"
+        )
+
+
+async def open_job_inspection_drawer(
+    pipeline: ExecutionPipeline,
+    identity: Identity,
+    job: JobSpec,
+    *,
+    run_report: RunStatusReport | None = None,
+    all_jobs: list[JobSpec] | None = None,
+    on_mutated: Callable[[], Awaitable[None]] | None = None,
+    on_filter_run: Callable[[str], None] | None = None,
+    drawer_host: Any = None,
+    drawer_state: DrawerUIState | None = None,
+) -> None:
+    """Open slide-over inspection drawer for a job (logs, explainability, DAG links).
+
+    Args:
+        pipeline: Shared CQRS ExecutionPipeline.
+        identity: Verified caller Identity.
+        job: Target JobSpec to inspect.
+        run_report: Optional parent RunStatusReport.
+        all_jobs: Optional list of all jobs for DAG link resolution.
+        on_mutated: Optional async callback invoked after lifecycle mutations.
+        on_filter_run: Optional callback to filter the jobs table to a run ID.
+        drawer_host: Optional persistent NiceGUI container outside refreshable blocks.
+        drawer_state: Optional DrawerUIState for live in-place updates.
+    """
+    (
+        explain_report,
+        explain_error,
+        logs,
+        logs_error,
+        show_explainability,
+    ) = await _fetch_job_drawer_details(pipeline, identity, job)
+
+    resolved_host = drawer_state.host if drawer_state is not None else drawer_host
     host_ctx: Any = nullcontext()
-    if drawer_host is not None:
-        drawer_host.clear()
-        host_ctx = drawer_host
+    if resolved_host is not None:
+        resolved_host.clear()
+        host_ctx = resolved_host
 
     with (
         host_ctx,
         ui.dialog().props("position=right full-height") as drawer,
-        ui.card().classes("w-[520px] max-w-full h-full overflow-y-auto p-6"),
+        ui.card().classes("w-[520px] max-w-full h-full overflow-y-auto p-6") as card,
     ):
-        with ui.row().classes("w-full items-center justify-between mb-3"):
-            ui.label(f"Job: {job.name}").classes("text-lg font-bold")
-            ui.button("Close", on_click=drawer.close, icon="close").props(
-                'flat aria-label="Close inspection drawer"'
-            )
-
-        ui.html(
-            f'<span style="display:inline-block;padding:3px 10px;border-radius:6px;'
-            f"font-size:0.75rem;font-weight:700;background-color:{badge_bg};"
-            f'color:#ffffff;">{display_status}</span>',
-            sanitize=False,
-        )
-        ui.label(f"Job ID: {job.id} | Run ID: {job.run_id}").classes(
-            "font-mono text-xs text-slate-300 mt-2"
-        )
-        ui.label(f"Command: {job.command}").classes("font-mono text-xs text-slate-300")
-
-        with ui.row().classes("w-full flex-wrap gap-2 mt-3"):
-            if on_filter_run is not None:
-
-                def _filter_to_run() -> None:
-                    drawer.close()
-                    on_filter_run(job.run_id)
-
-                ui.button(
-                    "Filter Table to Run", on_click=_filter_to_run, icon="filter_alt"
-                ).props(
-                    'size="sm" color="primary" aria-label="Filter jobs table to this run"'
-                )
-
-            if run_report is not None:
-
-                async def _jump_to_run() -> None:
-                    drawer.close()
-                    await open_run_inspection_drawer(
-                        pipeline,
-                        identity,
-                        run_report,
-                        all_jobs or [],
-                        on_mutated=on_mutated,
-                        on_filter_run=on_filter_run,
-                    )
-
-                ui.button(
-                    "Inspect Run", on_click=_jump_to_run, icon="account_tree"
-                ).props('size="sm" color="primary" aria-label="Inspect parent run"')
-
-            if display_status not in TERMINAL_DISPLAY_STATES:
-
-                async def _kill_this() -> None:
-                    drawer.close()
-                    await dispatch_lifecycle_action(
-                        pipeline, identity, "cancel_job", job.id, on_mutated
-                    )
-
-                ui.button(
-                    "Kill Job", on_click=_kill_this, icon="cancel", color="negative"
-                ).props('size="sm" aria-label="Kill inspected job"')
-
-        render_drawer_dag_links(
+        _render_job_drawer_contents(
             drawer,
             pipeline,
             identity,
             job,
-            run_report=run_report,
-            all_jobs=all_jobs,
-            on_mutated=on_mutated,
-            on_filter_run=on_filter_run,
-        )
-        render_drawer_state_timeline(job)
-        render_drawer_explain_and_logs(
             explain_report,
             explain_error,
             logs,
             logs_error,
             show_explainability=show_explainability,
+            run_report=run_report,
+            all_jobs=all_jobs,
+            on_mutated=on_mutated,
+            on_filter_run=on_filter_run,
+            drawer_state=drawer_state,
         )
 
+    if drawer_state is not None:
+        drawer_state.active = ActiveDrawerState(
+            kind="job", target_id=job.id, card=card, dialog=drawer
+        )
+    drawer.on("hide", lambda *_: _clear_active_drawer(drawer_state, drawer))
     drawer.open()
 
 
@@ -508,6 +690,7 @@ async def open_run_inspection_drawer(
     on_mutated: Callable[[], Awaitable[None]] | None = None,
     on_filter_run: Callable[[str], None] | None = None,
     drawer_host: Any = None,
+    drawer_state: DrawerUIState | None = None,
 ) -> None:
     """Open slide-over inspection drawer for a pipeline Run and its child jobs.
 
@@ -519,106 +702,119 @@ async def open_run_inspection_drawer(
         on_mutated: Optional async callback invoked after lifecycle mutations.
         on_filter_run: Optional callback to filter the jobs table to a run ID.
         drawer_host: Optional persistent NiceGUI container outside refreshable blocks.
+        drawer_state: Optional DrawerUIState for live in-place updates.
     """
-    run_status = resolve_run_display_status(run_report)
-    badge_bg = STATUS_BADGE_COLORS.get(run_status, "#374151")
     run_jobs = [j for j in all_jobs if j.run_id == run_report.run_id]
 
+    resolved_host = drawer_state.host if drawer_state is not None else drawer_host
     host_ctx: Any = nullcontext()
-    if drawer_host is not None:
-        drawer_host.clear()
-        host_ctx = drawer_host
+    if resolved_host is not None:
+        resolved_host.clear()
+        host_ctx = resolved_host
 
     with (
         host_ctx,
         ui.dialog().props("position=right full-height") as drawer,
-        ui.card().classes("w-[520px] max-w-full h-full overflow-y-auto p-6"),
+        ui.card().classes("w-[520px] max-w-full h-full overflow-y-auto p-6") as card,
     ):
-        with ui.row().classes("w-full items-center justify-between mb-3"):
-            ui.label(f"Run: {run_report.name or run_report.run_id}").classes(
-                "text-lg font-bold"
-            )
-            ui.button("Close", on_click=drawer.close, icon="close").props(
-                'flat aria-label="Close inspection drawer"'
-            )
-
-        ui.html(
-            f'<span style="display:inline-block;padding:3px 10px;border-radius:6px;'
-            f"font-size:0.75rem;font-weight:700;background-color:{badge_bg};"
-            f'color:#ffffff;">{run_status}</span>',
-            sanitize=False,
+        _render_run_drawer_contents(
+            drawer,
+            pipeline,
+            identity,
+            run_report,
+            run_jobs,
+            all_jobs,
+            on_mutated=on_mutated,
+            on_filter_run=on_filter_run,
+            drawer_state=drawer_state,
         )
-        ui.label(
-            f"Run ID: {run_report.run_id} | "
-            f"Completed: {run_report.completed_jobs}/{run_report.total_jobs} | "
-            f"Running: {run_report.running_jobs} | Failed: {run_report.failed_jobs}"
-        ).classes("font-mono text-xs text-slate-300 mt-2")
 
-        with ui.row().classes("w-full flex-wrap gap-2 mt-3"):
-            if on_filter_run is not None:
-
-                def _filter_to_run() -> None:
-                    drawer.close()
-                    on_filter_run(run_report.run_id)
-
-                ui.button(
-                    "Filter Jobs Table to Run",
-                    on_click=_filter_to_run,
-                    icon="filter_alt",
-                ).props(
-                    'size="sm" color="primary" aria-label="Filter jobs table to this run"'
-                )
-
-            has_outstanding = (run_report.pending_jobs + run_report.running_jobs) > 0
-            if run_status not in TERMINAL_DISPLAY_STATES and has_outstanding:
-
-                def _cancel_this_run() -> None:
-                    drawer.close()
-                    open_cancel_run_dialog(
-                        run_report.run_id,
-                        lambda: dispatch_lifecycle_action(
-                            pipeline,
-                            identity,
-                            "cancel_run",
-                            run_report.run_id,
-                            on_mutated,
-                        ),
-                    )
-
-                ui.button(
-                    "Cancel Run",
-                    on_click=_cancel_this_run,
-                    icon="stop_circle",
-                    color="negative",
-                ).props('size="sm" aria-label="Cancel inspected run"')
-
-        render_drawer_run_timeline(run_report, run_jobs)
-
-        ui.label("Jobs in Run").classes("text-sm font-semibold mt-4")
-        for job in run_jobs:
-
-            async def _inspect_child(target: JobSpec = job) -> None:
-                drawer.close()
-                await open_job_inspection_drawer(
-                    pipeline,
-                    identity,
-                    target,
-                    run_report=run_report,
-                    all_jobs=all_jobs,
-                    on_mutated=on_mutated,
-                    on_filter_run=on_filter_run,
-                    drawer_host=drawer_host,
-                )
-
-            ui.button(
-                f"{job.name} ({resolve_job_display_status(job)})",
-                on_click=_inspect_child,
-                icon="visibility",
-            ).props(f'flat align="left" aria-label="Inspect job {job.id}"').classes(
-                "w-full justify-start"
-            )
-
+    if drawer_state is not None:
+        drawer_state.active = ActiveDrawerState(
+            kind="run", target_id=run_report.run_id, card=card, dialog=drawer
+        )
+    drawer.on("hide", lambda *_: _clear_active_drawer(drawer_state, drawer))
     drawer.open()
+
+
+async def refresh_active_drawer(
+    pipeline: ExecutionPipeline,
+    identity: Identity,
+    drawer_state: DrawerUIState,
+    jobs: list[JobSpec],
+    runs: list[RunStatusReport],
+    *,
+    on_mutated: Callable[[], Awaitable[None]] | None = None,
+    on_filter_run: Callable[[str], None] | None = None,
+) -> None:
+    """Refresh the currently open slide-over drawer in place on SSE updates.
+
+    Args:
+        pipeline: Shared CQRS ExecutionPipeline.
+        identity: Verified caller Identity.
+        drawer_state: DrawerUIState holding the open drawer handle.
+        jobs: Latest JobSpec list from the cluster snapshot.
+        runs: Latest RunStatusReport list from the cluster snapshot.
+        on_mutated: Optional async callback invoked after lifecycle mutations.
+        on_filter_run: Optional callback to filter the jobs table to a run ID.
+
+    Notes/Architectural Intent:
+        Clears and re-populates the existing `ui.card()` inside `ui.dialog()`
+        so operators see live job/run status, timeline, and log updates without
+        the slide-over closing or flickering.
+    """
+    active = drawer_state.active
+    if active is None:
+        return
+
+    runs_by_id = {r.run_id: r for r in runs}
+    if active.kind == "job":
+        job = next((j for j in jobs if j.id == active.target_id), None)
+        if job is None:
+            return
+        (
+            explain_report,
+            explain_error,
+            logs,
+            logs_error,
+            show_explainability,
+        ) = await _fetch_job_drawer_details(pipeline, identity, job)
+        active.card.clear()
+        with active.card:
+            _render_job_drawer_contents(
+                active.dialog,
+                pipeline,
+                identity,
+                job,
+                explain_report,
+                explain_error,
+                logs,
+                logs_error,
+                show_explainability=show_explainability,
+                run_report=runs_by_id.get(job.run_id),
+                all_jobs=jobs,
+                on_mutated=on_mutated,
+                on_filter_run=on_filter_run,
+                drawer_state=drawer_state,
+            )
+    elif active.kind == "run":
+        run_report = runs_by_id.get(active.target_id)
+        if run_report is None:
+            return
+        run_jobs = [j for j in jobs if j.run_id == run_report.run_id]
+        active.card.clear()
+        with active.card:
+            _render_run_drawer_contents(
+                active.dialog,
+                pipeline,
+                identity,
+                run_report,
+                run_jobs,
+                jobs,
+                on_mutated=on_mutated,
+                on_filter_run=on_filter_run,
+                drawer_state=drawer_state,
+            )
 
 
 __all__ = [
@@ -626,6 +822,7 @@ __all__ = [
     "open_cancel_run_dialog",
     "open_job_inspection_drawer",
     "open_run_inspection_drawer",
+    "refresh_active_drawer",
     "render_drawer_dag_links",
     "render_drawer_explain_and_logs",
     "render_drawer_run_timeline",
