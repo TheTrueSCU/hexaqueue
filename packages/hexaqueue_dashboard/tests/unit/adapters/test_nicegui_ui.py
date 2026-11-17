@@ -13,6 +13,7 @@ from nicegui import app as nicegui_app
 from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
 from hexaqueue_dashboard.adapters import nicegui_ui
 from hexaqueue_dashboard.adapters.auth import DashboardAuthManager
+from hexaqueue_dashboard.adapters.ui import history_view as history_mod
 from hexaqueue_dashboard.adapters.ui import jobs_table as jobs_mod
 from hexaqueue_dashboard.adapters.ui import nodes_view as nodes_mod
 from hexaqueue_dashboard.adapters.ui import runs_tree as runs_mod
@@ -99,6 +100,7 @@ async def test_console_panel_refresh_and_filters(
     monkeypatch.setattr(runs_mod, "ui", fake_ui)
     monkeypatch.setattr(jobs_mod, "ui", fake_ui)
     monkeypatch.setattr(nodes_mod, "ui", fake_ui)
+    monkeypatch.setattr(history_mod, "ui", fake_ui)
 
     queue = InMemoryJobQueueAdapter()
     controller = LocalSchedulerControllerAdapter(queue=queue)
@@ -118,6 +120,7 @@ async def test_console_panel_refresh_and_filters(
     assert "changed: false" in js_calls[1]
 
     captured_buttons["Active Nodes & Topology"]()
+    captured_buttons["History Explorer"]()
     captured_buttons["Runs & DAG"]()
     captured_buttons["Jobs"]()
 

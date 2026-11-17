@@ -32,6 +32,7 @@ from hexaqueue_dashboard.adapters.ui.status import (
     STATUS_BADGE_COLORS,
     TERMINAL_DISPLAY_STATES,
     resolve_job_display_status,
+    status_sort_rank,
 )
 from hexaqueue_server.domain.models import RunStatusReport
 
@@ -176,6 +177,7 @@ def build_job_rows(jobs: list[JobSpec]) -> list[dict[str, object]]:
                 "run_id": job.run_id,
                 "name": job.name,
                 "status": display_status,
+                "status_rank": status_sort_rank(display_status),
                 "badge_bg": STATUS_BADGE_COLORS.get(display_status, "#374151"),
                 "worker_id": job.assigned_worker_id or "—",
                 "updated_at": updated_str,
@@ -185,6 +187,24 @@ def build_job_rows(jobs: list[JobSpec]) -> list[dict[str, object]]:
             }
         )
     return rows
+
+
+_SEMANTIC_SORT_PROP = (
+    ':sort-method="(rows, sortBy, descending) => { '
+    "const data = [...rows]; "
+    "if (!sortBy) return data; "
+    "data.sort((a, b) => { "
+    "if (sortBy === 'status') { "
+    "const diff = (a.status_rank ?? 99) - (b.status_rank ?? 99); "
+    "return descending ? -diff : diff; "
+    "} "
+    'const av = String(a[sortBy] ?? ""); '
+    'const bv = String(b[sortBy] ?? ""); '
+    "const cmp = av.localeCompare(bv, undefined, { numeric: true }); "
+    "return descending ? -cmp : cmp; "
+    "}); "
+    'return data; }"'
+)
 
 
 def _wire_jobs_table_events(
@@ -283,6 +303,7 @@ async def render_jobs_section(
     runs: list[RunStatusReport] | None = None,
     on_mutated: Callable[[], Awaitable[None]] | None = None,
     on_filter_run: Callable[[str], None] | None = None,
+    on_refresh: Callable[[], None] | None = None,
     filter_state: dict[str, str] | None = None,
     pagination_state: dict[str, Any] | None = None,
     drawer_host: Any = None,
@@ -299,6 +320,7 @@ async def render_jobs_section(
         runs: Optional pre-fetched list of RunStatusReport instances.
         on_mutated: Optional callback invoked after a job mutation succeeds.
         on_filter_run: Optional callback to filter the jobs table to a run ID.
+        on_refresh: Optional callback to refresh the view when loading more rows.
         filter_state: Optional mutable dict persisting search/status filter values.
         pagination_state: Optional mutable dict persisting sort/page state across refreshes.
         drawer_host: Optional persistent NiceGUI container for slide-over drawers.
@@ -335,19 +357,27 @@ async def render_jobs_section(
         search_text=active_filters.get("search", ""),
         status_filter=active_filters.get("status", "ALL"),
     )
-    rows = build_job_rows(filtered)
+    window_limit = (
+        table_state.history_limit if table_state is not None else len(filtered)
+    )
+    visible_jobs = filtered[:window_limit]
+    rows = build_job_rows(visible_jobs)
     active_pagination = (
         resolved_pagination
         if resolved_pagination is not None
         else {"rowsPerPage": 15, "sortBy": "updated_at", "descending": True}
     )
 
-    table = ui.table(
-        columns=JOB_TABLE_COLUMNS,
-        rows=rows,
-        row_key="job_id",
-        pagination=dict(active_pagination),
-    ).classes("w-full mt-2")
+    table = (
+        ui.table(
+            columns=JOB_TABLE_COLUMNS,
+            rows=rows,
+            row_key="job_id",
+            pagination=dict(active_pagination),
+        )
+        .classes("w-full mt-2")
+        .props(_SEMANTIC_SORT_PROP)
+    )
 
     table.add_slot(
         "body-cell-status",
@@ -423,6 +453,18 @@ async def render_jobs_section(
         resolved_host=resolved_host,
         drawer_state=drawer_state,
     )
+    if table_state is not None and len(filtered) > len(visible_jobs):
+
+        def _load_more_jobs() -> None:
+            table_state.history_limit += 50
+            if on_refresh is not None:
+                on_refresh()
+
+        ui.button(
+            f"Load More Jobs (+50) — showing {len(visible_jobs)} of {len(filtered)}",
+            on_click=_load_more_jobs,
+            icon="expand_more",
+        ).props('size="sm" color="primary" aria-label="Load more jobs"').classes("mt-2")
 
 
 __all__ = [

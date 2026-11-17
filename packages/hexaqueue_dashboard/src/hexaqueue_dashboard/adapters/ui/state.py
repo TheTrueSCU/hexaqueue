@@ -44,7 +44,7 @@ class FilterUIState:
 
 @dataclass
 class JobsTableUIState:
-    """Sort and pagination state for the Jobs table."""
+    """Sort, pagination, and windowed history limit state for the Jobs table."""
 
     pagination: dict[str, Any] = field(
         default_factory=lambda: {
@@ -54,13 +54,26 @@ class JobsTableUIState:
             "page": 1,
         }
     )
+    history_limit: int = 50
 
 
 @dataclass
 class RunsTreeUIState:
-    """Expanded node state for the Runs & DAG tree."""
+    """Expanded node and windowed history limit state for the Runs & DAG tree."""
 
     expanded_nodes: set[str] = field(default_factory=set)
+    history_limit: int = 50
+
+
+@dataclass
+class HistoryUIState:
+    """Search, scope, and pagination state for the History Explorer tab."""
+
+    kind: str = "jobs"
+    search: str = ""
+    status: str = "ALL"
+    page: int = 1
+    page_size: int = 25
 
 
 @dataclass
@@ -85,6 +98,7 @@ class ConsoleUIState:
     filters: FilterUIState = field(default_factory=FilterUIState)
     jobs_table: JobsTableUIState = field(default_factory=JobsTableUIState)
     runs_tree: RunsTreeUIState = field(default_factory=RunsTreeUIState)
+    history: HistoryUIState = field(default_factory=HistoryUIState)
     drawer: DrawerUIState = field(default_factory=DrawerUIState)
 
 
@@ -93,6 +107,7 @@ __all__ = [
     "ConsoleUIState",
     "DrawerUIState",
     "FilterUIState",
+    "HistoryUIState",
     "JobsTableUIState",
     "RunsTreeUIState",
 ]

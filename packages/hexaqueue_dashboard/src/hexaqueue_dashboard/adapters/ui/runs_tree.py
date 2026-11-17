@@ -156,6 +156,54 @@ def build_run_tree_nodes(
     return tree_nodes
 
 
+def _build_tree_selection_handler(
+    pipeline: ExecutionPipeline,
+    identity: Identity,
+    runs: list[RunStatusReport],
+    jobs: list[JobSpec],
+    *,
+    on_mutated: Callable[[], Awaitable[None]] | None,
+    on_filter_run: Callable[[str], None] | None,
+    resolved_host: Any,
+    drawer_state: DrawerUIState | None,
+) -> Callable[[object], Awaitable[None]]:
+    """Build async tree-node selection handler opening Run or Job drawers."""
+    runs_by_id = {r.run_id: r for r in runs}
+    jobs_by_id = {j.id: j for j in jobs}
+
+    async def _on_select_tree_node(ev: object) -> None:
+        node_key = str(getattr(ev, "value", "") or "")
+        if node_key.startswith("run:"):
+            run_report = runs_by_id.get(node_key.split(":", 1)[1])
+            if run_report is not None:
+                await open_run_inspection_drawer(
+                    pipeline,
+                    identity,
+                    run_report,
+                    jobs,
+                    on_mutated=on_mutated,
+                    on_filter_run=on_filter_run,
+                    drawer_host=resolved_host,
+                    drawer_state=drawer_state,
+                )
+        elif node_key.startswith("job:"):
+            job = jobs_by_id.get(node_key.split(":", 1)[1])
+            if job is not None:
+                await open_job_inspection_drawer(
+                    pipeline,
+                    identity,
+                    job,
+                    run_report=runs_by_id.get(job.run_id),
+                    all_jobs=jobs,
+                    on_mutated=on_mutated,
+                    on_filter_run=on_filter_run,
+                    drawer_host=resolved_host,
+                    drawer_state=drawer_state,
+                )
+
+    return _on_select_tree_node
+
+
 def render_runs_section(
     pipeline: ExecutionPipeline,
     identity: Identity,
@@ -166,6 +214,7 @@ def render_runs_section(
     expanded_nodes: set[str] | None = None,
     on_mutated: Callable[[], Awaitable[None]] | None = None,
     on_filter_run: Callable[[str], None] | None = None,
+    on_refresh: Callable[[], None] | None = None,
     drawer_host: Any = None,
     filters: FilterUIState | None = None,
     tree_state: RunsTreeUIState | None = None,
@@ -182,6 +231,7 @@ def render_runs_section(
         expanded_nodes: Optional mutable set persisting expanded tree node IDs.
         on_mutated: Optional async callback invoked after lifecycle mutations.
         on_filter_run: Optional callback to filter the jobs table to a run ID.
+        on_refresh: Optional callback to refresh the view when loading more runs.
         drawer_host: Optional persistent NiceGUI container for slide-over drawers.
         filters: Optional component-scoped FilterUIState.
         tree_state: Optional component-scoped RunsTreeUIState.
@@ -207,40 +257,19 @@ def render_runs_section(
         ui.label("No matching runs.").classes("text-slate-300 text-sm")
         return
 
-    runs_by_id = {r.run_id: r for r in runs}
-    jobs_by_id = {j.id: j for j in jobs}
+    window_limit = tree_state.history_limit if tree_state is not None else len(nodes)
+    visible_nodes = nodes[:window_limit]
 
-    async def _on_select_tree_node(ev: object) -> None:
-        node_key = str(getattr(ev, "value", "") or "")
-        if node_key.startswith("run:"):
-            run_id = node_key.split(":", 1)[1]
-            run_report = runs_by_id.get(run_id)
-            if run_report is not None:
-                await open_run_inspection_drawer(
-                    pipeline,
-                    identity,
-                    run_report,
-                    jobs,
-                    on_mutated=on_mutated,
-                    on_filter_run=on_filter_run,
-                    drawer_host=resolved_host,
-                    drawer_state=drawer_state,
-                )
-        elif node_key.startswith("job:"):
-            job_id = node_key.split(":", 1)[1]
-            job = jobs_by_id.get(job_id)
-            if job is not None:
-                await open_job_inspection_drawer(
-                    pipeline,
-                    identity,
-                    job,
-                    run_report=runs_by_id.get(job.run_id),
-                    all_jobs=jobs,
-                    on_mutated=on_mutated,
-                    on_filter_run=on_filter_run,
-                    drawer_host=resolved_host,
-                    drawer_state=drawer_state,
-                )
+    on_select_tree_node = _build_tree_selection_handler(
+        pipeline,
+        identity,
+        runs,
+        jobs,
+        on_mutated=on_mutated,
+        on_filter_run=on_filter_run,
+        resolved_host=resolved_host,
+        drawer_state=drawer_state,
+    )
 
     def _on_expand_tree_nodes(ev: object) -> None:
         if resolved_expanded is None:
@@ -250,14 +279,26 @@ def render_runs_section(
         resolved_expanded.update(str(k) for k in expanded_vals)
 
     tree = ui.tree(
-        nodes,
+        visible_nodes,
         label_key="label",
         node_key="id",
-        on_select=_on_select_tree_node,
+        on_select=on_select_tree_node,
         on_expand=_on_expand_tree_nodes,
     ).classes("w-full border rounded p-2 mt-1")
     if resolved_expanded:
         tree.expand(list(resolved_expanded))
+    if tree_state is not None and len(nodes) > len(visible_nodes):
+
+        def _load_more_runs() -> None:
+            tree_state.history_limit += 50
+            if on_refresh is not None:
+                on_refresh()
+
+        ui.button(
+            f"Load More Runs (+50) — showing {len(visible_nodes)} of {len(nodes)}",
+            on_click=_load_more_runs,
+            icon="expand_more",
+        ).props('size="sm" color="primary" aria-label="Load more runs"').classes("mt-2")
     tree.add_slot(
         "default-header",
         """

@@ -32,6 +32,7 @@ from hexaqueue_core.domain.cqrs import (
 )
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_dashboard.adapters.auth import DashboardAuthManager
+from hexaqueue_dashboard.adapters.ui.history_view import render_history_section
 from hexaqueue_dashboard.adapters.ui.inspection_drawer import refresh_active_drawer
 from hexaqueue_dashboard.adapters.ui.jobs_table import (
     compute_filtered_kpi_counts,
@@ -247,6 +248,12 @@ def _render_kpi_and_tabs(
             icon="hub",
             color="primary" if tab == "nodes" else "grey-8",
         ).props('size="sm" aria-label="Switch to Active Nodes and Topology view"')
+        ui.button(
+            "History Explorer",
+            on_click=lambda: on_switch_view("history"),
+            icon="history",
+            color="primary" if tab == "history" else "grey-8",
+        ).props('size="sm" aria-label="Switch to History Explorer view"')
 
 
 async def _render_cluster_body_content(
@@ -263,6 +270,7 @@ async def _render_cluster_body_content(
     *,
     on_mutated: Any,
     on_filter_run: Any,
+    on_refresh: Any,
 ) -> None:
     """Render the active tab body below the tab-scoped filter bar.
 
@@ -273,6 +281,7 @@ async def _render_cluster_body_content(
         ui_state: Unified ConsoleUIState holding tab, filters, and drawer state.
         on_mutated: Async callback invoked after lifecycle mutations.
         on_filter_run: Callback to filter the jobs table to a run ID.
+        on_refresh: Callback to refresh console views.
 
     Notes/Architectural Intent:
         Extracted from `_render_console_panel` to keep the refreshable body
@@ -285,6 +294,20 @@ async def _render_cluster_body_content(
         render_nodes_section(nodes, jobs)
         return
 
+    if tab == "history":
+        render_history_section(
+            pipeline,
+            identity,
+            runs,
+            jobs,
+            ui_state.history,
+            ui_state.drawer,
+            on_mutated=on_mutated,
+            on_filter_run=on_filter_run,
+            on_refresh=on_refresh,
+        )
+        return
+
     if tab == "runs":
         render_runs_section(
             pipeline,
@@ -293,6 +316,7 @@ async def _render_cluster_body_content(
             jobs,
             on_mutated=on_mutated,
             on_filter_run=on_filter_run,
+            on_refresh=on_refresh,
             filters=ui_state.filters,
             tree_state=ui_state.runs_tree,
             drawer_state=ui_state.drawer,
@@ -306,6 +330,7 @@ async def _render_cluster_body_content(
         runs=runs,
         on_mutated=on_mutated,
         on_filter_run=on_filter_run,
+        on_refresh=on_refresh,
         filters=ui_state.filters,
         table_state=ui_state.jobs_table,
         drawer_state=ui_state.drawer,
@@ -447,6 +472,7 @@ async def _render_console_panel(
             ui_state,
             on_mutated=_handle_manual_refresh,
             on_filter_run=_filter_to_run,
+            on_refresh=_refresh_views,
         )
 
     with ui.header().classes("items-center justify-between px-6"):

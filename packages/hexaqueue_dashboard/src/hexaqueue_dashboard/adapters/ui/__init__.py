@@ -5,6 +5,12 @@ Notes/Architectural Intent:
     tree, inspection drawer) into focused, independently testable view modules.
 """
 
+from hexaqueue_dashboard.adapters.ui.history_view import (
+    build_history_run_rows,
+    filter_history_runs,
+    paginate_history_items,
+    render_history_section,
+)
 from hexaqueue_dashboard.adapters.ui.inspection_drawer import (
     dispatch_lifecycle_action,
     open_cancel_run_dialog,
@@ -56,6 +62,7 @@ from hexaqueue_dashboard.adapters.ui.status import (
 __all__ = [
     "ActiveDrawerState",
     "build_dag_job_subtree",
+    "build_history_run_rows",
     "build_job_rows",
     "build_node_rows",
     "build_run_tree_nodes",
@@ -64,18 +71,22 @@ __all__ = [
     "ConsoleUIState",
     "dispatch_lifecycle_action",
     "DrawerUIState",
+    "filter_history_runs",
     "filter_jobs",
     "FilterUIState",
     "generate_cluster_topology_svg",
+    "HistoryUIState",
     "JobsTableUIState",
     "open_cancel_run_dialog",
     "open_job_inspection_drawer",
     "open_run_inspection_drawer",
+    "paginate_history_items",
     "refresh_active_drawer",
     "render_drawer_dag_links",
     "render_drawer_explain_and_logs",
     "render_drawer_run_timeline",
     "render_drawer_state_timeline",
+    "render_history_section",
     "render_jobs_section",
     "render_live_status_widget",
     "render_login_panel",
@@ -86,5 +97,7 @@ __all__ = [
     "resolve_session_identity",
     "RunsTreeUIState",
     "STATUS_BADGE_COLORS",
+    "status_sort_rank",
+    "STATUS_SORT_RANK",
     "TERMINAL_DISPLAY_STATES",
 ]
