@@ -31,6 +31,7 @@ from hexaqueue_dashboard.adapters.ui.jobs_table import (
     compute_filtered_kpi_counts,
     filter_jobs,
     render_jobs_section,
+    sort_job_rows,
 )
 from hexaqueue_dashboard.adapters.ui.login import (
     open_change_password_dialog,
@@ -107,6 +108,7 @@ __all__ = [
     "resolve_run_display_status",
     "resolve_session_identity",
     "RunsTreeUIState",
+    "sort_job_rows",
     "STATUS_BADGE_COLORS",
     "status_sort_rank",
     "STATUS_SORT_RANK",

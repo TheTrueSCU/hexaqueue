@@ -105,6 +105,11 @@ async def test_jobs_table_filtering_kpis_and_events(
     assert isinstance(r2_rank, int)
     assert r1_rank < r0_rank < r2_rank
 
+    sorted_asc = jobs_mod.sort_job_rows(rows, "status", False)
+    assert [r["status"] for r in sorted_asc] == ["RUNNING", "PENDING", "COMPLETED"]
+    sorted_desc = jobs_mod.sort_job_rows(rows, "status", True)
+    assert [r["status"] for r in sorted_desc] == ["COMPLETED", "PENDING", "RUNNING"]
+
     queue = InMemoryJobQueueAdapter()
     controller = LocalSchedulerControllerAdapter(queue=queue)
     await controller.submit_run(

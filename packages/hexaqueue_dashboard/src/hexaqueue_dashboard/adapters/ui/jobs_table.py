@@ -189,22 +189,69 @@ def build_job_rows(jobs: list[JobSpec]) -> list[dict[str, object]]:
     return rows
 
 
-_SEMANTIC_SORT_PROP = (
-    ':sort-method="(rows, sortBy, descending) => { '
-    "const data = [...rows]; "
-    "if (!sortBy) return data; "
-    "data.sort((a, b) => { "
-    "if (sortBy === 'status') { "
-    "const diff = (a.status_rank ?? 99) - (b.status_rank ?? 99); "
-    "return descending ? -diff : diff; "
-    "} "
-    'const av = String(a[sortBy] ?? ""); '
-    'const bv = String(b[sortBy] ?? ""); '
-    "const cmp = av.localeCompare(bv, undefined, { numeric: true }); "
-    "return descending ? -cmp : cmp; "
-    "}); "
-    'return data; }"'
-)
+def sort_job_rows(
+    rows: list[dict[str, object]],
+    sort_by: str | None,
+    descending: bool = False,
+) -> list[dict[str, object]]:
+    """Sort job row dictionaries in Python, using semantic rank for ``status``.
+
+    Args:
+        rows: List of row dictionaries produced by ``build_job_rows``.
+        sort_by: Column key to sort by, or None to preserve order.
+        descending: Whether to reverse the sort order.
+
+    Returns:
+        Sorted list of row dictionaries.
+
+    Notes/Architectural Intent:
+        Replaces client-side Quasar JS sorting (which can be overridden by
+        NiceGUI's table wrapper) so ``Status`` reliably sorts by
+        ``status_rank`` across initial render, click, and SSE refreshes.
+    """
+    if not sort_by:
+        return list(rows)
+    if sort_by == "status":
+        return sorted(
+            rows,
+            key=lambda r: (
+                rank if isinstance(rank := r.get("status_rank", 99), int) else 99,
+                str(r.get("job_id", "")),
+            ),
+            reverse=descending,
+        )
+    return sorted(
+        rows,
+        key=lambda r: str(r.get(sort_by, "")).casefold(),
+        reverse=descending,
+    )
+
+
+_NOOP_SORT_PROP = ':sort-method="(rows) => rows"'
+
+
+def _apply_pagination_update(
+    table: Any,
+    resolved_pagination: dict[str, Any] | None,
+    ev: object,
+) -> None:
+    """Persist pagination state and re-sort table rows in Python on header click."""
+    args = getattr(ev, "args", None)
+    if not isinstance(args, dict):
+        return
+    if resolved_pagination is not None:
+        resolved_pagination.update(args)
+    sort_by = args.get("sortBy")
+    desc = bool(args.get("descending", False))
+    current_rows = list(getattr(table, "rows", []))
+    if current_rows and hasattr(table, "rows"):
+        table.rows[:] = sort_job_rows(
+            current_rows, str(sort_by) if sort_by else None, desc
+        )
+    if hasattr(table, "pagination"):
+        table.pagination = dict(args)
+    if hasattr(table, "update"):
+        table.update()
 
 
 def _wire_jobs_table_events(
@@ -279,14 +326,10 @@ def _wire_jobs_table_events(
             ),
         )
 
-    def _on_pagination_update(ev: object) -> None:
-        if resolved_pagination is None:
-            return
-        args = getattr(ev, "args", None)
-        if isinstance(args, dict):
-            resolved_pagination.update(args)
-
-    table.on("update:pagination", _on_pagination_update)
+    table.on(
+        "update:pagination",
+        lambda ev: _apply_pagination_update(table, resolved_pagination, ev),
+    )
     table.on("inspect_job", _on_inspect_job)
     table.on("rowClick", _on_row_click)
     table.on("hold_job", _on_hold)
@@ -364,11 +407,16 @@ async def render_jobs_section(
         table_state.history_limit if table_state is not None else len(filtered)
     )
     visible_jobs = filtered[:window_limit]
-    rows = build_job_rows(visible_jobs)
     active_pagination = (
         resolved_pagination
         if resolved_pagination is not None
         else {"rowsPerPage": 15, "sortBy": "updated_at", "descending": True}
+    )
+    sort_col = active_pagination.get("sortBy")
+    rows = sort_job_rows(
+        build_job_rows(visible_jobs),
+        str(sort_col) if sort_col else None,
+        bool(active_pagination.get("descending", False)),
     )
 
     table = (
@@ -379,7 +427,7 @@ async def render_jobs_section(
             pagination=dict(active_pagination),
         )
         .classes("w-full mt-2")
-        .props(_SEMANTIC_SORT_PROP)
+        .props(_NOOP_SORT_PROP)
     )
 
     table.add_slot(
@@ -476,4 +524,5 @@ __all__ = [
     "filter_jobs",
     "JOB_TABLE_COLUMNS",
     "render_jobs_section",
+    "sort_job_rows",
 ]
