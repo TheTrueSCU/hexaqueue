@@ -319,14 +319,14 @@ def render_history_section(
             if val != history_state.search:
                 history_state.search = val
                 history_state.page = 1
-                _trigger_refresh()
+                _render_results()
 
         def _on_status(ev: object) -> None:
             val = str(getattr(ev, "value", "ALL") or "ALL")
             if val != history_state.status:
                 history_state.status = val
                 history_state.page = 1
-                _trigger_refresh()
+                _render_results()
 
         ui.input(
             label="History Search",
@@ -375,14 +375,14 @@ def render_history_section(
             if val != history_state.date_from:
                 history_state.date_from = val
                 history_state.page = 1
-                _trigger_refresh()
+                _render_results()
 
         def _on_date_to(ev: object) -> None:
             val = str(getattr(ev, "value", "") or "")
             if val != history_state.date_to:
                 history_state.date_to = val
                 history_state.page = 1
-                _trigger_refresh()
+                _render_results()
 
         ui.input(
             label="From Date",
@@ -395,51 +395,60 @@ def render_history_section(
             on_change=_on_date_to,
         ).props('type="date" clearable aria-label="History end date"').classes("w-40")
 
-    if history_state.kind == "runs":
-        total_count, total_pages, clamped_page = _render_history_runs_table(
-            pipeline,
-            identity,
-            runs,
-            jobs,
-            history_state,
-            drawer_state,
-            on_mutated=on_mutated,
-            on_filter_run=on_filter_run,
-        )
-    else:
-        total_count, total_pages, clamped_page = _render_history_jobs_table(
-            pipeline,
-            identity,
-            runs,
-            jobs,
-            history_state,
-            drawer_state,
-            on_mutated=on_mutated,
-            on_filter_run=on_filter_run,
-        )
+    results_box = ui.column().classes("w-full")
 
-    with ui.row().classes("w-full items-center justify-between mt-3"):
-        ui.label(
-            f"Page {clamped_page} of {total_pages} ({total_count} matching records)"
-        ).classes("text-xs text-slate-300")
-        with ui.row().classes("gap-2"):
+    def _render_results() -> None:
+        results_box.clear()
+        with results_box:
+            if history_state.kind == "runs":
+                total_count, total_pages, clamped_page = _render_history_runs_table(
+                    pipeline,
+                    identity,
+                    runs,
+                    jobs,
+                    history_state,
+                    drawer_state,
+                    on_mutated=on_mutated,
+                    on_filter_run=on_filter_run,
+                )
+            else:
+                total_count, total_pages, clamped_page = _render_history_jobs_table(
+                    pipeline,
+                    identity,
+                    runs,
+                    jobs,
+                    history_state,
+                    drawer_state,
+                    on_mutated=on_mutated,
+                    on_filter_run=on_filter_run,
+                )
 
-            def _prev_page() -> None:
-                if history_state.page > 1:
-                    history_state.page -= 1
-                    _trigger_refresh()
+            with ui.row().classes("w-full items-center justify-between mt-3"):
+                ui.label(
+                    f"Page {clamped_page} of {total_pages} ({total_count} matching records)"
+                ).classes("text-xs text-slate-300")
+                with ui.row().classes("gap-2"):
 
-            def _next_page() -> None:
-                if history_state.page < total_pages:
-                    history_state.page += 1
-                    _trigger_refresh()
+                    def _prev_page() -> None:
+                        if history_state.page > 1:
+                            history_state.page -= 1
+                            _render_results()
 
-            ui.button("Previous", on_click=_prev_page, icon="chevron_left").props(
-                'size="sm" color="primary" aria-label="Previous history page"'
-            )
-            ui.button("Next", on_click=_next_page, icon="chevron_right").props(
-                'size="sm" color="primary" aria-label="Next history page"'
-            )
+                    def _next_page() -> None:
+                        if history_state.page < total_pages:
+                            history_state.page += 1
+                            _render_results()
+
+                    ui.button(
+                        "Previous", on_click=_prev_page, icon="chevron_left"
+                    ).props(
+                        'size="sm" color="primary" aria-label="Previous history page"'
+                    )
+                    ui.button("Next", on_click=_next_page, icon="chevron_right").props(
+                        'size="sm" color="primary" aria-label="Next history page"'
+                    )
+
+    _render_results()
 
 
 __all__ = [

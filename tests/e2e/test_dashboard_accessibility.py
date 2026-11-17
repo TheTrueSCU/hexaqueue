@@ -210,6 +210,7 @@ def test_dashboard_ui_wcag_accessibility(
 
     # 2f. Open Change Password modal and audit under WCAG 2.1 AA
     page.get_by_role("button", name="Change password").click()
+    page.wait_for_timeout(350)
     expect(page.get_by_text("Update Password")).to_be_visible()
 
     pw_violations = run_axe_scan(page)
