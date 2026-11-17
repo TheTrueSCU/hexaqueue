@@ -131,12 +131,15 @@ async def test_running_job_hides_explainability_and_completed_run_hides_cancel(
         row=lambda *_a, **_k: fake_el(),
         column=lambda *_a, **_k: fake_el(),
         label=_cap_label,
+        switch=lambda *_a, **_k: fake_el(),
+        timer=lambda *_a, **_k: fake_el(),
         button=_cap_btn,
         html=lambda *_a, **_k: fake_el(),
         notify=lambda *_a, **_k: None,
-        navigate=SimpleNamespace(reload=lambda: None),
+        navigate=SimpleNamespace(reload=lambda: None, to=lambda *_a, **_k: None),
     )
     monkeypatch.setattr(drawer_mod, "ui", fake_ui)
+    monkeypatch.setattr(logs_mod, "ui", fake_ui)
 
     running_job = JobSpec(
         id="j-run",

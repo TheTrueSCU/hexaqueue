@@ -406,18 +406,18 @@ async def render_jobs_section(
     window_limit = (
         table_state.history_limit if table_state is not None else len(filtered)
     )
-    visible_jobs = filtered[:window_limit]
     active_pagination = (
         resolved_pagination
         if resolved_pagination is not None
         else {"rowsPerPage": 15, "sortBy": "updated_at", "descending": True}
     )
     sort_col = active_pagination.get("sortBy")
-    rows = sort_job_rows(
-        build_job_rows(visible_jobs),
-        str(sort_col) if sort_col else None,
-        bool(active_pagination.get("descending", False)),
+    all_rows = sort_job_rows(
+        build_job_rows(filtered),
+        str(sort_col) if sort_col else "updated_at",
+        bool(active_pagination.get("descending", True)) if sort_col else True,
     )
+    rows = all_rows[:window_limit]
 
     table = (
         ui.table(
@@ -504,7 +504,7 @@ async def render_jobs_section(
         resolved_host=resolved_host,
         drawer_state=drawer_state,
     )
-    if table_state is not None and len(filtered) > len(visible_jobs):
+    if table_state is not None and len(all_rows) > len(rows):
 
         def _load_more_jobs() -> None:
             table_state.history_limit += 50
@@ -512,7 +512,7 @@ async def render_jobs_section(
                 on_refresh()
 
         ui.button(
-            f"Load More Jobs (+50) — showing {len(visible_jobs)} of {len(filtered)}",
+            f"Load More Jobs (+50) — showing {len(rows)} of {len(all_rows)}",
             on_click=_load_more_jobs,
             icon="expand_more",
         ).props('size="sm" color="primary" aria-label="Load more jobs"').classes("mt-2")
