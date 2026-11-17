@@ -27,7 +27,9 @@ from hexaqueue_core.domain.cqrs import (
 )
 from hexaqueue_core.domain.explainability import SchedulingDecisionReport
 from hexaqueue_core.domain.job import JobSpec
+from hexaqueue_core.domain.lifecycle import JobState
 from hexaqueue_core.ports.logging import LogChunk
+from hexaqueue_dashboard.adapters.ui.logs_view import render_live_log_viewer
 from hexaqueue_dashboard.adapters.ui.state import ActiveDrawerState, DrawerUIState
 from hexaqueue_dashboard.adapters.ui.status import (
     STATUS_BADGE_COLORS,
@@ -309,6 +311,11 @@ def render_drawer_explain_and_logs(
     logs_error: str | None,
     *,
     show_explainability: bool = True,
+    pipeline: ExecutionPipeline | None = None,
+    identity: Identity | None = None,
+    job_id: str | None = None,
+    default_live_tail: bool = False,
+    full_page_url: str | None = None,
 ) -> None:
     """Render scheduler explainability summary and execution log tail.
 
@@ -319,6 +326,11 @@ def render_drawer_explain_and_logs(
         logs_error: Optional error message if log retrieval failed.
         show_explainability: Whether to display the Scheduler Explainability
             section (omitted once a job is running or terminal).
+        pipeline: Optional CQRS `ExecutionPipeline` for live log polling.
+        identity: Optional authenticated operator `Identity`.
+        job_id: Optional job identifier for live log tailing.
+        default_live_tail: Whether live-tail polling starts enabled.
+        full_page_url: Optional URL to open the dedicated live log page.
 
     Notes/Architectural Intent:
         Hides pre-dispatch queue/slot explainability once a job has moved past
@@ -338,21 +350,14 @@ def render_drawer_explain_and_logs(
                 "text-xs text-slate-300 mt-1"
             )
 
-    ui.label("Execution Logs").classes("text-sm font-semibold mt-4")
-    if logs:
-        rendered_lines = "\n".join(
-            f"[{chunk.stream}] {chunk.content}" for chunk in logs
-        )
-    elif logs_error:
-        rendered_lines = f"Logs unavailable: {logs_error}"
-    else:
-        rendered_lines = "No logs recorded yet."
-    ui.html(
-        '<pre aria-label="Job execution logs" '
-        'style="background-color:#0f172a;color:#f8fafc;padding:12px;'
-        "border-radius:6px;font-size:0.75rem;overflow-x:auto;"
-        f'max-height:260px;">{rendered_lines}</pre>',
-        sanitize=False,
+    render_live_log_viewer(
+        logs,
+        logs_error,
+        pipeline=pipeline,
+        identity=identity,
+        job_id=job_id,
+        default_live_tail=default_live_tail,
+        full_page_url=full_page_url,
     )
 
 
@@ -509,6 +514,11 @@ def _render_job_drawer_contents(
         logs,
         logs_error,
         show_explainability=show_explainability,
+        pipeline=pipeline,
+        identity=identity,
+        job_id=job.id,
+        default_live_tail=job.status.state is JobState.RUNNING,
+        full_page_url=f"/dashboard/ui/logs/{job.id}",
     )
 
 

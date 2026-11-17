@@ -14,6 +14,7 @@ from hexaqueue_core.domain.lifecycle import JobState, JobStatus, TerminalOutcome
 from hexaqueue_core.domain.run import RunSpec
 from hexaqueue_dashboard.adapters.ui import inspection_drawer as drawer_mod
 from hexaqueue_dashboard.adapters.ui import jobs_table as jobs_mod
+from hexaqueue_dashboard.adapters.ui import logs_view as logs_mod
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
 from hexaqueue_server.domain.models import RunSubmission
 from hexaqueue_server.infra.cqrs import create_hexaqueue_execution_pipeline
@@ -57,13 +58,16 @@ async def test_jobs_table_filtering_kpis_and_events(
         card=lambda *_a, **_k: fake_el(),
         row=lambda *_a, **_k: fake_el(),
         column=lambda *_a, **_k: fake_el(),
+        switch=lambda *_a, **_k: fake_el(),
+        timer=lambda *_a, **_k: fake_el(),
         button=_cap_btn,
         html=lambda *_a, **_k: fake_el(),
         notify=lambda *_a, **_k: None,
-        navigate=SimpleNamespace(reload=lambda: None),
+        navigate=SimpleNamespace(reload=lambda: None, to=lambda *_a, **_k: None),
     )
     monkeypatch.setattr(jobs_mod, "ui", fake_ui)
     monkeypatch.setattr(drawer_mod, "ui", fake_ui)
+    monkeypatch.setattr(logs_mod, "ui", fake_ui)
 
     p_job = JobSpec(
         id="j-pend",
