@@ -167,9 +167,7 @@ def _render_kpi_cards(
                 ui.label(label_text).classes("font-semibold")
 
 
-async def _render_cluster_body_content(
-    pipeline: ExecutionPipeline,
-    identity: Identity,
+def _render_kpi_and_tabs(
     snapshot: tuple[
         ClusterStatsReport,
         list[NodeTelemetryPulse],
@@ -179,32 +177,21 @@ async def _render_cluster_body_content(
     ],
     filter_state: dict[str, str],
     view_state: dict[str, str],
-    expanded_nodes: set[str],
-    drawer_host: Any,
-    *,
     on_switch_view: Any,
-    on_mutated: Any,
-    on_filter_run: Any,
 ) -> None:
-    """Render KPI cards, view tabs, and active tab content for the console body.
+    """Render summary KPI cards and view switcher tabs above the filter bar.
 
     Args:
-        pipeline: Shared CQRS ExecutionPipeline.
-        identity: Verified caller Identity.
         snapshot: Current cluster snapshot tuple.
         filter_state: Mutable filter state mapping.
         view_state: Mutable active tab state mapping.
-        expanded_nodes: Mutable set persisting expanded Runs & DAG tree keys.
-        drawer_host: Persistent NiceGUI container outside refreshable blocks.
         on_switch_view: Callback to switch active tab and optional status filter.
-        on_mutated: Async callback invoked after lifecycle mutations.
-        on_filter_run: Callback to filter the jobs table to a run ID.
 
     Notes/Architectural Intent:
-        Extracted from `_render_console_panel` to keep the refreshable body
-        modular and well below the cognitive complexity threshold.
+        Rendered in its own refreshable slot above the persistent filter row so
+        tab-scoped filters appear visually below the tabs without losing focus.
     """
-    stats, nodes, jobs, runs, _fp = snapshot
+    stats, nodes, jobs, _runs, _fp = snapshot
     total_cnt, running_cnt, pending_cnt, is_filtered = compute_filtered_kpi_counts(
         jobs,
         search_text=filter_state.get("search", ""),
@@ -260,6 +247,45 @@ async def _render_cluster_body_content(
             icon="hub",
             color="primary" if tab == "nodes" else "grey-8",
         ).props('size="sm" aria-label="Switch to Active Nodes and Topology view"')
+
+
+async def _render_cluster_body_content(
+    pipeline: ExecutionPipeline,
+    identity: Identity,
+    snapshot: tuple[
+        ClusterStatsReport,
+        list[NodeTelemetryPulse],
+        list[JobSpec],
+        list[RunStatusReport],
+        str,
+    ],
+    filter_state: dict[str, str],
+    view_state: dict[str, str],
+    expanded_nodes: set[str],
+    drawer_host: Any,
+    *,
+    on_mutated: Any,
+    on_filter_run: Any,
+) -> None:
+    """Render the active tab body below the tab-scoped filter bar.
+
+    Args:
+        pipeline: Shared CQRS ExecutionPipeline.
+        identity: Verified caller Identity.
+        snapshot: Current cluster snapshot tuple.
+        filter_state: Mutable filter state mapping.
+        view_state: Mutable active tab state mapping.
+        expanded_nodes: Mutable set persisting expanded Runs & DAG tree keys.
+        drawer_host: Persistent NiceGUI container outside refreshable blocks.
+        on_mutated: Async callback invoked after lifecycle mutations.
+        on_filter_run: Callback to filter the jobs table to a run ID.
+
+    Notes/Architectural Intent:
+        Extracted from `_render_console_panel` to keep the refreshable body
+        modular and well below the cognitive complexity threshold.
+    """
+    _stats, nodes, jobs, runs, _fp = snapshot
+    tab = view_state["tab"]
 
     if tab == "nodes":
         render_nodes_section(nodes, jobs)
@@ -361,13 +387,17 @@ async def _render_console_panel(
             f"{{detail: {{changed: {flag}}}}}))"
         )
 
+    def _refresh_views() -> None:
+        _kpi_and_tabs.refresh()
+        _cluster_body.refresh()
+
     async def _refresh_now(*, force: bool = False) -> None:
         _, _, _, _, prev_fp = snapshot_box[0]
         next_data = await _fetch_cluster_snapshot(pipeline, identity)
         changed = force or next_data[4] != prev_fp
         if changed:
             snapshot_box[0] = next_data
-            _cluster_body.refresh()
+            _refresh_views()
         _notify_live_badge(changed)
 
     async def _handle_manual_refresh() -> None:
@@ -386,7 +416,7 @@ async def _render_console_panel(
         search_input = filter_controls.get("search_input")
         if search_input is not None:
             search_input.value = run_id
-        _cluster_body.refresh()
+        _refresh_views()
 
     def _switch_view(tab: str, *, status_filter: str | None = None) -> None:
         view_state["tab"] = tab
@@ -396,7 +426,7 @@ async def _render_console_panel(
             status_select = filter_controls.get("status_select")
             if status_select is not None:
                 status_select.value = status_filter
-        _cluster_body.refresh()
+        _refresh_views()
 
     def _clear_filters() -> None:
         filter_state["search"] = ""
@@ -407,7 +437,16 @@ async def _render_console_panel(
         status_select = filter_controls.get("status_select")
         if status_select is not None:
             status_select.value = "ALL"
-        _cluster_body.refresh()
+        _refresh_views()
+
+    @ui.refreshable
+    def _kpi_and_tabs() -> None:
+        _render_kpi_and_tabs(
+            snapshot_box[0],
+            filter_state,
+            view_state,
+            _switch_view,
+        )
 
     @ui.refreshable
     async def _cluster_body() -> None:
@@ -419,7 +458,6 @@ async def _render_console_panel(
             view_state,
             expanded_nodes,
             drawer_host,
-            on_switch_view=_switch_view,
             on_mutated=_handle_manual_refresh,
             on_filter_run=_filter_to_run,
         )
@@ -443,6 +481,8 @@ async def _render_console_panel(
                 'aria-label="Sign out"'
             ).tooltip("Sign out")
 
+    _kpi_and_tabs()
+
     filter_row = ui.row().classes("w-full items-center gap-3 mt-4")
     filter_controls["filter_row"] = filter_row
     with filter_row:
@@ -451,13 +491,13 @@ async def _render_console_panel(
             new_val = str(getattr(ev, "value", "") or "")
             if new_val != filter_state["search"]:
                 filter_state["search"] = new_val
-                _cluster_body.refresh()
+                _refresh_views()
 
         def _on_status_change(ev: object) -> None:
             new_val = str(getattr(ev, "value", "ALL") or "ALL")
             if new_val != filter_state["status"]:
                 filter_state["status"] = new_val
-                _cluster_body.refresh()
+                _refresh_views()
 
         filter_controls["search_input"] = (
             ui.input(
