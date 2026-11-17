@@ -140,7 +140,7 @@ __all__ = [
     "resolve_job_display_status",
     "resolve_run_display_status",
     "STATUS_BADGE_COLORS",
-    "status_sort_rank",
     "STATUS_SORT_RANK",
+    "status_sort_rank",
     "TERMINAL_DISPLAY_STATES",
 ]

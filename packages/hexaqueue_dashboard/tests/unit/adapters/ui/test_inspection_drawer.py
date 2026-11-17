@@ -14,6 +14,7 @@ from hexaqueue_core.domain.lifecycle import JobState, JobStatus, TerminalOutcome
 from hexaqueue_core.domain.run import RunSpec
 from hexaqueue_core.ports.logging import LogChunk
 from hexaqueue_dashboard.adapters.ui import inspection_drawer as drawer_mod
+from hexaqueue_dashboard.adapters.ui import logs_view as logs_mod
 from hexaqueue_dashboard.adapters.ui.state import DrawerUIState
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
 from hexaqueue_server.domain.models import RunSubmission
@@ -39,12 +40,15 @@ async def test_inspection_drawer_and_lifecycle_actions(
         row=lambda *_a, **_k: fake_el(),
         column=lambda *_a, **_k: fake_el(),
         label=lambda *_a, **_k: fake_el(),
+        switch=lambda *_a, **_k: fake_el(),
+        timer=lambda *_a, **_k: fake_el(),
         button=_cap_btn,
         html=lambda *_a, **_k: fake_el(),
         notify=lambda *_a, **_k: None,
-        navigate=SimpleNamespace(reload=lambda: None),
+        navigate=SimpleNamespace(reload=lambda: None, to=lambda *_a, **_k: None),
     )
     monkeypatch.setattr(drawer_mod, "ui", fake_ui)
+    monkeypatch.setattr(logs_mod, "ui", fake_ui)
 
     root_job = JobSpec(
         id="j-root",

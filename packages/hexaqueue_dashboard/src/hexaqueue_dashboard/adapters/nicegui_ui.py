@@ -44,6 +44,7 @@ from hexaqueue_dashboard.adapters.ui.login import (
     render_login_panel,
     resolve_session_identity,
 )
+from hexaqueue_dashboard.adapters.ui.logs_view import render_live_logs_page
 from hexaqueue_dashboard.adapters.ui.nodes_view import render_nodes_section
 from hexaqueue_dashboard.adapters.ui.runs_tree import render_runs_section
 from hexaqueue_dashboard.adapters.ui.state import ConsoleUIState, DrawerUIState
@@ -715,6 +716,22 @@ def mount_dashboard_ui(
             identity,
             auth_manager=manager,
             live_status_js_url=live_status_js_url,
+        )
+
+    logs_mount_path = f"{mount_path.rstrip('/')}/logs/{{job_id}}"
+
+    @ui_page(logs_mount_path, title="Hexaqueue Live Logs", dark=True)
+    async def _job_logs_page(job_id: str) -> None:
+        ui.colors(primary="#1d4ed8", negative="#b91c1c")
+        identity = resolve_session_identity(manager)
+        if identity is None:
+            render_login_panel(manager, live_status_js_url=live_status_js_url)
+            return
+        await render_live_logs_page(
+            pipeline,
+            identity,
+            job_id,
+            back_url=mount_path,
         )
 
     storage_secret = os.environ.get("HEXAQUEUE_JWT_SECRET") or secrets.token_urlsafe(32)

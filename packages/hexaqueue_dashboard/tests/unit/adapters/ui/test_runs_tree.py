@@ -13,6 +13,7 @@ from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import JobState, JobStatus
 from hexaqueue_core.domain.run import RunSpec
 from hexaqueue_dashboard.adapters.ui import inspection_drawer as drawer_mod
+from hexaqueue_dashboard.adapters.ui import logs_view as logs_mod
 from hexaqueue_dashboard.adapters.ui import runs_tree as runs_mod
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
 from hexaqueue_server.domain.models import RunSubmission
@@ -42,10 +43,13 @@ async def test_runs_tree_builder_and_selection(
         button=lambda *_a, **_k: fake_el(),
         html=lambda *_a, **_k: fake_el(),
         notify=lambda *_a, **_k: None,
-        navigate=SimpleNamespace(reload=lambda: None),
+        navigate=SimpleNamespace(reload=lambda: None, to=lambda *_a, **_k: None),
+        switch=lambda *_a, **_k: fake_el(),
+        timer=lambda *_a, **_k: fake_el(),
     )
     monkeypatch.setattr(runs_mod, "ui", fake_ui)
     monkeypatch.setattr(drawer_mod, "ui", fake_ui)
+    monkeypatch.setattr(logs_mod, "ui", fake_ui)
 
     root_job = JobSpec(
         id="j-root",
