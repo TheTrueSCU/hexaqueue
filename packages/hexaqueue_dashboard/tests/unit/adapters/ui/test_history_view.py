@@ -114,3 +114,81 @@ async def test_history_explorer_pagination_and_drawers(
         on_refresh=_on_refresh,
     )
     await events["rowClick"](SimpleNamespace(args=[None, {"run_id": "r-hist-1"}, 0]))
+
+
+def test_history_analytics_and_svg_builders() -> None:
+    """Verify compute_history_analytics and SVG chart builders across durations and outcomes."""
+    from datetime import UTC, datetime, timedelta
+
+    from hexaqueue_core.domain.job import JobSpec, JobStatus
+    from hexaqueue_core.domain.lifecycle import JobState, TerminalOutcome
+    from hexaqueue_dashboard.adapters.ui import history_view as hist_mod
+    from hexaqueue_server.domain.models import RunStatusReport
+
+    base = datetime(2026, 11, 18, 12, 0, 0, tzinfo=UTC)
+    j1 = JobSpec(
+        id="j-a",
+        run_id="r-a",
+        name="fast",
+        command="true",
+        created_at=base,
+        updated_at=base + timedelta(seconds=5),
+        status=JobStatus(state=JobState.DONE, outcome=TerminalOutcome.COMPLETED),
+    )
+    j2 = JobSpec(
+        id="j-b",
+        run_id="r-a",
+        name="slow-fail",
+        command="false",
+        created_at=base,
+        updated_at=base + timedelta(seconds=120),
+        status=JobStatus(state=JobState.DONE, outcome=TerminalOutcome.FAILED),
+    )
+    j3 = JobSpec(
+        id="j-c",
+        run_id="r-a",
+        name="cancelled",
+        command="true",
+        created_at=base,
+        updated_at=base + timedelta(seconds=45),
+        status=JobStatus(state=JobState.DONE, outcome=TerminalOutcome.CANCELLED),
+    )
+
+    job_stats = hist_mod.compute_history_analytics([j1, j2, j3], is_runs=False)
+    assert job_stats["total"] == 3
+    assert job_stats["failure_rate_pct"] == 33.3
+    buckets = dict(job_stats["duration_buckets"])
+    assert buckets["<10s"] == 1
+    assert buckets["10-60s"] == 1
+    assert buckets["1-5m"] == 1
+    assert job_stats["outcome_counts"]["Completed"] == 1
+    assert job_stats["outcome_counts"]["Failed"] == 1
+    assert job_stats["outcome_counts"]["Cancelled"] == 1
+
+    dur_svg = hist_mod.build_history_duration_histogram_svg(
+        job_stats["duration_buckets"]
+    )
+    assert 'aria-label="Duration distribution histogram"' in dur_svg
+    assert "<rect " in dur_svg
+
+    out_svg = hist_mod.build_history_outcome_svg(job_stats["outcome_counts"])
+    assert 'aria-label="Outcome and failure breakdown chart"' in out_svg
+    assert "Completed" in out_svg
+
+    run_rep = RunStatusReport(
+        run_id="r-a",
+        name="Run A",
+        owner="rjdw",
+        total_jobs=3,
+        completed_jobs=1,
+        failed_jobs=1,
+        running_jobs=0,
+        pending_jobs=0,
+        state=JobState.DONE,
+        outcome=TerminalOutcome.FAILED,
+        created_at=base,
+        updated_at=base + timedelta(seconds=120),
+    )
+    run_stats = hist_mod.compute_history_analytics([run_rep], is_runs=True)
+    assert run_stats["total"] == 1
+    assert run_stats["failure_rate_pct"] == 100.0
