@@ -136,9 +136,12 @@ runs:
         fi
 
         if [ "$EMIT_SUMMARY" = "true" ]; then
-          python3 -c "
-        import os, json, re
-        raw = '''$DISCOVERY'''
+          DISCOVERY_JSON="$DISCOVERY" SELECTED_HOST="$SELECTED_HOST" CLUSTER_READY="$CLUSTER_READY" python3 - << 'PYEOF'
+        import json
+        import os
+        import re
+
+        raw = os.environ.get('DISCOVERY_JSON', '')
         clean = re.sub(r'\x1b\[[0-9;]*m', '', raw).strip()
         try:
             nodes = json.loads(clean, strict=False)
@@ -147,10 +150,13 @@ runs:
 
         summary_path = os.environ.get('GITHUB_STEP_SUMMARY')
         if summary_path:
+            cluster_ready = os.environ.get('CLUSTER_READY', '') == 'true'
+            selected_host = os.environ.get('SELECTED_HOST', '').strip()
+            dashboard_url = os.environ.get('HEXAQUEUE_DASHBOARD_URL', '').strip()
             with open(summary_path, 'a') as f:
                 f.write('### 🌐 Hexaqueue Fleet Discovery & Mesh Summary\n\n')
-                if '$CLUSTER_READY' == 'true':
-                    f.write(f'✅ **Status**: Active zero-trust tunnel connected to \`$SELECTED_HOST\`. Distributed cloud execution active.\n\n')
+                if cluster_ready:
+                    f.write(f'✅ **Status**: Active zero-trust tunnel connected to `{selected_host}`. Distributed cloud execution active.\n\n')
                 else:
                     f.write('⚠️ **Status**: No cloud controller reachable. Falling back to local in-process runner.\n\n')
                 if nodes:
@@ -161,19 +167,17 @@ runs:
                         prov = n.get('provider', 'N/A')
                         user = n.get('user', 'N/A')
                         st = n.get('status', 'UNKNOWN')
-                        lat = f\"{n.get('latency_ms', 0.0):.1f}ms\" if n.get('latency_ms') is not None else 'N/A'
+                        lat = f"{n.get('latency_ms', 0.0):.1f}ms" if n.get('latency_ms') is not None else 'N/A'
                         src = n.get('source', 'N/A')
-                        f.write(f'| \`{host}\` | {prov} | \`{user}\` | **{st}** | {lat} | {src} |\n')
+                        f.write(f'| `{host}` | {prov} | `{user}` | **{st}** | {lat} | {src} |\n')
                     f.write('\n')
-                dashboard_url = os.environ.get('HEXAQUEUE_DASHBOARD_URL', '').strip()
-                selected_host = '$SELECTED_HOST'.strip()
                 f.write('#### Dashboard & CLI Status\n\n')
                 if dashboard_url:
                     f.write(f'- **Dashboard**: {dashboard_url}\n')
                 else:
-                    f.write('- **Dashboard (via SSH tunnel)**: \`http://127.0.0.1:8080/dashboard/ui\` (\`hq dashboard open\`)\n')
+                    f.write('- **Dashboard (via SSH tunnel)**: `http://127.0.0.1:8080/dashboard/ui` (`hq dashboard open`)\n')
                 if selected_host:
-                    f.write(f'- **Cluster Tunnel**: \`hq cluster tunnel --host {selected_host}\`\n')
-                f.write('- **Cluster / Run / Job CLI**: \`hq stat\` · \`hq nodes\` · \`hq top\` · \`hq status <run-or-job-id>\` · \`hq logs <job-id>\`\n\n')
-        " || true
+                    f.write(f'- **Cluster Tunnel**: `hq cluster tunnel --host {selected_host}`\n')
+                f.write('- **Cluster / Run / Job CLI**: `hq stat` · `hq nodes` · `hq top` · `hq status <run-or-job-id>` · `hq logs <job-id>`\n\n')
+        PYEOF
         fi
