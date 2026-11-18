@@ -157,3 +157,56 @@ async def test_node_metrics_histogram_and_bastion_drawer(
     assert "Close Bastion Session" in buttons
     buttons["Close Bastion Session"]()
     assert "Launch Bastion Session" in buttons
+
+
+def test_render_nodes_section_populates_and_clears_node_table_ref(
+    monkeypatch: Any,
+) -> None:
+    """Verify render_nodes_section tracks live table handle and clears when empty."""
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    from hexaqueue_core.domain.telemetry import NodeTelemetryPulse
+    from hexaqueue_dashboard.adapters.ui import nodes_view as nodes_mod
+
+    class _FakeTable:
+        def classes(self, *_a: object, **_k: object) -> _FakeTable:
+            return self
+
+        def add_slot(self, *_a: object, **_k: object) -> None:
+            return None
+
+        def on(self, *_a: object, **_k: object) -> None:
+            return None
+
+    class _FakeEl:
+        def classes(self, *_a: object, **_k: object) -> _FakeEl:
+            return self
+
+    fake_ui = SimpleNamespace(
+        label=lambda *_a, **_k: _FakeEl(),
+        table=lambda *_a, **_k: _FakeTable(),
+        html=lambda *_a, **_k: _FakeEl(),
+    )
+    monkeypatch.setattr(nodes_mod, "ui", fake_ui)
+
+    pulse = NodeTelemetryPulse(
+        worker_id="w-ref-1",
+        cpu_utilization_pct=20.0,
+        memory_used_mb=512.0,
+        memory_total_mb=2048.0,
+        scratch_used_mb=10.0,
+        scratch_total_mb=100.0,
+        load_average=(0.2, 0.2, 0.2),
+        timestamp=datetime.now(UTC),
+    )
+    ref: dict[str, Any] = {}
+    history: dict[str, list[dict[str, float | str]]] = {}
+    nodes_mod.render_nodes_section(
+        [pulse], [], metrics_history=history, node_table_ref=ref
+    )
+    assert ref["workers"] == ("w-ref-1",)
+    assert "w-ref-1" in ref["nodes_by_id"]
+
+    nodes_mod.render_nodes_section([], [], metrics_history=history, node_table_ref=ref)
+    assert ref == {}

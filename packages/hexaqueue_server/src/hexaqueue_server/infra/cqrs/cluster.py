@@ -34,9 +34,10 @@ from hexaqueue_core.domain.explainability import (
     FairShareTreeReport,
     SchedulerExplainabilityEngine,
 )
+from hexaqueue_core.domain.fairshare import FairShareNode, FairShareTree
 from hexaqueue_core.domain.lifecycle import JobState, TerminalOutcome
 from hexaqueue_server.adapters.db.analytics import ColumnarAnalyticsAdapter
-from hexaqueue_server.infra.cqrs.common import BaseCqrsService
+from hexaqueue_server.infra.cqrs.common import BaseCqrsService, _extract_job_owner
 
 
 class ClusterCqrsMixin(BaseCqrsService):
@@ -189,10 +190,27 @@ class ClusterCqrsMixin(BaseCqrsService):
             qry: Query payload.
 
         Returns:
-            FairShareTreeReport hierarchy.
+            FairShareTreeReport hierarchy populated with default and active job owners.
         """
-        engine = SchedulerExplainabilityEngine()
-        return engine.explain_fairshare(current_timestamp=time.time())
+        now = time.time()
+        tree = FairShareTree()
+        tree.add_node(FairShareNode(id="default", parent_id="root", shares=1.0))
+
+        jobs = await self.controller.list_jobs()
+        for job in jobs:
+            owner = _extract_job_owner(job) or "default"
+            if owner == "root":
+                owner = "default"
+            if tree.get_node(owner) is None:
+                tree.add_node(FairShareNode(id=owner, parent_id="root", shares=1.0))
+            cpus = max(
+                float(getattr(getattr(job, "resources", None), "cpus", 1.0) or 1.0),
+                1.0,
+            )
+            tree.record_usage(owner, cpus, now)
+
+        engine = SchedulerExplainabilityEngine(fairshare_tree=tree)
+        return engine.explain_fairshare(current_timestamp=now)
 
     async def handle_get_queue_stats(
         self, qry: GetQueueStatsQuery

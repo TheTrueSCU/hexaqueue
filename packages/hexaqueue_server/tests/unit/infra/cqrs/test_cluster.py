@@ -61,6 +61,8 @@ def test_cluster_stats_fairshare_and_dlq_queries(
         GetFairShareTreeQuery(requesting_user="alice", is_admin=True)
     )
     assert tree.root.id == "root"
+    child_ids = [child.id for child in tree.root.children]
+    assert "default" in child_ids
 
     # DLQ query
     dlq_report = pipeline.execute(GetDeadLetterQueueQuery(limit=10))
@@ -114,3 +116,35 @@ def test_collateral_lifecycle_cqrs_handlers(
         EvictExpiredCollateralCommand(max_age_seconds=10, high_watermark_bytes=1000)
     )
     assert isinstance(evicted, list)
+
+
+def test_fairshare_tree_includes_active_job_owners(
+    hermetic_cqrs_pipeline: tuple[Any, Any],
+) -> None:
+    """Verify FairShareTree includes default and distinct job owners from jobs."""
+    from hexaqueue_core.domain.cqrs import SubmitRunCommand
+    from hexaqueue_core.domain.job import JobSpec
+    from hexaqueue_core.domain.run import RunSpec
+
+    _, pipeline = hermetic_cqrs_pipeline
+    job = JobSpec(
+        id="fs-job-1",
+        run_id="fs-run-1",
+        name="fs-job",
+        command="echo hi",
+        owner="rjdw",
+        user="rjdw",
+    )
+    run = RunSpec(id="fs-run-1", name="fs-test", owner="rjdw")
+    _submitted = pipeline.execute(
+        SubmitRunCommand(run_spec=run, jobs=[job], user_id="rjdw")
+    )
+    assert _submitted.run_id == "fs-run-1"
+
+    tree = pipeline.execute(
+        GetFairShareTreeQuery(requesting_user="rjdw", is_admin=True)
+    )
+    children_by_id = {child.id: child for child in tree.root.children}
+    assert "default" in children_by_id
+    assert "rjdw" in children_by_id
+    assert children_by_id["rjdw"].raw_usage >= 1.0

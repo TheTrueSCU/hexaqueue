@@ -207,3 +207,60 @@ def test_role_view_gating_and_fieldset_tab_groups(
     assert "Active Nodes & Topology" in seen_buttons
     assert "Fair-Share & Quotas" in seen_buttons
     assert seen_elements.count("fieldset") == 2
+
+
+def test_apply_body_refresh_updates_nodes_table_in_place() -> None:
+    """Verify nodes tab heartbeats update table rows in place without full refresh."""
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    from hexaqueue_core.domain.telemetry import NodeTelemetryPulse
+    from hexaqueue_dashboard.adapters import nicegui_ui
+    from hexaqueue_dashboard.adapters.ui.state import ConsoleUIState
+
+    pulse = NodeTelemetryPulse(
+        worker_id="node-local-01",
+        cpu_utilization_pct=12.5,
+        memory_used_mb=1024.0,
+        memory_total_mb=4096.0,
+        scratch_used_mb=100.0,
+        scratch_total_mb=1000.0,
+        load_average=(0.5, 0.4, 0.3),
+        timestamp=datetime.now(UTC),
+    )
+    updated_calls = 0
+
+    class FakeTable:
+        def __init__(self) -> None:
+            self.rows: list[dict[str, object]] = []
+
+        def update(self) -> None:
+            nonlocal updated_calls
+            updated_calls += 1
+
+    class FakeBody:
+        def __init__(self) -> None:
+            self.refreshed = 0
+
+        def refresh(self) -> None:
+            self.refreshed += 1
+
+    table = FakeTable()
+    body = FakeBody()
+    ui_state = ConsoleUIState(tab="nodes")
+    ui_state.node_table_ref["table"] = table
+    ui_state.node_table_ref["workers"] = ("node-local-01",)
+
+    next_data = (SimpleNamespace(), [pulse], [], [], "{}")
+    nicegui_ui._apply_body_refresh(ui_state, next_data, body, force=False)
+    assert updated_calls == 1
+    assert body.refreshed == 0
+    assert table.rows[0]["worker_id"] == "node-local-01"
+
+    nicegui_ui._apply_body_refresh(ui_state, next_data, body, force=True)
+    assert body.refreshed == 1
+
+    # Different worker set falls back to full refresh
+    ui_state.node_table_ref["workers"] = ("node-other",)
+    nicegui_ui._apply_body_refresh(ui_state, next_data, body, force=False)
+    assert body.refreshed == 2
