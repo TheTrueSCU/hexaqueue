@@ -217,3 +217,50 @@ async def test_render_live_logs_page(
     await timers[0].callback()
     buttons["Open Console"]()
     assert navigated == ["/dashboard/ui"]
+
+
+@pytest.mark.asyncio
+async def test_render_live_log_viewer_hides_live_tail_for_terminal_job(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_el: Any,
+) -> None:
+    """Verify Live Tail switch and polling timer are omitted for terminal jobs."""
+    switches: list[str] = []
+    timers: list[Any] = []
+
+    def _cap_switch(label: str = "", **_k: Any) -> Any:
+        switches.append(label)
+        return fake_el()
+
+    def _cap_timer(interval: float, callback: Any, *, active: bool = True) -> Any:
+        timer = SimpleNamespace(interval=interval, callback=callback, active=active)
+        timers.append(timer)
+        return timer
+
+    fake_ui = SimpleNamespace(
+        element=lambda *_a, **_k: fake_el(),
+        row=lambda *_a, **_k: fake_el(),
+        label=lambda *_a, **_k: fake_el(),
+        switch=_cap_switch,
+        button=lambda *_a, **_k: fake_el(),
+        badge=lambda *_a, **_k: fake_el(),
+        html=lambda *_a, **_k: fake_el(),
+        timer=_cap_timer,
+        navigate=SimpleNamespace(to=lambda *_a, **_k: None),
+    )
+    monkeypatch.setattr(logs_mod, "ui", fake_ui)
+
+    ident = Identity(user_id="rjdw", roles=frozenset({"admin"}))
+    pipeline: Any = SimpleNamespace()
+    logs_mod.render_live_log_viewer(
+        [],
+        None,
+        pipeline=pipeline,
+        identity=ident,
+        job_id="j-done",
+        default_live_tail=True,
+        is_terminal=True,
+    )
+
+    assert switches == []
+    assert timers == []

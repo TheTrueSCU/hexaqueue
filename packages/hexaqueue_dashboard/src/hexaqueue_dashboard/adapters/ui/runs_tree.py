@@ -256,7 +256,7 @@ def render_runs_section(
     if show_heading:
         ui.label("Runs & DAG Tree").classes("text-lg font-semibold mt-4")
     nodes = build_run_tree_nodes(
-        list(reversed(runs)),
+        sorted(runs, key=lambda r: r.created_at, reverse=True),
         jobs,
         search_text=active_filters.get("search", ""),
         status_filter=active_filters.get("status", "ALL"),

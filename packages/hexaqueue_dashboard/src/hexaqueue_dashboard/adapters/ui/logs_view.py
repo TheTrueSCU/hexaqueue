@@ -119,6 +119,7 @@ def render_live_log_viewer(
     identity: Identity | None = None,
     job_id: str | None = None,
     default_live_tail: bool = False,
+    is_terminal: bool = False,
     full_page_url: str | None = None,
     max_height: str = "260px",
     heading: str = "Execution Logs",
@@ -133,6 +134,8 @@ def render_live_log_viewer(
         identity: Optional authenticated operator `Identity`.
         job_id: Optional job identifier to poll with `GetLogsQuery`.
         default_live_tail: Whether live-tail polling starts active.
+        is_terminal: Whether the job is already in a terminal state (hides the
+            Live Tail toggle and disables automatic polling).
         full_page_url: Optional URL to open the dedicated full-page log viewer.
         max_height: CSS `max-height` applied to the `<pre>` viewport.
         heading: Section heading label rendered above the log viewport.
@@ -147,12 +150,13 @@ def render_live_log_viewer(
         live log polling never steals keyboard focus or flickers the drawer.
     """
     can_poll = pipeline is not None and identity is not None and bool(job_id)
+    effective_live_tail = default_live_tail and not is_terminal
 
     with ui.row().classes("w-full items-center justify-between gap-2 mt-4"):
         ui.label(heading).classes("text-sm font-semibold")
         with ui.row().classes("items-center gap-2"):
-            if can_poll:
-                tail_switch = ui.switch("Live Tail", value=default_live_tail).props(
+            if can_poll and not is_terminal:
+                tail_switch = ui.switch("Live Tail", value=effective_live_tail).props(
                     'dense aria-label="Toggle live log tail"'
                 )
             else:
@@ -198,8 +202,8 @@ def render_live_log_viewer(
             'flat dense size=sm color="grey-3" aria-label="Refresh job logs"'
         ).classes("mt-1")
 
-        if hasattr(ui, "timer"):
-            timer = ui.timer(2.0, _refresh_logs, active=default_live_tail)
+        if hasattr(ui, "timer") and not is_terminal:
+            timer = ui.timer(2.0, _refresh_logs, active=effective_live_tail)
             if tail_switch is not None and hasattr(tail_switch, "on_value_change"):
                 tail_switch.on_value_change(
                     lambda ev: setattr(
@@ -297,6 +301,7 @@ async def render_live_logs_page(
             identity=identity,
             job_id=job_id,
             default_live_tail=default_tail,
+            is_terminal=initial_status in TERMINAL_DISPLAY_STATES,
             max_height="calc(100vh - 230px)",
             heading="Live Execution Log Tail",
             on_poll=_refresh_job_badge,

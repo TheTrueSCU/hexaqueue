@@ -315,6 +315,7 @@ def render_drawer_explain_and_logs(
     identity: Identity | None = None,
     job_id: str | None = None,
     default_live_tail: bool = False,
+    is_terminal: bool = False,
     full_page_url: str | None = None,
 ) -> None:
     """Render scheduler explainability summary and execution log tail.
@@ -330,6 +331,7 @@ def render_drawer_explain_and_logs(
         identity: Optional authenticated operator `Identity`.
         job_id: Optional job identifier for live log tailing.
         default_live_tail: Whether live-tail polling starts enabled.
+        is_terminal: Whether the job is in a terminal state (hides Live Tail).
         full_page_url: Optional URL to open the dedicated live log page.
 
     Notes/Architectural Intent:
@@ -357,6 +359,7 @@ def render_drawer_explain_and_logs(
         identity=identity,
         job_id=job_id,
         default_live_tail=default_live_tail,
+        is_terminal=is_terminal,
         full_page_url=full_page_url,
     )
 
@@ -518,6 +521,7 @@ def _render_job_drawer_contents(
         identity=identity,
         job_id=job.id,
         default_live_tail=job.status.state is JobState.RUNNING,
+        is_terminal=display_status in TERMINAL_DISPLAY_STATES,
         full_page_url=f"/dashboard/ui/logs/{job.id}",
     )
 
