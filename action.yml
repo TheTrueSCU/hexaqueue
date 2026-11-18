@@ -179,5 +179,8 @@ runs:
                 if selected_host:
                     f.write(f'- **Cluster Tunnel**: `hq cluster tunnel --host {selected_host}`\n')
                 f.write('- **Cluster / Run / Job CLI**: `hq stat` · `hq nodes` · `hq top` · `hq status <run-or-job-id>` · `hq logs <job-id>`\n\n')
+            print(f'Appended fleet summary to {summary_path} ({os.path.getsize(summary_path)} bytes)')
+        else:
+            print('GITHUB_STEP_SUMMARY is not set; skipping fleet summary.')
         PYEOF
         fi

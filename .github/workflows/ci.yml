@@ -176,6 +176,9 @@ jobs:
                       f.write(f'- **Total Tests**: \`{tests}\`\n')
                       f.write(f'- **Results**: ✅ \`{passed}\` passed, ❌ \`{failures}\` failed, ⚠️ \`{errors}\` errors, ⏭️ \`{skipped}\` skipped\n')
                       f.write(f'- **Aggregated Suite Duration**: \`{duration:.2f}s\`\n\n')
+                  print(f'Appended test summary to {summary_path} ({os.path.getsize(summary_path)} bytes)')
+              else:
+                  print('GITHUB_STEP_SUMMARY is not set; skipping test summary.')
           except Exception as exc:
               print(f'Error generating test summary: {exc}')
           " || true
@@ -279,7 +282,6 @@ jobs:
     name: Mutation Testing Verification
     needs: [test-suite, cluster-probe]
     if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' && !startsWith(github.head_ref, 'dependabot/')
-    continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
