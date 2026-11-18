@@ -244,14 +244,34 @@ jobs:
 
   # =========================================================================
   # Stage 4: Mutation Testing Verification (PR Quality Fortification)
-  # Runs pytest-gremlins mutation testing on affected packages
+  # Discovers directly affected packages in LPT order and runs them in parallel
   # =========================================================================
-  mutation-verification:
-    name: Mutation Testing Verification
-    needs: [test-suite, cluster-probe]
+  mutation-plan:
+    name: Mutation Testing Plan
+    needs: [test-suite]
     if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' && !startsWith(github.head_ref, 'dependabot/')
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      has_affected: ${{ steps.plan.outputs.has_affected }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Discover Affected Packages (LPT Order)
+        id: plan
+        run: python3 .github/scripts/discover_affected_mutation_packages.py
+
+  mutation-verification:
+    name: Mutation Testing Verification (${{ matrix.package }})
+    needs: [test-suite, cluster-probe, mutation-plan]
+    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' && !startsWith(github.head_ref, 'dependabot/') && needs.mutation-plan.outputs.has_affected == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.mutation-plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -278,15 +298,15 @@ jobs:
           auto-tunnel: "true"
           step-summary: "false"
 
-      - name: Run Affected Mutation Testing via Hexaqueue Cloud
+      - name: Run Package Mutation Testing via Hexaqueue Cloud
         if: needs.cluster-probe.outputs.cluster_ready == 'true'
         env:
-          HEXAQUEUE_TIMEOUT: "3600"
-        run: uv run hexaqual mutate run -A --direct-only -e gremlins -w auto --batch-size 10 -n auto --cluster hexaqueue
+          HEXAQUEUE_TIMEOUT: "6900"
+        run: uv run hexaqual mutate run -p "${{ matrix.package }}" -e gremlins -w auto --batch-size 10 -n auto --cluster hexaqueue
 
-      - name: Run Affected Mutation Testing Locally (Fallback)
+      - name: Run Package Mutation Testing Locally (Fallback)
         if: needs.cluster-probe.outputs.cluster_ready != 'true'
-        run: uv run hexaqual mutate run -A --direct-only -e gremlins -w auto --batch-size 10 -n auto
+        run: uv run hexaqual mutate run -p "${{ matrix.package }}" -e gremlins -w auto --batch-size 10 -n auto
 
       - name: Disconnect Hexaqueue Cluster Tunnel
         if: always() && needs.cluster-probe.outputs.cluster_ready == 'true'
