@@ -149,39 +149,7 @@ jobs:
           CLUSTER_READY: ${{ needs.cluster-probe.outputs.cluster_ready }}
           CLUSTER_HOST: ${{ needs.cluster-probe.outputs.cluster_host }}
           PYTHON_VERSION: ${{ matrix.python-version }}
-        run: |
-          python3 -c "
-          import os, xml.etree.ElementTree as ET
-          try:
-              tree = ET.parse('junit.xml')
-              root = tree.getroot()
-              suites = list(root) if root.tag == 'testsuites' else [root]
-              tests = sum(int(s.attrib.get('tests', 0)) for s in suites)
-              failures = sum(int(s.attrib.get('failures', 0)) for s in suites)
-              errors = sum(int(s.attrib.get('errors', 0)) for s in suites)
-              skipped = sum(int(s.attrib.get('skipped', 0)) for s in suites)
-              duration = sum(float(s.attrib.get('time', 0.0)) for s in suites)
-              passed = tests - failures - errors - skipped
-
-              summary_path = os.environ.get('GITHUB_STEP_SUMMARY')
-              if summary_path:
-                  cluster_ready = os.environ.get('CLUSTER_READY') == 'true'
-                  cluster_host = os.environ.get('CLUSTER_HOST', '')
-                  py_ver = os.environ.get('PYTHON_VERSION', '')
-                  engine_str = f'⚡ Hexaqueue Cloud Fleet (\`{cluster_host}\` via Zero-Trust SSH Tunnel)' if cluster_ready else '🖥️ Local Runner (In-Process xdist)'
-
-                  with open(summary_path, 'a') as f:
-                      f.write(f'### 🧪 Test Execution Summary (Python {py_ver})\n\n')
-                      f.write(f'- **Execution Engine**: {engine_str}\n')
-                      f.write(f'- **Total Tests**: \`{tests}\`\n')
-                      f.write(f'- **Results**: ✅ \`{passed}\` passed, ❌ \`{failures}\` failed, ⚠️ \`{errors}\` errors, ⏭️ \`{skipped}\` skipped\n')
-                      f.write(f'- **Aggregated Suite Duration**: \`{duration:.2f}s\`\n\n')
-                  print(f'Appended test summary to {summary_path} ({os.path.getsize(summary_path)} bytes)')
-              else:
-                  print('GITHUB_STEP_SUMMARY is not set; skipping test summary.')
-          except Exception as exc:
-              print(f'Error generating test summary: {exc}')
-          " || true
+        run: python3 .github/scripts/emit_test_summary.py
 
       - name: Disconnect Hexaqueue Cluster Tunnel
         if: always() && needs.cluster-probe.outputs.cluster_ready == 'true'
