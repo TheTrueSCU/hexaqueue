@@ -27,6 +27,7 @@ from hexaqueue_core.domain.cqrs import (
     ClusterMetricsReport,
     ClusterStatsReport,
     DeadLetterQueueReport,
+    DeleteCollateralCommand,
     EvictExpiredCollateralCommand,
     FindCollateralByChecksumQuery,
     GetClusterMetricsQuery,
@@ -35,7 +36,9 @@ from hexaqueue_core.domain.cqrs import (
     GetDeadLetterQueueQuery,
     GetFairShareTreeQuery,
     GetQueueStatsQuery,
+    ListCollateralQuery,
     PinCollateralCommand,
+    PromoteCollateralCommand,
     RegisterCollateralCommand,
     SettleBudgetCommand,
     UnpinCollateralCommand,
@@ -173,6 +176,19 @@ def create_cluster_router() -> APIRouter:
         return _dispatch(pipeline, qry)
 
     @router.get(
+        "/collateral",
+        response_model=list[CollateralBundle],
+        summary="List collateral bundles visible to the authenticated caller",
+    )
+    def list_collateral_bundles(
+        pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
+    ) -> list[CollateralBundle]:
+        user_id, is_elevated = auth
+        qry = ListCollateralQuery(user_id=user_id, elevate=is_elevated)
+        return _dispatch(pipeline, qry)
+
+    @router.get(
         "/collateral/{collateral_id}",
         response_model=CollateralBundle,
         summary="Retrieve collateral bundle metadata",
@@ -236,6 +252,39 @@ def create_cluster_router() -> APIRouter:
             collateral_id=collateral_id, user_id=user_id, elevate=is_elevated
         )
         return _dispatch(pipeline, cmd)
+
+    @router.post(
+        "/collateral/{collateral_id}/promote",
+        response_model=CollateralBundle,
+        summary="Promote TEMPORARY collateral bundle to PERMANENT retention tier",
+    )
+    def promote_collateral(
+        collateral_id: str,
+        pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
+    ) -> CollateralBundle:
+        user_id, is_elevated = auth
+        cmd = PromoteCollateralCommand(
+            collateral_id=collateral_id, user_id=user_id, elevate=is_elevated
+        )
+        return _dispatch(pipeline, cmd)
+
+    @router.delete(
+        "/collateral/{collateral_id}",
+        response_model=dict[str, str],
+        summary="Delete an unused collateral bundle from CAS storage",
+    )
+    def delete_collateral(
+        collateral_id: str,
+        pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
+    ) -> dict[str, str]:
+        user_id, is_elevated = auth
+        cmd = DeleteCollateralCommand(
+            collateral_id=collateral_id, user_id=user_id, elevate=is_elevated
+        )
+        deleted_id = _dispatch(pipeline, cmd)
+        return {"deleted_id": deleted_id}
 
     @router.post(
         "/collateral/evict",

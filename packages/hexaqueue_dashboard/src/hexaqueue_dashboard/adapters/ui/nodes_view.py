@@ -643,6 +643,37 @@ def render_nodes_section(
         "</div>",
         sanitize=False,
     )
+    _render_live_node_metrics(nodes, metrics_history)
+
+
+def _render_live_node_metrics(
+    nodes: list[NodeTelemetryPulse],
+    metrics_history: dict[str, list[dict[str, float | str]]] | None,
+) -> None:
+    """Render inline live CPU & RAM metric histograms for active worker nodes."""
+    if not nodes or metrics_history is None:
+        return
+    ui.label("Live Node Metrics").classes("text-md font-semibold mt-4")
+    with ui.row().classes("w-full gap-3 flex-wrap mt-1"):
+        for pulse in nodes:
+            samples = metrics_history.get(pulse.worker_id, [])
+            if not samples:
+                continue
+            cpu_svg = build_node_metrics_histogram_svg(
+                samples, metric_key="cpu", label="CPU %", bar_color="#38bdf8"
+            )
+            ram_svg = build_node_metrics_histogram_svg(
+                samples, metric_key="ram_pct", label="RAM %", bar_color="#34d399"
+            )
+            with ui.card().classes("bg-slate-900 border border-slate-800 p-3"):
+                ui.label(
+                    f"{pulse.worker_id} — CPU {pulse.cpu_utilization_pct:.1f}% | "
+                    f"RAM {pulse.memory_used_mb}/{pulse.memory_total_mb} MB | "
+                    f"Load {pulse.load_average[0]:.2f}"
+                ).classes("text-xs font-mono text-slate-200")
+                with ui.row().classes("items-center gap-2 mt-2"):
+                    ui.html(cpu_svg, sanitize=False)
+                    ui.html(ram_svg, sanitize=False)
 
 
 __all__ = [

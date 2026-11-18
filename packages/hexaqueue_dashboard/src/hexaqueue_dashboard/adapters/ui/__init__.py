@@ -5,6 +5,12 @@ Notes/Architectural Intent:
     tree, inspection drawer) into focused, independently testable view modules.
 """
 
+from hexaqueue_dashboard.adapters.ui.collateral_view import (
+    build_collateral_rows,
+    compute_auto_removal_display,
+    find_worker_cache_nodes,
+    render_collateral_section,
+)
 from hexaqueue_dashboard.adapters.ui.fairshare_view import (
     build_fairshare_tree_nodes,
     render_fairshare_section,
@@ -81,6 +87,7 @@ from hexaqueue_dashboard.adapters.ui.status import (
 
 __all__ = [
     "ActiveDrawerState",
+    "build_collateral_rows",
     "build_dag_job_subtree",
     "build_fairshare_tree_nodes",
     "build_history_run_rows",
@@ -90,6 +97,7 @@ __all__ = [
     "build_node_rows",
     "build_run_tree_nodes",
     "build_single_run_tree_node",
+    "compute_auto_removal_display",
     "compute_filtered_kpi_counts",
     "ConsoleUIState",
     "dispatch_lifecycle_action",
@@ -98,6 +106,7 @@ __all__ = [
     "filter_history_runs",
     "filter_jobs",
     "FilterUIState",
+    "find_worker_cache_nodes",
     "format_log_lines",
     "generate_cluster_topology_svg",
     "HistoryUIState",
@@ -111,6 +120,7 @@ __all__ = [
     "paginate_history_items",
     "record_node_metrics_samples",
     "refresh_active_drawer",
+    "render_collateral_section",
     "render_drawer_dag_links",
     "render_drawer_explain_and_logs",
     "render_drawer_run_timeline",

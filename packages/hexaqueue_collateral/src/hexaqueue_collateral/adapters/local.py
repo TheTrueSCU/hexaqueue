@@ -421,6 +421,37 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
 
         return evicted_ids
 
+    async def list_bundles(self) -> list[CollateralBundle]:
+        """List all registered collateral bundles ordered newest-first."""
+        return sorted(
+            self._bundles.values(),
+            key=lambda b: b.created_at,
+            reverse=True,
+        )
+
+    async def promote_bundle(self, collateral_id: str) -> CollateralBundle:
+        """Promote a TEMPORARY collateral bundle to PERMANENT retention tier."""
+        bundle = await self.get_bundle(collateral_id)
+        if bundle.tier == CollateralTier.PERMANENT:
+            return bundle
+        promoted = bundle.model_copy(
+            update={
+                "tier": CollateralTier.PERMANENT,
+                "updated_at": datetime.now(UTC),
+            }
+        )
+        self._bundles[collateral_id] = promoted
+        return promoted
+
+    async def delete_bundle(self, collateral_id: str) -> str:
+        """Delete an unpinned collateral bundle from storage and memory registry."""
+        bundle = await self.get_bundle(collateral_id)
+        if bundle.active_pin_count > 0:
+            msg = f"Cannot delete collateral {collateral_id}: active_pin_count={bundle.active_pin_count}"
+            raise HexaqueueError(msg)
+        self._purge_bundle(bundle)
+        return collateral_id
+
     def _purge_bundle(self, bundle: CollateralBundle) -> None:
         """Purge bundle files from disk and remove from memory registry."""
         if bundle.active_uri:

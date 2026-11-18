@@ -168,6 +168,53 @@ class CollateralServicePort(ABC):
             tier == CollateralTier.PERMANENT are never evicted.
         """
 
+    @abstractmethod
+    async def list_bundles(self) -> list[CollateralBundle]:
+        """List all registered collateral bundles.
+
+        Returns:
+            List of CollateralBundle records ordered newest-first.
+
+        Notes/Architectural Intent:
+            Enables operator dashboard inspection and RBAC-scoped filtering
+            at the CQRS boundary.
+        """
+
+    @abstractmethod
+    async def promote_bundle(self, collateral_id: str) -> CollateralBundle:
+        """Promote a TEMPORARY collateral bundle to PERMANENT retention tier.
+
+        Args:
+            collateral_id: Collateral bundle identifier.
+
+        Returns:
+            Updated CollateralBundle with ``tier == CollateralTier.PERMANENT``.
+
+        Raises:
+            HexaqueueError: If collateral is not found.
+
+        Notes/Architectural Intent:
+            Marks critical datasets or golden images exempt from LRU/TTL GC.
+        """
+
+    @abstractmethod
+    async def delete_bundle(self, collateral_id: str) -> str:
+        """Delete a collateral bundle from storage and metadata registry.
+
+        Args:
+            collateral_id: Collateral bundle identifier.
+
+        Returns:
+            The deleted collateral bundle identifier.
+
+        Raises:
+            HexaqueueError: If collateral is not found or still pinned.
+
+        Notes/Architectural Intent:
+            Refuses deletion while ``active_pin_count > 0`` to protect
+            in-flight job execution.
+        """
+
 
 __all__ = [
     "CollateralServicePort",

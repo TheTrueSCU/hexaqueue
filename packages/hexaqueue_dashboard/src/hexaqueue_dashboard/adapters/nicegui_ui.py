@@ -32,6 +32,7 @@ from hexaqueue_core.domain.cqrs import (
 )
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_dashboard.adapters.auth import DashboardAuthManager
+from hexaqueue_dashboard.adapters.ui.collateral_view import render_collateral_section
 from hexaqueue_dashboard.adapters.ui.fairshare_view import render_fairshare_section
 from hexaqueue_dashboard.adapters.ui.history_view import render_history_section
 from hexaqueue_dashboard.adapters.ui.inspection_drawer import refresh_active_drawer
@@ -433,6 +434,13 @@ def _render_kpi_and_tabs(
                     "Switch to History Explorer view",
                     lambda: on_switch_view("history"),
                 ),
+                (
+                    "Collateral & Quarantine",
+                    "verified_user",
+                    "primary" if tab == "collateral" else "grey-8",
+                    "Switch to Collateral and Quarantine view",
+                    lambda: on_switch_view("collateral"),
+                ),
             ],
         )
         if is_admin_view:
@@ -515,6 +523,17 @@ async def _render_cluster_body_content(
 
     if tab == "fairshare" and is_admin_view:
         await render_fairshare_section(pipeline, identity, nodes, _stats)
+        return
+
+    if tab == "collateral":
+        await render_collateral_section(
+            pipeline,
+            identity,
+            jobs,
+            nodes,
+            is_admin=is_admin_view,
+            on_mutated=on_mutated,
+        )
         return
 
     if tab == "history":
@@ -605,9 +624,14 @@ def _render_console_header(
         ui.label("Hexaqueue Operator Console").classes("text-lg font-bold")
         with ui.row().classes("items-center gap-3"):
             render_live_status_widget(live_status_js_url)
-            if len(identity.roles) > 1 and on_role_change is not None:
+            role_options = (
+                sorted(set(identity.roles) | {"user"})
+                if "admin" in identity.roles
+                else sorted(identity.roles)
+            )
+            if len(role_options) > 1 and on_role_change is not None:
                 ui.select(
-                    options=sorted(identity.roles),
+                    options=role_options,
                     value=active_role,
                     label="Viewing as",
                     on_change=lambda ev: on_role_change(

@@ -183,10 +183,18 @@ def test_render_nodes_section_populates_and_clears_node_table_ref(
         def classes(self, *_a: object, **_k: object) -> _FakeEl:
             return self
 
+        def __enter__(self) -> _FakeEl:
+            return self
+
+        def __exit__(self, *_a: object) -> None:
+            return None
+
     fake_ui = SimpleNamespace(
         label=lambda *_a, **_k: _FakeEl(),
         table=lambda *_a, **_k: _FakeTable(),
         html=lambda *_a, **_k: _FakeEl(),
+        row=lambda *_a, **_k: _FakeEl(),
+        card=lambda *_a, **_k: _FakeEl(),
     )
     monkeypatch.setattr(nodes_mod, "ui", fake_ui)
 
