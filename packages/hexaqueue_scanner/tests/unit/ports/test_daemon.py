@@ -109,7 +109,7 @@ def test_scan_task_queue_port_is_abstract() -> None:
     is_abs = inspect.isabstract(ScanTaskQueuePort)
     assert is_abs is True
     with pytest.raises(TypeError, match="Can't instantiate abstract class"):
-        ScanTaskQueuePort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+        ScanTaskQueuePort()  # ty: ignore[abstract-class-instantiation] # type: ignore[abstract]
 
 
 def test_scan_task_queue_port_abstract_methods() -> None:
@@ -125,7 +125,7 @@ def test_scanner_daemon_port_is_abstract() -> None:
     is_abs = inspect.isabstract(ScannerDaemonPort)
     assert is_abs is True
     with pytest.raises(TypeError, match="Can't instantiate abstract class"):
-        ScannerDaemonPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+        ScannerDaemonPort()  # ty: ignore[abstract-class-instantiation] # type: ignore[abstract]
 
 
 def test_scanner_daemon_port_abstract_methods() -> None:

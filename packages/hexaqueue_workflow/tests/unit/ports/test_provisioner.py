@@ -61,7 +61,7 @@ def test_infrastructure_provisioner_port_is_abstract() -> None:
     is_abs = inspect.isabstract(InfrastructureProvisionerPort)
     assert is_abs is True
     with pytest.raises(TypeError, match="Can't instantiate abstract class"):
-        InfrastructureProvisionerPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+        InfrastructureProvisionerPort()  # ty: ignore[abstract-class-instantiation] # type: ignore[abstract]
 
 
 def test_infrastructure_provisioner_port_abstract_methods() -> None:

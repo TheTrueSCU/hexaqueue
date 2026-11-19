@@ -52,7 +52,7 @@ def test_telemetry_emitter_port_is_abstract() -> None:
     is_abs = inspect.isabstract(TelemetryEmitterPort)
     assert is_abs is True
     with pytest.raises(TypeError, match="Can't instantiate abstract class"):
-        TelemetryEmitterPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+        TelemetryEmitterPort()  # ty: ignore[abstract-class-instantiation] # type: ignore[abstract]
 
 
 def test_telemetry_emitter_port_abstract_methods() -> None:

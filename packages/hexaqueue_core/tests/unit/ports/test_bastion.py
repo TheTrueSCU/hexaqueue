@@ -17,7 +17,7 @@ def test_bastion_access_port_is_abstract() -> None:
     is_abs = inspect.isabstract(BastionAccessPort)
     assert is_abs is True
     with pytest.raises(TypeError, match="Can't instantiate abstract class"):
-        BastionAccessPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+        BastionAccessPort()  # ty: ignore[abstract-class-instantiation] # type: ignore[abstract]
 
 
 def test_bastion_access_port_abstract_methods() -> None:

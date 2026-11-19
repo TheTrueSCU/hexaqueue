@@ -262,7 +262,7 @@ def test_client_port_is_abstract() -> None:
     is_abs = inspect.isabstract(ClientPort)
     assert is_abs is True
     with pytest.raises(TypeError, match="Can't instantiate abstract class"):
-        ClientPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+        ClientPort()  # ty: ignore[abstract-class-instantiation] # type: ignore[abstract]
 
 
 def test_client_port_abstract_methods() -> None:

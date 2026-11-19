@@ -61,7 +61,7 @@ def test_malware_scanner_engine_port_is_abstract() -> None:
     is_abs = inspect.isabstract(MalwareScannerEnginePort)
     assert is_abs is True
     with pytest.raises(TypeError, match="Can't instantiate abstract class"):
-        MalwareScannerEnginePort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+        MalwareScannerEnginePort()  # ty: ignore[abstract-class-instantiation] # type: ignore[abstract]
 
 
 def test_malware_scanner_engine_port_abstract_methods() -> None:

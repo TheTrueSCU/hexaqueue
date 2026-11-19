@@ -42,7 +42,7 @@ def test_worker_daemon_port_is_abstract() -> None:
     is_abs = inspect.isabstract(WorkerDaemonPort)
     assert is_abs is True
     with pytest.raises(TypeError, match="Can't instantiate abstract class"):
-        WorkerDaemonPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+        WorkerDaemonPort()  # ty: ignore[abstract-class-instantiation] # type: ignore[abstract]
 
 
 def test_worker_daemon_port_abstract_methods() -> None:

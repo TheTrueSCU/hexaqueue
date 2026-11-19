@@ -16,4 +16,4 @@ def test_webhook_verifier_port_is_abstract() -> None:
     assert "verify_signature" in abstract_methods
 
     with pytest.raises(TypeError):
-        WebhookVerifierPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+        WebhookVerifierPort()  # ty: ignore[abstract-class-instantiation] # type: ignore[abstract]

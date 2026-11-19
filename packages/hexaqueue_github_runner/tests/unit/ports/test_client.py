@@ -18,4 +18,4 @@ def test_github_api_client_port_is_abstract() -> None:
     assert "post_workflow_job_annotation" in abstract_methods
 
     with pytest.raises(TypeError):
-        GitHubApiClientPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+        GitHubApiClientPort()  # ty: ignore[abstract-class-instantiation] # type: ignore[abstract]

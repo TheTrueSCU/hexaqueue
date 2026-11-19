@@ -51,7 +51,7 @@ def test_container_image_assembler_port_is_abstract() -> None:
     is_abs = inspect.isabstract(ContainerImageAssemblerPort)
     assert is_abs is True
     with pytest.raises(TypeError, match="Can't instantiate abstract class"):
-        ContainerImageAssemblerPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+        ContainerImageAssemblerPort()  # ty: ignore[abstract-class-instantiation] # type: ignore[abstract]
 
 
 def test_container_image_assembler_port_abstract_methods() -> None:

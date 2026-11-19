@@ -21,4 +21,4 @@ def test_github_runner_autoscaler_port_is_abstract() -> None:
     assert "get_warm_pool_status" in abstract_methods
 
     with pytest.raises(TypeError):
-        GitHubRunnerAutoscalerPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+        GitHubRunnerAutoscalerPort()  # ty: ignore[abstract-class-instantiation] # type: ignore[abstract]
