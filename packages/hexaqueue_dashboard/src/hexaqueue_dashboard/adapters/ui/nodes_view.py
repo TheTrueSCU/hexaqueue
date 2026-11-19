@@ -174,7 +174,7 @@ def _fallback_topology_svg(nodes: list[NodeTelemetryPulse]) -> str:
     )
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 {height}" '
-        'role="img" aria-label="Hexaqueue cluster topology diagram" '
+        'aria-hidden="true" '
         'style="width:100%;max-width:640px;height:auto;">'
         f'<rect width="640" height="{height}" fill="#ffffff" rx="8"/>'
         '<rect x="20" y="50" width="160" height="60" rx="6" fill="#1d4ed8"/>'
