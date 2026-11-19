@@ -140,7 +140,7 @@ __all__ = [
     "RunsTreeUIState",
     "sort_job_rows",
     "STATUS_BADGE_COLORS",
-    "STATUS_SORT_RANK",
     "status_sort_rank",
+    "STATUS_SORT_RANK",
     "TERMINAL_DISPLAY_STATES",
 ]
