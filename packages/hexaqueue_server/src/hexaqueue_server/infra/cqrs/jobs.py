@@ -5,6 +5,8 @@ Notes/Architectural Intent:
     explainability score breakdowns, and provides pseudo-terminal session records.
 """
 
+import time
+
 from hexaqueue_core.domain.cqrs import (
     CancelJobCommand,
     CreatePtySessionCommand,
@@ -17,10 +19,12 @@ from hexaqueue_core.domain.cqrs import (
 )
 from hexaqueue_core.domain.exceptions import PermissionDeniedError
 from hexaqueue_core.domain.explainability import (
-    PriorityBreakdown,
+    SchedulerExplainabilityEngine,
     SchedulingDecisionReport,
 )
 from hexaqueue_core.domain.job import JobSpec
+from hexaqueue_core.domain.redaction import MultiTenantRedactionFilter
+from hexaqueue_core.domain.scheduling import ResourceSlotPool
 from hexaqueue_server.domain.memento import PlacementSimulationReport
 from hexaqueue_server.infra.cqrs.common import (
     BaseCqrsService,
@@ -135,7 +139,7 @@ class JobsCqrsMixin(BaseCqrsService):
     async def handle_explain_job(
         self, qry: ExplainJobQuery
     ) -> SchedulingDecisionReport:
-        """Handle ExplainJobQuery.
+        """Handle ExplainJobQuery using SchedulerExplainabilityEngine and redaction.
 
         Args:
             qry: Query payload.
@@ -143,33 +147,28 @@ class JobsCqrsMixin(BaseCqrsService):
         Returns:
             Diagnostic SchedulingDecisionReport.
         """
-        job = await self.controller.get_job(qry.job_id)
-        owner = _extract_job_owner(job)
-        effective_admin = qry.is_admin or (owner == qry.requesting_user)
-        breakdown = PriorityBreakdown(
-            base_score=100.0,
-            age_score=0.0,
-            fairshare_score=0.0,
-            preemption_bonus=0.0,
-            total_priority=100.0,
-            age_seconds=0.0,
-            fairshare_factor=1.0,
-            target_share=1.0,
-            actual_usage=0.0,
+        all_jobs = await self.controller.list_jobs()
+        nodes = await self.controller.list_nodes()
+        total_cpus = sum(n.capacity.total_cpus for n in nodes if n.capacity is not None)
+        coord = getattr(self.controller, "_lease_coordinator", None)
+        if coord is not None and hasattr(coord, "list_active_workers"):
+            seen = {n.node_id for n in nodes}
+            for reg, _, _ in coord.list_active_workers():
+                if reg.worker_id not in seen:
+                    total_cpus += reg.ocpus
+
+        total_slots = max(1, total_cpus) if total_cpus > 0 else 16
+        pool = ResourceSlotPool(total_slots=total_slots, total_cpus=total_slots)
+        engine = SchedulerExplainabilityEngine()
+        report = engine.explain_job(
+            job_id=qry.job_id,
+            all_jobs=all_jobs,
+            pool=pool,
+            current_timestamp=time.time(),
         )
-        return SchedulingDecisionReport(
-            job_id=job.id,
-            user=owner,
-            state=job.state,
-            queue_position=1,
-            queue_total=1,
-            priority_breakdown=breakdown,
-            pending_reasons=[],
-            required_slots=1,
-            available_slots=16,
-            total_slots=16,
-            summary=f"Job '{job.id}' is pending execution resources.",
-            is_redacted=not effective_admin,
+        redaction = MultiTenantRedactionFilter()
+        return redaction.redact_decision_report(
+            report, requesting_user=qry.requesting_user, is_admin=qry.is_admin
         )
 
     async def handle_simulate_placement(

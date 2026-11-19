@@ -323,6 +323,46 @@ jobs:
         run: uv run hq cluster tunnel --stop || true
 
   # =========================================================================
+  # Stage 4: E2E Browser & Visual Accessibility (axe-core) Verification
+  # Runs Playwright Chromium tests and UI accessibility scans
+  # =========================================================================
+  e2e-a11y:
+    name: E2E Browser & A11y Verification
+    needs: [test-suite]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --all-packages --all-extras --all-groups
+
+      - name: Cache Playwright Browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+
+      - name: Install Playwright Chromium & OS Dependencies
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: uv run playwright install --with-deps chromium
+
+      - name: Run E2E & Visual A11y Tests
+        run: uv run pytest tests/e2e --no-cov
+
+  # =========================================================================
   # Stage 5: Unified CI Success Status Check (Branch Protection Gate)
   # Aggregates results of all upstream stages, handling skipped conditional jobs
   # =========================================================================
@@ -334,6 +374,7 @@ jobs:
       - test-suite
       - architecture-diagrams
       - hypothesis-fuzzing
+      - e2e-a11y
       - mutation-verification
     if: ${{ always() }}
     runs-on: ubuntu-latest
@@ -378,6 +419,7 @@ jobs:
           echo "  Unit & Integration Tests:     ${{ needs.test-suite.result }}"
           echo "  Architecture Diagrams:        ${{ needs.architecture-diagrams.result }}"
           echo "  Property-Based Fuzzing:       ${{ needs.hypothesis-fuzzing.result }}"
+          echo "  E2E Browser & A11y:           ${{ needs.e2e-a11y.result }}"
           echo "  Mutation Verification:        ${{ needs.mutation-verification.result }}"
 
           results=(
@@ -386,6 +428,7 @@ jobs:
             "${{ needs.test-suite.result }}"
             "${{ needs.architecture-diagrams.result }}"
             "${{ needs.hypothesis-fuzzing.result }}"
+            "${{ needs.e2e-a11y.result }}"
             "${{ needs.mutation-verification.result }}"
           )
 

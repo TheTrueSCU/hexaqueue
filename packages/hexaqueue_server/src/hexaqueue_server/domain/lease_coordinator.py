@@ -14,6 +14,8 @@ from collections import deque
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from hexastack_core.ports.logging import LoggingPort
+
 from hexaqueue_core.domain.coordination import (
     CrossLoopAsyncCondition,
     CrossLoopAsyncLock,
@@ -30,6 +32,7 @@ from hexaqueue_core.domain.lease import (
     WorkerRegistration,
 )
 from hexaqueue_core.domain.lifecycle import TerminalOutcome
+from hexaqueue_core.ports.logging import LogChunk
 from hexaqueue_core.ports.storage import PresignedStoragePort
 
 
@@ -55,6 +58,8 @@ class SliceLeaseCoordinator:
         autoscaler: Any = None,
         pool_id: str | None = None,
         controller: Any = None,
+        logger: LoggingPort | None = None,
+        log_store: dict[str, list[LogChunk]] | None = None,
     ) -> None:
         self._storage_port = storage_port
         self._collateral_service = collateral_service
@@ -62,6 +67,8 @@ class SliceLeaseCoordinator:
         self._autoscaler = autoscaler
         self._pool_id = pool_id
         self._controller = controller
+        self._logger = logger
+        self._log_store = log_store
 
         self._lock = CrossLoopAsyncLock()
         self._condition = CrossLoopAsyncCondition(lock=self._lock)
@@ -69,6 +76,7 @@ class SliceLeaseCoordinator:
         # Worker tracking
         self._registered_workers: dict[str, WorkerRegistration] = {}
         self._worker_last_seen: dict[str, datetime] = {}
+        self._worker_telemetry: dict[str, dict[str, float | int]] = {}
 
         # Queue tracking
         self._pending_tasks: deque[SliceTaskDescriptor] = deque()
@@ -108,6 +116,29 @@ class SliceLeaseCoordinator:
         cutoff = datetime.now(UTC) - timedelta(seconds=60)
         return sum(1 for ts in self._worker_last_seen.values() if ts >= cutoff)
 
+    def list_active_workers(
+        self, max_age_seconds: float = 60.0
+    ) -> list[tuple[WorkerRegistration, int, datetime]]:
+        """Return registered workers seen recently along with active lease counts.
+
+        Args:
+            max_age_seconds: Maximum age in seconds since last worker heartbeat.
+
+        Returns:
+            List of ``(WorkerRegistration, active_lease_count, last_seen)`` tuples.
+        """
+        cutoff = datetime.now(UTC) - timedelta(seconds=max_age_seconds)
+        lease_counts: dict[str, int] = {}
+        for lease in self._active_leases.values():
+            lease_counts[lease.worker_id] = lease_counts.get(lease.worker_id, 0) + 1
+
+        workers: list[tuple[WorkerRegistration, int, datetime]] = []
+        for worker_id, reg in self._registered_workers.items():
+            last_seen = self._worker_last_seen.get(worker_id, reg.registered_at)
+            if last_seen >= cutoff:
+                workers.append((reg, lease_counts.get(worker_id, 0), last_seen))
+        return workers
+
     @property
     def has_autoscaler(self) -> bool:
         """Return whether an instance pool autoscaler is registered."""
@@ -120,13 +151,35 @@ class SliceLeaseCoordinator:
         try:
             pending = len(self._pending_tasks)
             active = len(self._active_leases)
-            await self._autoscaler.reconcile_pool(
+            decision = await self._autoscaler.reconcile_pool(
                 pool_id=self._pool_id,
                 pending_jobs=pending,
                 running_jobs=active,
             )
-        except Exception:
-            pass
+            if (
+                self._logger is not None
+                and decision is not None
+                and decision.action != "NOOP"
+            ):
+                self._logger.info(
+                    f"Autoscaler decision for pool {self._pool_id}",
+                    extra={
+                        "pool_id": self._pool_id,
+                        "action": decision.action,
+                        "current_nodes": decision.current_nodes,
+                        "target_nodes": decision.target_nodes,
+                        "pending_jobs": pending,
+                        "running_jobs": active,
+                        "reason": decision.reason,
+                    },
+                )
+        except Exception as err:
+            if self._logger is not None:
+                self._logger.error(
+                    f"Autoscaler reconciliation failed for pool {self._pool_id}",
+                    extra={"pool_id": self._pool_id},
+                    exc=err,
+                )
 
     async def register_worker(self, reg: WorkerRegistration) -> None:
         """Register or update an active compute worker node.
@@ -138,16 +191,29 @@ class SliceLeaseCoordinator:
             self._registered_workers[reg.worker_id] = reg
             self._worker_last_seen[reg.worker_id] = datetime.now(UTC)
 
+    def get_worker_telemetry(self, worker_id: str) -> dict[str, float | int]:
+        """Return latest reported host telemetry for a registered worker.
+
+        Args:
+            worker_id: Worker node identifier.
+
+        Returns:
+            Dictionary of latest CPU/RAM/scratch telemetry metrics (empty if none).
+        """
+        return dict(self._worker_telemetry.get(worker_id, {}))
+
     async def record_heartbeat(
         self,
         worker_id: str,
         active_lease_ids: list[str] | None = None,
+        telemetry: dict[str, float | int] | None = None,
     ) -> bool:
         """Record worker pulse and automatically renew active leases.
 
         Args:
             worker_id: Worker node identifier.
             active_lease_ids: List of lease IDs currently executing on this worker.
+            telemetry: Optional live host telemetry metrics (CPU, RAM, scratch).
 
         Returns:
             True if worker is registered, False otherwise.
@@ -157,6 +223,8 @@ class SliceLeaseCoordinator:
             if worker_id not in self._registered_workers:
                 return False
             self._worker_last_seen[worker_id] = now
+            if telemetry:
+                self._worker_telemetry[worker_id] = dict(telemetry)
             if active_lease_ids:
                 for l_id in active_lease_ids:
                     if l_id in self._active_leases:
@@ -394,6 +462,54 @@ class SliceLeaseCoordinator:
             parts.append(f"stderr: {stderr_tail.strip()[-400:]}")
         return "\n".join(parts)
 
+    async def append_log_chunks(self, job_id: str, chunks: list[LogChunk]) -> int:
+        """Append incremental log chunks for a job into the shared log store.
+
+        Args:
+            job_id: Target job identifier.
+            chunks: Ordered list of LogChunk entries to append.
+
+        Returns:
+            Total number of stored chunks for ``job_id`` after appending.
+        """
+        if self._log_store is None or not chunks:
+            return 0
+        async with self._lock:
+            buf = self._log_store.setdefault(job_id, [])
+            buf.extend(chunks)
+            if len(buf) > 2000:
+                del buf[: len(buf) - 2000]
+            return len(buf)
+
+    def _populate_fallback_logs(self, report: SliceReportPayload) -> None:
+        """Store terminal stdout/stderr chunks if no incremental logs were streamed."""
+        if self._log_store is None or self._log_store.get(report.slice_id):
+            return
+        fallback_chunks: list[LogChunk] = []
+        now_ts = datetime.now(UTC)
+        if report.stdout:
+            fallback_chunks.append(
+                LogChunk(
+                    job_id=report.slice_id,
+                    stream="stdout",
+                    content=report.stdout,
+                    offset=0,
+                    timestamp=now_ts,
+                )
+            )
+        if report.stderr:
+            fallback_chunks.append(
+                LogChunk(
+                    job_id=report.slice_id,
+                    stream="stderr",
+                    content=report.stderr,
+                    offset=len(fallback_chunks),
+                    timestamp=now_ts,
+                )
+            )
+        if fallback_chunks:
+            self._log_store[report.slice_id] = fallback_chunks
+
     async def report_slice_outcome(self, report: SliceReportPayload) -> bool:
         """Process worker slice outcome report and record completed telemetry.
 
@@ -407,6 +523,8 @@ class SliceLeaseCoordinator:
             lease = self._active_leases.pop(report.lease_id, None)
             if lease is None:
                 return False
+
+            self._populate_fallback_logs(report)
 
             session_id = lease.task.session_id
             is_pass = report.exit_code == 0

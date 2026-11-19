@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -50,9 +51,28 @@ def test_build_node_rows_and_topology_svg(
     assert "j-1" in str(rows[0]["active_jobs"])
     assert rows[0]["cpu_pct"] == "42.5%"
 
+    nodes_mod._TOPOLOGY_SVG_CACHE.clear()
     svg = nodes_mod.generate_cluster_topology_svg([pulse], [running_job])
+    svg_text = html.unescape(svg)
     assert "<svg" in svg
     assert 'xlink:href="/' not in svg
+    assert "oci-worker-1" in svg_text
+    assert "CPU 42%" not in svg_text
+    assert "Jobs 1" not in svg_text
+
+    pulse_two = NodeTelemetryPulse(
+        worker_id="oci-worker-2",
+        active_jobs=0,
+        cpu_utilization_pct=10.0,
+        memory_used_mb=1024,
+        memory_total_mb=8192,
+        load_average=(0.2, 0.2, 0.2),
+        scratch_used_mb=50,
+        scratch_total_mb=1000,
+    )
+    svg_two = nodes_mod.generate_cluster_topology_svg([pulse, pulse_two], [running_job])
+    assert svg_two != svg
+    assert "oci-worker-2" in html.unescape(svg_two)
 
     icon_file = tmp_path / "vm.png"
     icon_file.write_bytes(b"\x89PNG\r\n\x1a\n")

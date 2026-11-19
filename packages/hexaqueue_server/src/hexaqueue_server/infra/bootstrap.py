@@ -10,7 +10,9 @@ import os
 
 from hexastack_core.infra.container import create_container
 from hexastack_core.ports.container import ContainerPort
+from hexastack_core.ports.logging import LoggingPort
 from hexastack_cqrs.infra.pipeline import ExecutionPipeline
+from hexastack_logging.adapters.logger import StructuredLogger
 
 from hexaqueue_collateral.adapters.local import LocalCollateralServiceAdapter
 from hexaqueue_collateral.ports.service import CollateralServicePort
@@ -22,6 +24,7 @@ from hexaqueue_core.domain.credentials import OciCredentialsConfig
 from hexaqueue_core.infra.bootstrap import HexaqueueBootstrapContext
 from hexaqueue_core.infra.registries import HexaqueueConfigRegistry
 from hexaqueue_core.ports.bootstrap import BootstrapperPort
+from hexaqueue_core.ports.logging import LogChunk
 from hexaqueue_core.ports.storage import PresignedStoragePort
 from hexaqueue_monitor.adapters.ledger import InMemoryBudgetLedgerAdapter
 from hexaqueue_monitor.adapters.local import LocalClusterMonitorAdapter
@@ -84,11 +87,19 @@ def _resolve_coordinator(
         gov = OciInstancePoolAdapter.from_credentials(credentials=creds)
         autoscaler = BudgetAwareInstancePoolAutoscaler(governors={pool_id: gov})
 
+    logger = (
+        di.resolve(LoggingPort)
+        if LoggingPort in di
+        else StructuredLogger(name="hexaqueue.server")
+    )
+    log_store: dict[str, list[LogChunk]] = {}
     coordinator = SliceLeaseCoordinator(
         storage_port=storage_port,
         collateral_service=collateral_service,
         autoscaler=autoscaler,
         pool_id=pool_id,
+        logger=logger,
+        log_store=log_store,
     )
     di.add_instance(coordinator, declared_class=SliceLeaseCoordinator)
     return coordinator
@@ -141,8 +152,10 @@ def _resolve_pipeline(
     di.add_instance(controller, declared_class=SchedulerControllerPort)
     coordinator.set_controller(controller)
 
+    log_store = getattr(coordinator, "_log_store", None)
     pipeline = create_hexaqueue_execution_pipeline(
         controller=controller,
+        log_store=log_store,
         budget_port=budget_port,
         cluster_monitor=cluster_monitor,
         storage_port=storage_port,

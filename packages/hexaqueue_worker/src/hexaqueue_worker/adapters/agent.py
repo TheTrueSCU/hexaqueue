@@ -19,9 +19,11 @@ import os
 import shutil
 import sys
 import tarfile
+import tempfile
 import time
 import urllib.request
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -33,6 +35,7 @@ from hexaqueue_core.domain.lease import (
     SliceReportPayload,
     WorkerRegistration,
 )
+from hexaqueue_core.ports.logging import LogChunk
 
 
 @dataclass
@@ -169,6 +172,43 @@ class WorkerAgent:
         except Exception:
             return False
 
+    def _collect_host_telemetry(self) -> dict[str, float | int]:
+        """Collect lightweight live host CPU, RAM, and scratch disk telemetry."""
+        telemetry: dict[str, float | int] = {}
+        try:
+            load_1m = os.getloadavg()[0]
+            cpu_count = max(1, os.cpu_count() or self.config.ocpus or 1)
+            telemetry["cpu_utilization_pct"] = round(
+                min(100.0, (load_1m / cpu_count) * 100.0), 1
+            )
+        except OSError:
+            pass
+
+        meminfo = Path("/proc/meminfo")
+        if meminfo.is_file():
+            try:
+                vals: dict[str, int] = {}
+                for line in meminfo.read_text(encoding="utf-8").splitlines():
+                    if line.startswith(("MemTotal:", "MemAvailable:")):
+                        key, rest = line.split(":", 1)
+                        vals[key] = int(rest.strip().split()[0])
+                if "MemTotal" in vals:
+                    total_mb = vals["MemTotal"] // 1024
+                    avail_mb = vals.get("MemAvailable", 0) // 1024
+                    telemetry["memory_total_mb"] = total_mb
+                    telemetry["memory_used_mb"] = max(0, total_mb - avail_mb)
+            except (OSError, ValueError):
+                pass
+
+        try:
+            scratch_path = self.config.scratch_dir or Path(tempfile.gettempdir())
+            usage = shutil.disk_usage(scratch_path)
+            telemetry["scratch_total_mb"] = usage.total // (1024 * 1024)
+            telemetry["scratch_used_mb"] = usage.used // (1024 * 1024)
+        except OSError:
+            pass
+        return telemetry
+
     async def heartbeat(self, client: httpx.AsyncClient) -> bool:
         """Send pulse to renew active leases on the coordinator.
 
@@ -179,7 +219,10 @@ class WorkerAgent:
             True if heartbeat was acknowledged, False otherwise.
         """
         url = f"{self.config.controller_url}/worker/{self.config.worker_id}/heartbeat"
-        payload = {"active_lease_ids": list(self._active_leases)}
+        payload: dict[str, Any] = {
+            "active_lease_ids": list(self._active_leases),
+            **self._collect_host_telemetry(),
+        }
         try:
             resp = await client.post(url, json=payload, headers=self._headers())
             return resp.status_code == 200
@@ -274,12 +317,92 @@ class WorkerAgent:
 
         return await asyncio.to_thread(_put)
 
+    async def _flush_log_chunks(
+        self,
+        client: httpx.AsyncClient | None,
+        job_id: str | None,
+        chunks: list[LogChunk],
+    ) -> None:
+        """Best-effort POST of incremental LogChunk batch to the central controller."""
+        if client is None or not job_id or not chunks:
+            return
+        url = (
+            f"{self.config.controller_url}/worker/{self.config.worker_id}/logs/{job_id}"
+        )
+        headers: dict[str, str] = {}
+        if self.config.join_token:
+            headers["X-Hexaqueue-Join-Token"] = self.config.join_token
+        payload = [c.model_dump(mode="json") for c in chunks]
+        with contextlib.suppress(Exception):
+            await client.post(url, json=payload, headers=headers, timeout=5.0)
+
+    async def _stream_process_output(
+        self,
+        proc: asyncio.subprocess.Process,
+        job_id: str | None = None,
+        client: httpx.AsyncClient | None = None,
+    ) -> tuple[int, str, str]:
+        """Read subprocess stdout/stderr incrementally and flush live LogChunks."""
+        stdout_parts: list[str] = []
+        stderr_parts: list[str] = []
+        pending: list[LogChunk] = []
+        offset = 0
+        last_flush = time.monotonic()
+        flush_lock = asyncio.Lock()
+
+        async def _flush_if_needed(force: bool = False) -> None:
+            nonlocal last_flush
+            async with flush_lock:
+                now = time.monotonic()
+                if pending and (force or len(pending) >= 20 or now - last_flush >= 1.0):
+                    batch = list(pending)
+                    pending.clear()
+                    last_flush = now
+                    await self._flush_log_chunks(client, job_id, batch)
+
+        async def _pump(
+            stream: asyncio.StreamReader | None,
+            stream_name: str,
+            sink: list[str],
+        ) -> None:
+            nonlocal offset
+            if stream is None:
+                return
+            while True:
+                line = await stream.readline()
+                if not line or not isinstance(line, (bytes, bytearray)):
+                    break
+                text = line.decode(errors="replace")
+                sink.append(text)
+                if client is not None and job_id:
+                    pending.append(
+                        LogChunk(
+                            job_id=job_id,
+                            stream="stderr" if stream_name == "stderr" else "stdout",
+                            content=text.rstrip("\n"),
+                            offset=offset,
+                            timestamp=datetime.now(UTC),
+                        )
+                    )
+                    offset += 1
+                    await _flush_if_needed(force=False)
+
+        await asyncio.gather(
+            _pump(proc.stdout, "stdout", stdout_parts),
+            _pump(proc.stderr, "stderr", stderr_parts),
+        )
+        exit_code = await proc.wait()
+        await _flush_if_needed(force=True)
+        return exit_code or 0, "".join(stdout_parts), "".join(stderr_parts)
+
     async def _run_pytest_slice(
         self,
         nodeids: list[str],
         coverage_sources: list[str] | None,
         workspace: Path,
         start_time: float,
+        job_id: str | None = None,
+        client: httpx.AsyncClient | None = None,
     ) -> tuple[int, list[dict[str, Any]], str, str]:
         """Execute pytest command on specified test nodeids.
 
@@ -288,6 +411,8 @@ class WorkerAgent:
             coverage_sources: Optional coverage packages.
             workspace: Working directory path.
             start_time: Monotonic start timestamp.
+            job_id: Optional job/slice identifier for live log streaming.
+            client: Optional async HTTP client for streaming incremental log chunks.
 
         Returns:
             Tuple of (exit_code, outcomes, stdout, stderr).
@@ -342,10 +467,9 @@ class WorkerAgent:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout_bytes, stderr_bytes = await proc.communicate()
-        exit_code = proc.returncode or 0
-        stdout_text = stdout_bytes.decode(errors="replace")
-        stderr_text = stderr_bytes.decode(errors="replace")
+        exit_code, stdout_text, stderr_text = await self._stream_process_output(
+            proc, job_id=job_id, client=client
+        )
 
         item_outcome = "passed" if exit_code == 0 else "failed"
         duration_per_item = max(
@@ -372,6 +496,8 @@ class WorkerAgent:
         workspace: Path,
         relative_cwd: str | None,
         start_time: float,
+        job_id: str | None = None,
+        client: httpx.AsyncClient | None = None,
     ) -> tuple[int, list[dict[str, Any]], str, str]:
         """Execute arbitrary command or batch task in workspace.
 
@@ -382,6 +508,8 @@ class WorkerAgent:
             workspace: Base workspace root directory.
             relative_cwd: Optional working directory relative to workspace root.
             start_time: Monotonic start timestamp.
+            job_id: Optional job/slice identifier for live log streaming.
+            client: Optional async HTTP client for streaming incremental log chunks.
 
         Returns:
             Tuple of (exit_code, outcomes, stdout, stderr).
@@ -426,10 +554,9 @@ class WorkerAgent:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout_bytes, stderr_bytes = await proc.communicate()
-        exit_code = proc.returncode or 0
-        stdout_text = stdout_bytes.decode(errors="replace")
-        stderr_text = stderr_bytes.decode(errors="replace")
+        exit_code, stdout_text, stderr_text = await self._stream_process_output(
+            proc, job_id=job_id, client=client
+        )
 
         item_outcome = "passed" if exit_code == 0 else "failed"
         duration = max(0.001, time.monotonic() - start_time)
@@ -521,6 +648,8 @@ class WorkerAgent:
                         workspace,
                         task.cwd,
                         start_time,
+                        job_id=task.slice_id,
+                        client=client,
                     )
                 elif task.test_nodeids:
                     (
@@ -533,6 +662,8 @@ class WorkerAgent:
                         task.coverage_sources,
                         workspace,
                         start_time,
+                        job_id=task.slice_id,
+                        client=client,
                     )
 
             cov_key = await self._handle_coverage_upload(task, workspace)

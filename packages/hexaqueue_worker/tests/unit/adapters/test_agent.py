@@ -239,7 +239,9 @@ async def test_worker_agent_execute_slice_success(tmp_path: Path) -> None:
     lease = _make_dummy_lease("sl-ok")
 
     mock_proc = AsyncMock()
-    mock_proc.communicate.return_value = (b"1 passed in 0.05s", b"")
+    mock_proc.stdout.readline = AsyncMock(side_effect=[b"1 passed in 0.05s\n", b""])
+    mock_proc.stderr.readline = AsyncMock(side_effect=[b""])
+    mock_proc.wait = AsyncMock(return_value=0)
     mock_proc.returncode = 0
 
     with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
@@ -264,7 +266,9 @@ async def test_worker_agent_execute_slice_uv_project(tmp_path: Path) -> None:
     (workspace / "pyproject.toml").write_text("[project]\nname = 'test-pkg'\n")
 
     mock_proc = AsyncMock()
-    mock_proc.communicate.return_value = (b"1 passed in 0.02s", b"")
+    mock_proc.stdout.readline = AsyncMock(side_effect=[b"1 passed in 0.02s\n", b""])
+    mock_proc.stderr.readline = AsyncMock(side_effect=[b""])
+    mock_proc.wait = AsyncMock(return_value=0)
     mock_proc.returncode = 0
 
     with (

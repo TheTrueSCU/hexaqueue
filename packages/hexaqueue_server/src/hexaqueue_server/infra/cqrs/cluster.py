@@ -352,6 +352,16 @@ class ClusterCqrsMixin(BaseCqrsService):
         )
         run_ids = {j.run_id for j in jobs}
 
+        if self.nodes:
+            active_workers = len(self.nodes)
+        else:
+            worker_ids = {n.node_id for n in await self.controller.list_nodes()}
+            coord = getattr(self.controller, "_lease_coordinator", None)
+            if coord is not None and hasattr(coord, "list_active_workers"):
+                for reg, _, _ in coord.list_active_workers():
+                    worker_ids.add(reg.worker_id)
+            active_workers = len(worker_ids) if worker_ids else 1
+
         return ClusterStatsReport(
             total_runs=len(run_ids),
             total_jobs=len(jobs),
@@ -360,7 +370,7 @@ class ClusterCqrsMixin(BaseCqrsService):
             blocked_jobs=blocked,
             completed_jobs=completed,
             failed_jobs=failed,
-            active_workers=len(self.nodes) if self.nodes else 1,
+            active_workers=active_workers,
         )
 
     async def handle_get_dead_letters(

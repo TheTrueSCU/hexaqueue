@@ -194,30 +194,24 @@ def generate_cluster_topology_svg(
 
     Args:
         nodes: Active worker NodeTelemetryPulse records.
-        jobs: Optional JobSpec list to annotate running jobs per worker.
+        jobs: Optional JobSpec list (reserved for API compatibility; volatile
+            per-worker metrics and job counts are displayed in the Nodes table
+            rather than baked into the structural topology SVG).
         force_refresh: Bypass the structural worker-set cache and regenerate.
 
     Returns:
         Inline SVG markup string representing controller, ADB, CAS, and workers.
 
     Notes/Architectural Intent:
-        Caches the rendered SVG by the sorted active `worker_id` tuple so
-        frequent telemetry heartbeats do not re-invoke Graphviz `dot` unless
-        workers join/leave or an explicit reload is requested.
+        Caches the rendered SVG by the sorted active `worker_id` tuple and
+        omits volatile CPU/job metrics from diagram nodes so 2s telemetry
+        heartbeats update the table in place without re-invoking Graphviz
+        `dot`, while any worker join/leave immediately regenerates the diagram.
     """
+    _ = jobs
     worker_key = tuple(sorted(pulse.worker_id for pulse in nodes))
     if not force_refresh and worker_key in _TOPOLOGY_SVG_CACHE:
         return _TOPOLOGY_SVG_CACHE[worker_key]
-    running_by_worker: dict[str, int] = {}
-    for job in jobs or []:
-        if job.assigned_worker_id and str(job.state) in (
-            "RUNNING",
-            "PROVISIONING",
-            "CLEANUP",
-        ):
-            running_by_worker[job.assigned_worker_id] = (
-                running_by_worker.get(job.assigned_worker_id, 0) + 1
-            )
 
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -237,15 +231,8 @@ def generate_cluster_topology_svg(
 
                 with Cluster(f"Active Worker Pool ({len(nodes)})"):
                     if nodes:
-                        for pulse in nodes:
-                            running_cnt = running_by_worker.get(
-                                pulse.worker_id, pulse.active_jobs
-                            )
-                            worker_node = VM(
-                                f"{pulse.worker_id}\n"
-                                f"CPU {pulse.cpu_utilization_pct:.0f}% | "
-                                f"Jobs {running_cnt}"
-                            )
+                        for pulse in sorted(nodes, key=lambda n: n.worker_id):
+                            worker_node = VM(pulse.worker_id)
                             controller >> worker_node
                     else:
                         idle = VM("No active workers")
