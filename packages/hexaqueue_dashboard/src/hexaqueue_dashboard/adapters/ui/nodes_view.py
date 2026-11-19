@@ -162,12 +162,21 @@ def _inline_svg_images(svg_text: str) -> str:
 
 def _fallback_topology_svg(nodes: list[NodeTelemetryPulse]) -> str:
     """Return an accessible fallback SVG when Graphviz `dot` is unavailable."""
-    worker_count = len(nodes)
+    sorted_ids = sorted(pulse.worker_id for pulse in nodes)
+    worker_count = len(sorted_ids)
+    height = max(160, 70 + worker_count * 32)
+    worker_boxes = "".join(
+        f'<rect x="450" y="{54 + idx * 30}" width="170" height="24" rx="4" '
+        f'fill="#166534"/>'
+        f'<text x="535" y="{70 + idx * 30}" text-anchor="middle" '
+        f'fill="#ffffff" font-size="11">{html.escape(wid)}</text>'
+        for idx, wid in enumerate(sorted_ids)
+    )
     return (
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160" '
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 {height}" '
         'role="img" aria-label="Hexaqueue cluster topology diagram" '
         'style="width:100%;max-width:640px;height:auto;">'
-        '<rect width="640" height="160" fill="#ffffff" rx="8"/>'
+        f'<rect width="640" height="{height}" fill="#ffffff" rx="8"/>'
         '<rect x="20" y="50" width="160" height="60" rx="6" fill="#1d4ed8"/>'
         '<text x="100" y="85" text-anchor="middle" fill="#ffffff" font-size="13">'
         "Controller</text>"
@@ -177,9 +186,10 @@ def _fallback_topology_svg(nodes: list[NodeTelemetryPulse]) -> str:
         '<rect x="240" y="90" width="160" height="50" rx="6" fill="#374151"/>'
         '<text x="320" y="120" text-anchor="middle" fill="#ffffff" font-size="13">'
         "Object Storage</text>"
-        '<rect x="450" y="50" width="170" height="60" rx="6" fill="#15803d"/>'
-        '<text x="535" y="85" text-anchor="middle" fill="#ffffff" font-size="13">'
+        '<rect x="450" y="20" width="170" height="28" rx="6" fill="#15803d"/>'
+        '<text x="535" y="39" text-anchor="middle" fill="#ffffff" font-size="13">'
         f"Workers ({worker_count})</text>"
+        f"{worker_boxes}"
         "</svg>"
     )
 
