@@ -100,12 +100,14 @@ class NodesCqrsMixin(BaseCqrsService):
                         cpu_utilization_pct=float(
                             telem.get("cpu_utilization_pct", 0.0)
                         ),
-                        memory_total_mb=int(
-                            telem.get("memory_total_mb", reg.memory_mb)
+                        memory_total_mb=max(
+                            1, int(telem.get("memory_total_mb") or reg.memory_mb or 1)
                         ),
-                        memory_used_mb=int(telem.get("memory_used_mb", 0)),
-                        scratch_total_mb=int(telem.get("scratch_total_mb", 0)),
-                        scratch_used_mb=int(telem.get("scratch_used_mb", 0)),
+                        memory_used_mb=max(0, int(telem.get("memory_used_mb", 0))),
+                        scratch_total_mb=max(
+                            1, int(telem.get("scratch_total_mb") or 1)
+                        ),
+                        scratch_used_mb=max(0, int(telem.get("scratch_used_mb", 0))),
                         active_jobs=active_leases,
                         gpu_metrics=[],
                         timestamp=last_seen,
