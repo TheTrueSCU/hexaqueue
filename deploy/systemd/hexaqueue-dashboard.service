@@ -1,0 +1,18 @@
+[Unit]
+Description=Hexaqueue Operator Console Dashboard (Standalone NiceGUI)
+After=network-online.target hexaqueue.service
+Wants=network-online.target hexaqueue.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/hexaqueue
+Environment="HEXAQUEUE_CONTROLLER_URL=http://127.0.0.1:8000"
+EnvironmentFile=-/etc/hexaqueue/dashboard.env
+
+ExecStart=/home/ubuntu/.local/bin/uv run uvicorn hexaqueue_dashboard.infra.app:create_standalone_dashboard_app --factory --host 127.0.0.1 --port 8080
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
