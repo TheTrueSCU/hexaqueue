@@ -267,6 +267,8 @@ jobs:
     name: Mutation Testing Verification (${{ matrix.package }})
     needs: [test-suite, cluster-probe, mutation-plan]
     if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' && !startsWith(github.head_ref, 'dependabot/') && needs.mutation-plan.outputs.has_affected == 'true'
+    # Temporary until TheTrueSCU/hexaqual#62 (changed-slices + --targets) is released
+    continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
