@@ -208,6 +208,19 @@ def test_dashboard_ui_wcag_accessibility(
         f"Accessibility violations on Fair-Share view: {critical_fairshare}"
     )
 
+    # 2e2. Switch to Collateral & Quarantine view and audit under WCAG 2.1 AA
+    page.get_by_role("button", name="Switch to Collateral and Quarantine view").click()
+    expect(page.get_by_text("Collateral & Quarantine", exact=True)).to_be_visible()
+
+    collateral_violations = run_axe_scan(page)
+    critical_collateral = [
+        v for v in collateral_violations if v.get("impact") in ("critical", "serious")
+    ]
+    crit_collateral_count = len(critical_collateral)
+    assert crit_collateral_count == 0, (
+        f"Accessibility violations on Collateral & Quarantine view: {critical_collateral}"
+    )
+
     # 2f. Open Change Password modal and audit under WCAG 2.1 AA
     page.get_by_role("button", name="Change password").click()
     page.wait_for_timeout(350)

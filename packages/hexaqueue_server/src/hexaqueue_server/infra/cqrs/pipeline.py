@@ -20,6 +20,7 @@ from hexaqueue_core.domain.cqrs import (
     CancelRunCommand,
     CreateBastionSessionCommand,
     CreatePtySessionCommand,
+    DeleteCollateralCommand,
     EvictExpiredCollateralCommand,
     ExplainJobQuery,
     FindCollateralByChecksumQuery,
@@ -39,11 +40,13 @@ from hexaqueue_core.domain.cqrs import (
     GetTenantBalanceQuery,
     HeartbeatNodeCommand,
     HoldJobCommand,
+    ListCollateralQuery,
     ListComputeNodesQuery,
     ListJobsQuery,
     ListRunsQuery,
     NotifyLogUploadCompleteCommand,
     PinCollateralCommand,
+    PromoteCollateralCommand,
     RegisterCollateralCommand,
     RegisterNodeCommand,
     ReleaseBudgetCommand,
@@ -173,6 +176,18 @@ def create_hexaqueue_execution_pipeline(
     handler_reg.register(
         EvictExpiredCollateralCommand,
         lambda cmd: run_coro_sync(service.handle_evict_expired_collateral(cmd)),
+    )
+
+    command_reg.register(PromoteCollateralCommand)
+    handler_reg.register(
+        PromoteCollateralCommand,
+        lambda cmd: run_coro_sync(service.handle_promote_collateral(cmd)),
+    )
+
+    command_reg.register(DeleteCollateralCommand)
+    handler_reg.register(
+        DeleteCollateralCommand,
+        lambda cmd: run_coro_sync(service.handle_delete_collateral(cmd)),
     )
 
     command_reg.register(CreatePtySessionCommand)
@@ -306,6 +321,12 @@ def create_hexaqueue_execution_pipeline(
     handler_reg.register(
         ListComputeNodesQuery,
         lambda qry: run_coro_sync(service.handle_list_compute_nodes(qry)),
+    )
+
+    query_reg.register(ListCollateralQuery)
+    handler_reg.register(
+        ListCollateralQuery,
+        lambda qry: run_coro_sync(service.handle_list_collateral(qry)),
     )
 
     query_reg.register(GetCollateralBundleQuery)

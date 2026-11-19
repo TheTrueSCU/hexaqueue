@@ -13,6 +13,9 @@ from pydantic import SecretStr
 
 from hexaqueue_dashboard.adapters.auth import DashboardAuthManager
 from hexaqueue_dashboard.adapters.nicegui_ui import mount_dashboard_ui
+from hexaqueue_dashboard.adapters.remote_collateral import (
+    HttpCollateralServiceAdapter,
+)
 from hexaqueue_dashboard.adapters.remote_controller import (
     HttpSchedulerControllerAdapter,
 )
@@ -86,7 +89,14 @@ def create_standalone_dashboard_app(
         base_url=resolved_url,
         admin_token=admin_token,
     )
-    pipeline = create_hexaqueue_execution_pipeline(controller=controller)
+    collateral_service = HttpCollateralServiceAdapter(
+        base_url=resolved_url,
+        admin_token=admin_token,
+    )
+    pipeline = create_hexaqueue_execution_pipeline(
+        controller=controller,
+        collateral_service=collateral_service,
+    )
     app = create_dashboard_app(
         pipeline=pipeline,
         auth_manager=auth_manager,

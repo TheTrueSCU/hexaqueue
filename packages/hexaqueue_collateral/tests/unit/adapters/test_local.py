@@ -655,3 +655,47 @@ async def test_local_collateral_bundle_custom_ttl_eviction() -> None:
         evicted = await service.evict_expired()
         assert b1.id in evicted
         assert b2.id not in evicted
+
+
+@pytest.mark.asyncio
+async def test_local_collateral_list_promote_and_delete():
+    """Verify list_bundles, promote_bundle, and pin-guarded delete_bundle."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        service = LocalCollateralServiceAdapter(
+            base_dir=tmpdir, security_port=BenignScanner()
+        )
+        content = b"promote and delete test\n"
+        sha = hashlib.sha256(content).hexdigest()
+        desc = await service.register(
+            IngestionRequest(
+                job_id="job-lpd",
+                owner="alice",
+                filename="artifact.tar.gz",
+                size_bytes=len(content),
+                sha256_checksum=sha,
+                tier=CollateralTier.TEMPORARY,
+            )
+        )
+        await service.stage_file(desc.bundle.id, content)
+        await service.process_quarantine(desc.bundle.id)
+
+        listed = await service.list_bundles()
+        assert len(listed) == 1
+        assert listed[0].id == desc.bundle.id
+
+        promoted = await service.promote_bundle(desc.bundle.id)
+        assert promoted.tier == CollateralTier.PERMANENT
+        # Promoting an already-PERMANENT bundle is idempotent
+        promoted_again = await service.promote_bundle(desc.bundle.id)
+        assert promoted_again.tier == CollateralTier.PERMANENT
+
+        # Pinned bundle cannot be deleted
+        await service.pin_bundle(desc.bundle.id)
+        with pytest.raises(HexaqueueError, match="active_pin_count"):
+            await service.delete_bundle(desc.bundle.id)
+
+        await service.unpin_bundle(desc.bundle.id)
+        deleted_id = await service.delete_bundle(desc.bundle.id)
+        assert deleted_id == desc.bundle.id
+        remaining = await service.list_bundles()
+        assert remaining == []

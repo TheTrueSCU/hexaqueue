@@ -375,6 +375,71 @@ class GetCollateralBundleQuery(Query):
     user_id: str = Field(default="default", description="Requesting user identity")
 
 
+class ListCollateralQuery(Query):
+    """Query to list collateral bundles visible to the requesting identity.
+
+    Args:
+        user_id: Requesting user identity.
+        elevate: Explicit administrative privilege elevation flag.
+
+    Notes/Architectural Intent:
+        Non-elevated callers receive only bundles where ``owner == user_id``.
+        Elevated administrators receive all bundles across owners.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    elevate: bool = Field(
+        default=False, description="Explicit administrative elevation flag"
+    )
+    user_id: str = Field(default="default", description="Requesting user identity")
+
+
+class PromoteCollateralCommand(Command):
+    """Command to promote TEMPORARY collateral to PERMANENT retention tier.
+
+    Args:
+        collateral_id: Target collateral bundle identifier.
+        user_id: Submitting user identity.
+        elevate: Explicit administrative privilege elevation flag.
+
+    Notes/Architectural Intent:
+        Exempts golden images and critical datasets from LRU/TTL garbage
+        collection eviction. Requires administrative elevation.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    collateral_id: str = Field(description="Collateral bundle identifier")
+    elevate: bool = Field(
+        default=False, description="Explicit administrative elevation flag"
+    )
+    user_id: str = Field(default="default", description="Submitting user identity")
+
+
+class DeleteCollateralCommand(Command):
+    """Command to delete an unused collateral bundle from CAS storage.
+
+    Args:
+        collateral_id: Target collateral bundle identifier.
+        user_id: Submitting user identity.
+        elevate: Explicit administrative privilege elevation flag.
+
+    Notes/Architectural Intent:
+        Deletion is strictly guarded when the bundle is pinned or referenced by
+        any non-terminal job's ``collateral_ids``. Non-admin users may only
+        delete their own unused TEMPORARY bundles.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    collateral_id: str = Field(description="Collateral bundle identifier")
+    elevate: bool = Field(
+        default=False, description="Explicit administrative elevation flag"
+    )
+    user_id: str = Field(default="default", description="Submitting user identity")
+
+
 class FindCollateralByChecksumQuery(Query):
     """Query to look up an approved collateral bundle by SHA-256 CAS digest.
 
@@ -1202,6 +1267,7 @@ __all__ = [
     "CreateBastionSessionCommand",
     "CreatePtySessionCommand",
     "DeadLetterQueueReport",
+    "DeleteCollateralCommand",
     "EvictExpiredCollateralCommand",
     "ExplainJobQuery",
     "FindCollateralByChecksumQuery",
@@ -1221,6 +1287,7 @@ __all__ = [
     "GetTenantBalanceQuery",
     "HeartbeatNodeCommand",
     "HoldJobCommand",
+    "ListCollateralQuery",
     "ListComputeNodesQuery",
     "ListJobsQuery",
     "ListRunsQuery",
@@ -1229,6 +1296,7 @@ __all__ = [
     "PinCollateralCommand",
     "PresignedDownloadUrl",
     "PresignedUploadToken",
+    "PromoteCollateralCommand",
     "RegisterCollateralCommand",
     "RegisterNodeCommand",
     "ReleaseBudgetCommand",

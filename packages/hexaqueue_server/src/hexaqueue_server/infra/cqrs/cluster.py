@@ -12,11 +12,13 @@ from typing import Any
 from hexaqueue_collateral.domain.models import IngestionRequest
 from hexaqueue_core.domain.collateral import (
     CollateralBundle,
+    CollateralTier,
 )
 from hexaqueue_core.domain.cqrs import (
     ClusterMetricsReport,
     ClusterStatsReport,
     DeadLetterQueueReport,
+    DeleteCollateralCommand,
     EvictExpiredCollateralCommand,
     FindCollateralByChecksumQuery,
     GetClusterMetricsQuery,
@@ -25,11 +27,14 @@ from hexaqueue_core.domain.cqrs import (
     GetDeadLetterQueueQuery,
     GetFairShareTreeQuery,
     GetQueueStatsQuery,
+    ListCollateralQuery,
     PinCollateralCommand,
+    PromoteCollateralCommand,
     RegisterCollateralCommand,
     SettleBudgetCommand,
     UnpinCollateralCommand,
 )
+from hexaqueue_core.domain.exceptions import HexaqueueError, PermissionDeniedError
 from hexaqueue_core.domain.explainability import (
     FairShareTreeReport,
     SchedulerExplainabilityEngine,
@@ -147,6 +152,103 @@ class ClusterCqrsMixin(BaseCqrsService):
             max_age_seconds=cmd.max_age_seconds,
             high_watermark_bytes=cmd.high_watermark_bytes,
         )
+
+    async def handle_list_collateral(
+        self, qry: ListCollateralQuery
+    ) -> list[CollateralBundle]:
+        """Handle ListCollateralQuery with RBAC owner scoping.
+
+        Args:
+            qry: Query payload containing caller identity and elevation flag.
+
+        Returns:
+            List of authorized CollateralBundle instances.
+
+        Notes/Architectural Intent:
+            Non-elevated callers see only bundles where ``owner == qry.user_id``.
+            Elevated administrators see all collateral across owners.
+        """
+        if self.collateral_service is None:
+            return []
+        bundles = await self.collateral_service.list_bundles()
+        if qry.elevate:
+            return bundles
+        return [bundle for bundle in bundles if bundle.owner == qry.user_id]
+
+    async def handle_promote_collateral(
+        self, cmd: PromoteCollateralCommand
+    ) -> CollateralBundle:
+        """Handle PromoteCollateralCommand.
+
+        Args:
+            cmd: Command payload specifying target collateral ID and elevation.
+
+        Returns:
+            Updated CollateralBundle promoted to PERMANENT tier.
+
+        Raises:
+            PermissionDeniedError: If caller lacks explicit admin elevation.
+        """
+        if not cmd.elevate:
+            msg = (
+                "Promoting collateral to PERMANENT requires explicit administrative "
+                "elevation (--admin / elevate=true)."
+            )
+            raise PermissionDeniedError(msg)
+        return await self.collateral_service.promote_bundle(cmd.collateral_id)
+
+    async def handle_delete_collateral(self, cmd: DeleteCollateralCommand) -> str:
+        """Handle DeleteCollateralCommand with RBAC and active-job guards.
+
+        Args:
+            cmd: Command payload specifying target collateral ID and caller identity.
+
+        Returns:
+            The deleted collateral bundle ID.
+
+        Raises:
+            PermissionDeniedError: If caller does not own the bundle or tries to
+                delete PERMANENT collateral without admin elevation.
+            HexaqueueError: If the bundle is pinned or referenced by active jobs.
+        """
+        bundle = await self.collateral_service.get_bundle(cmd.collateral_id)
+        if not cmd.elevate:
+            if bundle.owner != cmd.user_id:
+                msg = (
+                    f"Collateral {cmd.collateral_id} belongs to another owner; "
+                    "explicit administrative elevation (--admin / elevate=true) is required."
+                )
+                raise PermissionDeniedError(msg)
+            if bundle.tier == CollateralTier.PERMANENT:
+                msg = (
+                    "Deleting PERMANENT collateral requires explicit administrative "
+                    "elevation (--admin / elevate=true)."
+                )
+                raise PermissionDeniedError(msg)
+
+        if bundle.active_pin_count > 0:
+            msg = (
+                f"Cannot delete collateral {cmd.collateral_id}: "
+                f"active_pin_count={bundle.active_pin_count}."
+            )
+            raise HexaqueueError(msg)
+
+        jobs = await self.controller.list_jobs()
+        referencing = [
+            job.id
+            for job in jobs
+            if job.status.state is not JobState.DONE
+            and cmd.collateral_id in job.collateral_ids
+        ]
+        if referencing:
+            joined = ", ".join(referencing[:5])
+            msg = (
+                f"Cannot delete collateral {cmd.collateral_id}: "
+                f"referenced by active job(s) {joined}."
+            )
+            raise HexaqueueError(msg)
+
+        return await self.collateral_service.delete_bundle(cmd.collateral_id)
 
     async def handle_settle_budget(self, cmd: SettleBudgetCommand) -> dict[str, Any]:
         """Handle SettleBudgetCommand.

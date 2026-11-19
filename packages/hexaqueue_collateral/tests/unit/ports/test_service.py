@@ -18,6 +18,9 @@ def test_collateral_service_port_operations_defined() -> None:
     assert hasattr(CollateralServicePort, "pin_bundle")
     assert hasattr(CollateralServicePort, "unpin_bundle")
     assert hasattr(CollateralServicePort, "evict_expired")
+    assert hasattr(CollateralServicePort, "list_bundles")
+    assert hasattr(CollateralServicePort, "promote_bundle")
+    assert hasattr(CollateralServicePort, "delete_bundle")
 
 
 def test_collateral_service_port_is_abstract() -> None:
@@ -31,12 +34,15 @@ def test_collateral_service_port_is_abstract() -> None:
 def test_collateral_service_port_abstract_methods() -> None:
     """Verify abstract methods on CollateralServicePort."""
     expected = {
+        "delete_bundle",
         "evict_expired",
         "find_by_checksum",
         "get_bundle",
         "get_download_url",
+        "list_bundles",
         "pin_bundle",
         "process_quarantine",
+        "promote_bundle",
         "register",
         "stage_file",
         "unpin_bundle",

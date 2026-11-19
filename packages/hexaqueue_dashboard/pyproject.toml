@@ -10,6 +10,7 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "diagrams>=0.24.0",
+    "hexaqueue-collateral",
     "hexaqueue-core",
     "hexaqueue-server",
     "hexaqueue-worker",
@@ -28,6 +29,7 @@ requires = ["uv_build>=0.12.3,<0.14.0"]
 build-backend = "uv_build"
 
 [tool.uv.sources]
+hexaqueue-collateral = { workspace = true }
 hexaqueue-core = { workspace = true }
 hexaqueue-server = { workspace = true }
 hexaqueue-worker = { workspace = true }
