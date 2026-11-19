@@ -9,6 +9,10 @@ on:
 
 permissions: read-all
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   # =========================================================================
   # Stage 1: Fast Quality Gate & Schema Governance (Fail-Fast Static Checks)
