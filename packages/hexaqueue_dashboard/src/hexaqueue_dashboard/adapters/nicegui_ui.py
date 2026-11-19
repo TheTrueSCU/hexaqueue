@@ -533,6 +533,7 @@ async def _render_cluster_body_content(
             nodes,
             is_admin=is_admin_view,
             on_mutated=on_mutated,
+            drawer_state=ui_state.drawer,
         )
         return
 

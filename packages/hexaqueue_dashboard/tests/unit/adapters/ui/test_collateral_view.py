@@ -107,7 +107,9 @@ def test_collateral_row_helpers_and_rbac() -> None:
         [b_ttl, b_quar], jobs, nodes, is_admin=True
     )
     assert admin_rows[0]["in_use"] is True
+    assert admin_rows[0]["kind_tier"] == "TEMPORARY / DATASET"
     assert admin_rows[0]["worker_caches"] == "worker-1, worker-2"
+    assert admin_rows[0]["worker_caches_multiline"] == "worker-1\nworker-2"
     assert admin_rows[1]["verdict"] == "YARA match: SuspiciousMacro"
 
     user_rows = col_mod.build_collateral_rows(
@@ -121,10 +123,17 @@ def test_collateral_row_helpers_and_rbac() -> None:
 async def test_render_collateral_section_actions(
     monkeypatch: pytest.MonkeyPatch,
     fake_el: Any,
+    fake_table: Any,
 ) -> None:
-    """Verify Promote to Permanent and Delete actions dispatch CQRS commands."""
+    """Verify Collateral table slots, slide-over drawer, Promote, and Delete dispatch."""
     buttons: dict[str, Any] = {}
     notifications: list[str] = []
+    tables: list[Any] = []
+
+    def _cap_table(**kwargs: Any) -> Any:
+        tbl = fake_table(**kwargs)
+        tables.append(tbl)
+        return tbl
 
     def _cap_button(label: str = "", *_a: object, **kwargs: Any) -> Any:
         el = fake_el()
@@ -138,6 +147,7 @@ async def test_render_collateral_section_actions(
         row=lambda *_a, **_k: fake_el(),
         badge=lambda *_a, **_k: fake_el(),
         dialog=lambda *_a, **_k: fake_el(),
+        table=_cap_table,
         button=_cap_button,
         notify=lambda msg, **_k: notifications.append(msg),
     )
@@ -172,33 +182,58 @@ async def test_render_collateral_section_actions(
         on_mutated=_on_mutated,
     )
 
-    assert "Promote to Permanent" in buttons
-    assert "Delete" in buttons
+    table_count = len(tables)
+    assert table_count == 1
+    admin_table = tables[0]
+    admin_col_names = [c["name"] for c in admin_table.columns]
+    assert "kind_tier" in admin_col_names
+    assert "worker_caches" in admin_col_names
+    assert "body-cell-kind_tier" in admin_table.slots
+    assert "body-cell-state" in admin_table.slots
+    assert "body-cell-worker_caches" in admin_table.slots
+    assert "body-cell-actions" in admin_table.slots
 
-    await buttons["Promote to Permanent"]()
+    admin_row = admin_table.rows[0]
+    assert admin_row["can_promote"] is True
+    assert admin_row["can_delete"] is True
+
+    # Open slide-over inspection drawer
+    admin_table.handlers["inspect_collateral"](SimpleNamespace(args=admin_row))
+    assert "Close" in buttons
+
+    # Trigger promote via table slot event
+    await admin_table.handlers["promote_collateral"](SimpleNamespace(args=admin_row))
     promoted_cmds = [m for m in executed if isinstance(m, PromoteCollateralCommand)]
-    assert len(promoted_cmds) == 1
+    promoted_count = len(promoted_cmds)
+    assert promoted_count == 1
     assert promoted_cmds[0].collateral_id == "col-unused"
-    assert len(mutated_calls) == 1
+    mutated_after_promote = len(mutated_calls)
+    assert mutated_after_promote == 1
 
-    # Open delete confirmation dialog and confirm deletion
-    buttons["Delete"]()
+    # Trigger delete confirmation dialog and confirm deletion
+    admin_table.handlers["delete_collateral"](SimpleNamespace(args=admin_row))
+    assert "Delete" in buttons
     await buttons["Delete"]()
     deleted_cmds = [m for m in executed if isinstance(m, DeleteCollateralCommand)]
-    assert len(deleted_cmds) == 1
+    deleted_count = len(deleted_cmds)
+    assert deleted_count == 1
     assert deleted_cmds[0].collateral_id == "col-unused"
-    assert len(mutated_calls) == 2
+    mutated_after_delete = len(mutated_calls)
+    assert mutated_after_delete == 2
 
-    # Non-admin user cannot delete another owner's bundle
-    alice_ident = Identity(user_id="bob", roles=frozenset({"user"}))
-    buttons.clear()
+    # Non-admin user does not see worker_caches column or promote/delete on another owner's bundle
+    bob_ident = Identity(user_id="bob", roles=frozenset({"user"}))
     await col_mod.render_collateral_section(
         pipeline,
-        alice_ident,
+        bob_ident,
         [],
         [],
         is_admin=False,
         on_mutated=_on_mutated,
     )
-    assert "Promote to Permanent" not in buttons
-    assert "Delete" not in buttons
+    user_table = tables[1]
+    user_col_names = [c["name"] for c in user_table.columns]
+    assert "worker_caches" not in user_col_names
+    user_row = user_table.rows[0]
+    assert user_row["can_promote"] is False
+    assert user_row["can_delete"] is False
