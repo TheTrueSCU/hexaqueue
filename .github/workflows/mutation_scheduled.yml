@@ -9,9 +9,41 @@ permissions:
   contents: read
 
 jobs:
-  mutation-audit:
-    name: Full Workspace Mutation Audit
+  plan-mutations:
+    name: Plan Workspace Mutation Matrix
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      has_affected: ${{ steps.plan.outputs.has_affected }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+
+      - name: Plan LPT-Ordered Package Matrix
+        id: plan
+        uses: TheTrueSCU/hexaqual/.github/actions/mutate-plan@b2c016e75fc48e4f1c14e564b73ed9d41fe7f8c7 # v0.11.0
+        with:
+          mode: all
+
+      - name: Visualize Pipeline DAG & Critical Path via Hexaflow
+        if: always()
+        run: |
+          uvx --python 3.13 --from "hexaflow>=0.5.0" hexaflow graph render .github/workflows/mutation_scheduled.yml --summary --critical-path
+
+  mutation-audit:
+    name: Mutation Audit (${{ matrix.package }})
+    needs: plan-mutations
+    if: needs.plan-mutations.outputs.has_affected == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan-mutations.outputs.matrix) }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -22,11 +54,6 @@ jobs:
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true
-
-      - name: Visualize Pipeline DAG & Critical Path via Hexaflow
-        if: always()
-        run: |
-          uvx --python 3.13 --from "hexaflow>=0.5.0" hexaflow graph render .github/workflows/mutation_scheduled.yml --summary --critical-path
 
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -43,10 +70,10 @@ jobs:
           auto-tunnel: "true"
           step-summary: "false"
 
-      - name: Execute Full Workspace Mutation Sweep
+      - name: Execute Package Mutation Sweep
         env:
-          HEXAQUEUE_TIMEOUT: "7200"
-        run: uv run hexaqual mutate run -a -e gremlins -w auto --batch-size 10 -n auto --cluster hexaqueue
+          HEXAQUEUE_TIMEOUT: "6900"
+        run: uv run hexaqual mutate run -p "${{ matrix.package }}" -e gremlins -w auto --batch-size 10 -n auto --cluster hexaqueue
 
       - name: Disconnect Hexaqueue Cluster Tunnel
         if: always()
@@ -55,14 +82,15 @@ jobs:
       - name: Generate Mutation Triage Summary
         if: always()
         run: |
-          uv run hexaqual mutate inspect -s -f markdown >> "$GITHUB_STEP_SUMMARY" || true
+          uv run hexaqual mutate inspect -p "${{ matrix.package }}" -s -f markdown >> "$GITHUB_STEP_SUMMARY" || true
 
       - name: Upload Mutation Audit Artifacts
         if: always()
         uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
         with:
-          name: mutation-audit-report
+          name: mutation-audit-report-${{ matrix.package }}
           path: |
             .gremlins-cache/
             .mutmut-cache
+          if-no-files-found: ignore
           retention-days: 14
