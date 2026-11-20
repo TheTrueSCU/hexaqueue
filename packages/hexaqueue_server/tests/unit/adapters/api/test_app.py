@@ -1,12 +1,26 @@
 """Tests for create_server_api_router and create_server_app factory."""
 
+import os
+from datetime import UTC, datetime, timedelta
+
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from hexaqueue_core.adapters.queue.in_memory import InMemoryJobQueueAdapter
+from hexaqueue_core.domain.config import CspProvider
+from hexaqueue_core.domain.pool import InstancePoolState
 from hexaqueue_server.adapters.api.app import (
     create_server_app,
 )
+from hexaqueue_server.adapters.cloud.oci import OciInstancePoolAdapter
 from hexaqueue_server.adapters.local import LocalSchedulerControllerAdapter
+from hexaqueue_server.domain.autoscaler import (
+    BudgetAwareInstancePoolAutoscaler,
+    BudgetStrategyMode,
+    CreditPacingPolicy,
+)
+from hexaqueue_server.domain.config import ServerConfig, ServerRole
+from hexaqueue_server.domain.lease_coordinator import SliceLeaseCoordinator
 from hexaqueue_server.infra.cqrs import create_hexaqueue_execution_pipeline
 
 
@@ -22,12 +36,14 @@ def test_create_server_api_router_mounts_all_subrouters() -> None:
     assert "/v1/stats" in paths
     assert "/v1/dlq" in paths
     assert "/v1/fairshare" in paths
+    assert "/v1/budget/strategy" in paths
 
     # Dual prefix compatibility for Hexastack adapters
     assert "/api/v1/runs" in paths
     assert "/api/v1/jobs" in paths
     assert "/api/v1/nodes" in paths
     assert "/api/v1/stats" in paths
+    assert "/api/v1/budget/strategy" in paths
 
 
 def test_create_server_app_default_and_custom_pipeline() -> None:
@@ -46,8 +62,6 @@ def test_create_server_app_default_and_custom_pipeline() -> None:
 
 def test_create_server_app_role_based_filtering() -> None:
     """Verify application factory mounts only role-specified interfaces."""
-    from hexaqueue_server.domain.config import ServerConfig, ServerRole
-
     gateway_app = create_server_app(config=ServerConfig(role=ServerRole.GATEWAY))
     paths = set(gateway_app.openapi()["paths"].keys())
     assert "/v1/webhooks/github" in paths
@@ -75,10 +89,6 @@ def test_create_server_app_role_based_filtering() -> None:
 
 def test_create_server_app_feature_flag_disables_mcp() -> None:
     """Verify feature flag disables MCP adapter even when role enables it."""
-    import os
-
-    from hexaqueue_server.domain.config import ServerConfig, ServerRole
-
     os.environ["HQ_INTERFACE_MCP"] = "false"
     try:
         app = create_server_app(config=ServerConfig(role=ServerRole.ALL))
@@ -91,8 +101,6 @@ def test_create_server_app_feature_flag_disables_mcp() -> None:
 
 def test_create_server_app_dedicated_mcp_node() -> None:
     """Verify dedicated MCP node mounts MCP SSE routes with minimal REST surface."""
-    from hexaqueue_server.domain.config import ServerConfig, ServerRole
-
     app = create_server_app(config=ServerConfig(role=ServerRole.MCP))
     routes = [getattr(route, "path", "") for route in app.routes]
     assert any(path.startswith("/mcp") for path in routes)
@@ -105,30 +113,25 @@ def test_create_server_app_dedicated_mcp_node() -> None:
 
 def test_health_and_health_ready_capacity_circuit_breaker() -> None:
     """Verify /health and /health/ready report capacity_state and return 503 when DEGRADED."""
-    from fastapi.testclient import TestClient
-
-    from hexaqueue_core.domain.config import CspProvider
-    from hexaqueue_core.domain.pool import InstancePoolState
-    from hexaqueue_server.adapters.cloud.oci import OciInstancePoolAdapter
-    from hexaqueue_server.domain.autoscaler import BudgetAwareInstancePoolAutoscaler
-    from hexaqueue_server.domain.lease_coordinator import SliceLeaseCoordinator
-
     app = create_server_app()
     client = TestClient(app)
 
     h_resp = client.get("/health")
-    assert h_resp.status_code == 200
+    h_code = h_resp.status_code
+    assert h_code == 200
     h_data = h_resp.json()
     assert h_data["status"] == "ok"
     assert h_data["capacity_state"] == "READY"
 
     r_resp = client.get("/health/ready")
-    assert r_resp.status_code == 200
+    r_code = r_resp.status_code
+    assert r_code == 200
     r_data = r_resp.json()
     assert r_data["ready"] is True
     assert r_data["capacity_state"] == "READY"
+    assert r_data["budget_strategy"] is None
 
-    # Trip autoscaler circuit breaker with 0 active workers -> /health/ready returns 503 DEGRADED
+    # Attach CreditPacingPolicy and trip circuit breaker with 0 active workers -> 503 DEGRADED
     coord = app.state.container.resolve(SliceLeaseCoordinator)
     gov = OciInstancePoolAdapter()
     gov.register_mock_pool(
@@ -139,14 +142,22 @@ def test_health_and_health_ready_capacity_circuit_breaker() -> None:
             max_nodes=4,
         )
     )
-    autoscaler = BudgetAwareInstancePoolAutoscaler(governors={"pool-a1": gov})
+    pacing = CreditPacingPolicy(
+        strategy=BudgetStrategyMode.LINEAR_CREDIT_PACING,
+        expiry_time=datetime.now(UTC) + timedelta(days=10),
+    )
+    autoscaler = BudgetAwareInstancePoolAutoscaler(
+        governors={"pool-a1": gov}, credit_pacing=pacing
+    )
     autoscaler.trip_circuit("pool-a1", "Out of host capacity")
     coord._autoscaler = autoscaler
     coord._pool_id = "pool-a1"
 
     deg_resp = client.get("/health/ready")
-    assert deg_resp.status_code == 503
+    deg_code = deg_resp.status_code
+    assert deg_code == 503
     deg_data = deg_resp.json()
     assert deg_data["ready"] is False
     assert deg_data["capacity_state"] == "DEGRADED"
     assert deg_data["pool_circuit"]["state"] == "OPEN"
+    assert deg_data["budget_strategy"] == "LINEAR_CREDIT_PACING"

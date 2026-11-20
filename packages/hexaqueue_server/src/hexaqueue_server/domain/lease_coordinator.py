@@ -141,6 +141,11 @@ class SliceLeaseCoordinator:
         return workers
 
     @property
+    def autoscaler(self) -> Any:
+        """Return the attached instance pool autoscaler, if configured."""
+        return self._autoscaler
+
+    @property
     def has_autoscaler(self) -> bool:
         """Return whether an instance pool autoscaler is registered."""
         return self._autoscaler is not None and self._pool_id is not None
@@ -151,7 +156,8 @@ class SliceLeaseCoordinator:
         Returns:
             Dictionary containing ``capacity_state`` (``"READY"``, ``"SCALING"``,
             or ``"DEGRADED"``), ``ready`` boolean, ``active_workers``,
-            ``pending_slices``, ``active_leases``, and ``pool_circuit``.
+            ``pending_slices``, ``active_leases``, ``pool_id``, ``pool_circuit``,
+            and ``budget_strategy``.
         """
         active_workers = self.active_worker_count
         pending = self.pending_count
@@ -168,6 +174,13 @@ class SliceLeaseCoordinator:
             and hasattr(self._autoscaler, "get_pool_circuit_status")
         ):
             circuit_info = self._autoscaler.get_pool_circuit_status(self._pool_id)
+
+        pacing = (
+            getattr(self._autoscaler, "credit_pacing", None)
+            if self._autoscaler is not None
+            else None
+        )
+        budget_strategy = pacing.strategy.value if pacing is not None else None
 
         if active_workers > 0:
             capacity_state = "READY"
@@ -190,7 +203,18 @@ class SliceLeaseCoordinator:
             "active_leases": active,
             "pool_id": self._pool_id,
             "pool_circuit": circuit_info,
+            "budget_strategy": budget_strategy,
         }
+
+    async def reconcile_capacity(self) -> None:
+        """Trigger immediate autoscaler pool reconciliation for current backlog.
+
+        Notes/Architectural Intent:
+            Invoked by live control-plane endpoints (such as ``PUT /v1/budget/strategy``)
+            after updating runtime pacing policies so burst-pool ceilings take effect
+            immediately without waiting for the next queue enqueue or lease event.
+        """
+        await self._reconcile_autoscaler()
 
     def get_session_leased_event(self, session_id: str) -> asyncio.Event | None:
         """Return the event that triggers when the first slice of a session is leased."""

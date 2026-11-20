@@ -46,14 +46,20 @@ variable "worker_subnet_cidr" {
   default     = "10.0.2.0/24"
 }
 
+variable "worker_shape" {
+  description = "Compute shape for burst worker instances (e.g. VM.Standard.A4.Flex or VM.Standard.A1.Flex)"
+  type        = string
+  default     = "VM.Standard.A4.Flex"
+}
+
 variable "worker_ocpus" {
-  description = "OCPU count for burst A1.Flex worker instances"
+  description = "OCPU count for burst Flex worker instances"
   type        = number
   default     = 2
 }
 
 variable "worker_memory_gbs" {
-  description = "Memory in GB for burst A1.Flex worker instances"
+  description = "Memory in GB for burst Flex worker instances"
   type        = number
   default     = 12
 }
@@ -73,7 +79,7 @@ variable "worker_image_ocid" {
 variable "availability_domain" {
   description = "Availability domain for instance placement"
   type        = string
-  default     = "uPhp:PHX-AD-1"
+  default     = "uPhp:PHX-AD-3"
 }
 
 variable "ssh_public_key" {

@@ -9,7 +9,7 @@ resource "oci_core_instance_configuration" "worker_config" {
     launch_details {
       compartment_id = local.target_compartment
       display_name   = "hq-worker-burst"
-      shape          = "VM.Standard.A1.Flex"
+      shape          = var.worker_shape
 
       shape_config {
         ocpus         = var.worker_ocpus

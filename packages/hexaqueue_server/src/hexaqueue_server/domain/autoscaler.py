@@ -8,11 +8,15 @@ Notes/Architectural Intent:
 """
 
 import contextlib
+import os
 import time
+from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 
 from hexastack_core.adapters.circuit_breaker.in_memory import InMemoryCircuitBreaker
 from hexastack_core.ports.circuit_breaker import CircuitBreakerPort, CircuitState
+from pydantic import BaseModel, ConfigDict, Field
 
 from hexaqueue_core.domain.exceptions import HexaqueueError
 from hexaqueue_core.domain.pool import (
@@ -22,6 +26,252 @@ from hexaqueue_core.domain.pool import (
 )
 from hexaqueue_core.ports.budget import BudgetAccountingPort
 from hexaqueue_core.ports.pool import InstancePoolGovernorPort
+
+
+class BudgetStrategyMode(StrEnum):
+    """Pluggable budget strategy governing elastic burst pool capacity.
+
+    Notes/Architectural Intent:
+        Lets operators switch burst-pool budget governance as tenancy
+        circumstances change, without code changes:
+
+        - ``FREE_TIER_ONLY``: Burst ceiling locked to 0 ($0.00 spend); only
+          Always-Free baseline workers run.
+        - ``LINEAR_CREDIT_PACING``: Meters remaining credits evenly across the
+          days left before ``expiry_time``; drops to 0 nodes upon expiry.
+        - ``FRONT_LOADED_CREDITS``: Allows the full ``hard_ceiling`` while
+          spendable credits remain above the reserve and before expiry
+          (useful for pre-release sprints).
+        - ``FIXED_DAILY_CAP``: Enforces ``daily_cap_usd`` regardless of any
+          credit expiry (e.g. steady-state Pay-As-You-Go).
+        - ``UNCONSTRAINED``: Bypasses pacing; defers to ``pool.max_nodes`` and
+          ``BudgetAccountingPort``.
+    """
+
+    FIXED_DAILY_CAP = "FIXED_DAILY_CAP"
+    FREE_TIER_ONLY = "FREE_TIER_ONLY"
+    FRONT_LOADED_CREDITS = "FRONT_LOADED_CREDITS"
+    LINEAR_CREDIT_PACING = "LINEAR_CREDIT_PACING"
+    UNCONSTRAINED = "UNCONSTRAINED"
+
+
+def _parse_utc(raw: str) -> datetime | None:
+    """Parse an ISO-8601 timestamp (accepting a trailing ``Z``) as UTC."""
+    if not raw:
+        return None
+    parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
+class CreditPacingPolicy(BaseModel):
+    """Budget strategy policy metering burst-pool spend.
+
+    Args:
+        strategy: Active ``BudgetStrategyMode``.
+        total_credits_usd: Total credit allocation in USD (e.g. 300.0).
+        spent_credits_usd: Cumulative credits consumed to date in USD.
+        reserve_credits_usd: Safety buffer never spent on burst capacity.
+        daily_cap_usd: Daily spend cap used by ``FIXED_DAILY_CAP`` (and as the
+            fallback for ``LINEAR_CREDIT_PACING`` when no expiry is set).
+        hourly_cost_per_node_usd: Estimated hourly burn rate per burst node.
+        start_time: Optional credit window start timestamp in UTC.
+        expiry_time: Optional credit window expiration timestamp in UTC.
+
+    Notes/Architectural Intent:
+        Pure domain value object (no I/O beyond ``from_env``); the autoscaler
+        consults ``recommended_max_nodes`` to clamp the effective pool ceiling,
+        and ``BudgetAwareInstancePoolAutoscaler.set_credit_pacing`` allows the
+        strategy to be swapped at runtime.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    daily_cap_usd: float = Field(
+        default=25.0, ge=0.0, description="Daily USD spend cap"
+    )
+    expiry_time: datetime | None = Field(
+        default=None, description="Credit expiration timestamp in UTC"
+    )
+    strategy: BudgetStrategyMode = Field(
+        default=BudgetStrategyMode.LINEAR_CREDIT_PACING,
+        description="Active budget strategy",
+    )
+    hourly_cost_per_node_usd: float = Field(
+        default=0.046, gt=0.0, description="Hourly USD burn rate per worker node"
+    )
+    reserve_credits_usd: float = Field(
+        default=15.0, ge=0.0, description="Safety reserve in USD"
+    )
+    spent_credits_usd: float = Field(
+        default=0.0, ge=0.0, description="Cumulative spend to date in USD"
+    )
+    start_time: datetime | None = Field(
+        default=None, description="Credit window start timestamp in UTC"
+    )
+    total_credits_usd: float = Field(
+        default=300.0, gt=0.0, description="Total credit allocation in USD"
+    )
+
+    @classmethod
+    def from_env(cls) -> "CreditPacingPolicy | None":
+        """Construct a CreditPacingPolicy from environment variables if configured.
+
+        Reads ``HEXAQUEUE_BUDGET_STRATEGY``, ``HEXAQUEUE_CREDIT_EXPIRY_DATE``,
+        ``HEXAQUEUE_CREDIT_START_DATE``, ``HEXAQUEUE_DAILY_CAP_USD``,
+        ``HEXAQUEUE_CREDIT_TOTAL_USD``, ``HEXAQUEUE_CREDIT_SPENT_USD``,
+        ``HEXAQUEUE_CREDIT_RESERVE_USD``, and ``HEXAQUEUE_WORKER_HOURLY_USD``.
+
+        Returns:
+            Configured CreditPacingPolicy, or None if none of
+            ``HEXAQUEUE_BUDGET_STRATEGY``, ``HEXAQUEUE_CREDIT_EXPIRY_DATE``, or
+            ``HEXAQUEUE_DAILY_CAP_USD`` are set.
+
+        Raises:
+            ValueError: If ``HEXAQUEUE_BUDGET_STRATEGY`` is not a valid
+                ``BudgetStrategyMode`` or timestamps/numeric values are malformed.
+
+        Notes/Architectural Intent:
+            Allows switching between promotional credit metering, strict
+            Always-Free operation, and steady-state PAYG daily spend caps pure
+            via configuration without code changes.
+        """
+        raw_strategy = os.environ.get("HEXAQUEUE_BUDGET_STRATEGY", "").strip()
+        raw_expiry = os.environ.get("HEXAQUEUE_CREDIT_EXPIRY_DATE", "").strip()
+        raw_daily_cap = os.environ.get("HEXAQUEUE_DAILY_CAP_USD", "").strip()
+        if not raw_strategy and not raw_expiry and not raw_daily_cap:
+            return None
+
+        if raw_strategy:
+            strategy = BudgetStrategyMode(raw_strategy.upper())
+        elif raw_expiry:
+            strategy = BudgetStrategyMode.LINEAR_CREDIT_PACING
+        else:
+            strategy = BudgetStrategyMode.FIXED_DAILY_CAP
+
+        expiry_dt = _parse_utc(raw_expiry)
+        raw_start = os.environ.get("HEXAQUEUE_CREDIT_START_DATE", "").strip()
+        start_dt = _parse_utc(raw_start)
+        if expiry_dt is not None and start_dt is None:
+            start_dt = datetime.fromtimestamp(
+                expiry_dt.timestamp() - 30 * 86400.0, tz=UTC
+            )
+
+        return cls(
+            strategy=strategy,
+            daily_cap_usd=float(raw_daily_cap or "25.0"),
+            total_credits_usd=float(
+                os.environ.get("HEXAQUEUE_CREDIT_TOTAL_USD", "300.0") or "300.0"
+            ),
+            spent_credits_usd=float(
+                os.environ.get("HEXAQUEUE_CREDIT_SPENT_USD", "0.0") or "0.0"
+            ),
+            reserve_credits_usd=float(
+                os.environ.get("HEXAQUEUE_CREDIT_RESERVE_USD", "15.0") or "15.0"
+            ),
+            hourly_cost_per_node_usd=float(
+                os.environ.get("HEXAQUEUE_WORKER_HOURLY_USD", "0.046") or "0.046"
+            ),
+            start_time=start_dt,
+            expiry_time=expiry_dt,
+        )
+
+    def is_expired(self, now: datetime | None = None) -> bool:
+        """Return True if a configured credit expiry timestamp has passed.
+
+        Args:
+            now: Optional evaluation timestamp in UTC.
+
+        Returns:
+            True when ``expiry_time`` is set and ``now >= expiry_time``.
+        """
+        if self.expiry_time is None:
+            return False
+        current = now or datetime.now(UTC)
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=UTC)
+        expiry = (
+            self.expiry_time
+            if self.expiry_time.tzinfo is not None
+            else self.expiry_time.replace(tzinfo=UTC)
+        )
+        return current >= expiry
+
+    def spendable_remaining_usd(self) -> float:
+        """Return remaining credits above the safety reserve."""
+        return max(
+            0.0,
+            self.total_credits_usd - self.spent_credits_usd - self.reserve_credits_usd,
+        )
+
+    def daily_allowance_usd(self, now: datetime | None = None) -> float:
+        """Return daily spend allowance according to the active budget strategy.
+
+        Args:
+            now: Optional evaluation timestamp in UTC.
+
+        Returns:
+            Daily USD allowance for burst worker provisioning.
+        """
+        if self.strategy == BudgetStrategyMode.FREE_TIER_ONLY:
+            return 0.0
+        if self.strategy == BudgetStrategyMode.FIXED_DAILY_CAP:
+            return round(self.daily_cap_usd, 2)
+        if self.strategy == BudgetStrategyMode.UNCONSTRAINED:
+            return round(max(self.total_credits_usd, self.daily_cap_usd), 2)
+
+        current = now or datetime.now(UTC)
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=UTC)
+        if self.is_expired(current):
+            return 0.0
+
+        if self.strategy == BudgetStrategyMode.FRONT_LOADED_CREDITS:
+            return round(self.spendable_remaining_usd(), 2)
+
+        if self.expiry_time is None:
+            return round(min(self.daily_cap_usd, self.spendable_remaining_usd()), 2)
+
+        expiry = (
+            self.expiry_time
+            if self.expiry_time.tzinfo is not None
+            else self.expiry_time.replace(tzinfo=UTC)
+        )
+        remaining_days = max(1.0 / 24.0, (expiry - current).total_seconds() / 86400.0)
+        return round(self.spendable_remaining_usd() / remaining_days, 2)
+
+    def recommended_max_nodes(
+        self,
+        hard_ceiling: int = 10,
+        assumed_active_hours_per_day: float = 4.0,
+        now: datetime | None = None,
+    ) -> int:
+        """Compute maximum burst worker nodes permitted by the active budget strategy.
+
+        Args:
+            hard_ceiling: Upper bound node ceiling from pool configuration.
+            assumed_active_hours_per_day: Expected daily burst active hours.
+            now: Optional evaluation timestamp in UTC.
+
+        Returns:
+            Clamped maximum node count (0 when restricted, expired, or reserve exhausted).
+        """
+        if hard_ceiling <= 0 or self.strategy == BudgetStrategyMode.FREE_TIER_ONLY:
+            return 0
+        if self.strategy == BudgetStrategyMode.UNCONSTRAINED:
+            return hard_ceiling
+        if self.strategy == BudgetStrategyMode.FRONT_LOADED_CREDITS:
+            if self.is_expired(now) or self.spendable_remaining_usd() <= 0.0:
+                return 0
+            return hard_ceiling
+
+        allowance = self.daily_allowance_usd(now)
+        if allowance <= 0.0:
+            return 0
+        daily_cost_per_node = self.hourly_cost_per_node_usd * max(
+            0.25, assumed_active_hours_per_day
+        )
+        paced_nodes = int(round(allowance / daily_cost_per_node, 9))
+        return max(0, min(hard_ceiling, paced_nodes))
 
 
 class BudgetAwareInstancePoolAutoscaler:
@@ -35,6 +285,7 @@ class BudgetAwareInstancePoolAutoscaler:
         scale_up_grace_seconds: float = 180.0,
         circuit_cooldown_seconds: float = 300.0,
         circuit_breaker: CircuitBreakerPort | None = None,
+        credit_pacing: CreditPacingPolicy | None = None,
     ) -> None:
         """Initialize autoscaler engine.
 
@@ -49,6 +300,8 @@ class BudgetAwareInstancePoolAutoscaler:
             circuit_breaker: Optional Hexastack ``CircuitBreakerPort`` implementation
                 (defaults to ``InMemoryCircuitBreaker(failure_threshold=1,
                 recovery_timeout_seconds=circuit_cooldown_seconds)``).
+            credit_pacing: Optional ``CreditPacingPolicy`` metering promotional credits
+                over their remaining lifetime and locking burst pools to 0 upon expiry.
         """
         self._governors = governors or {}
         self._budget_port = budget_port
@@ -62,10 +315,34 @@ class BudgetAwareInstancePoolAutoscaler:
                 recovery_timeout_seconds=circuit_cooldown_seconds,
             )
         )
+        self._credit_pacing = (
+            credit_pacing
+            if credit_pacing is not None
+            else CreditPacingPolicy.from_env()
+        )
         self._scale_up_started_at: dict[str, float] = {}
         self._circuit_tripped_until: dict[str, float] = {}
         self._circuit_reasons: dict[str, str] = {}
         self._circuit_trip_counts: dict[str, int] = {}
+
+    @property
+    def credit_pacing(self) -> CreditPacingPolicy | None:
+        """Return the active credit pacing policy, if configured."""
+        return self._credit_pacing
+
+    def set_credit_pacing(self, policy: CreditPacingPolicy | None) -> None:
+        """Replace the active credit pacing policy and budget strategy at runtime.
+
+        Args:
+            policy: New ``CreditPacingPolicy`` instance, or ``None`` to disable
+                credit pacing and defer solely to pool limits and ``BudgetAccountingPort``.
+
+        Notes/Architectural Intent:
+            Allows live controller APIs and operators to swap between
+            ``BudgetStrategyMode`` strategies (e.g., ``LINEAR_CREDIT_PACING``,
+            ``FREE_TIER_ONLY``, ``FIXED_DAILY_CAP``) without restarting the daemon.
+        """
+        self._credit_pacing = policy
 
     def get_pool_circuit_status(
         self, pool_id: str, now: float | None = None
@@ -156,7 +433,40 @@ class BudgetAwareInstancePoolAutoscaler:
             AutoscalerDecision with action, target nodes, and justification.
         """
         if pending_jobs > 0:
-            if pool.max_nodes <= 0 and pool.current_nodes > 0:
+            effective_max = pool.max_nodes
+            if self._credit_pacing is not None:
+                paced_max = self._credit_pacing.recommended_max_nodes(
+                    hard_ceiling=pool.max_nodes
+                )
+                if paced_max <= 0:
+                    strategy_label = self._credit_pacing.strategy.value
+                    if pool.current_nodes > 0:
+                        return AutoscalerDecision(
+                            pool_id=pool.pool_id,
+                            action="SCALE_DOWN",
+                            current_nodes=pool.current_nodes,
+                            target_nodes=0,
+                            pending_jobs=pending_jobs,
+                            reason=(
+                                f"Budget strategy {strategy_label} allows 0 nodes "
+                                "(window expired, free-tier lock, or reserve reached); "
+                                "scaling burst pool to 0"
+                            ),
+                        )
+                    return AutoscalerDecision(
+                        pool_id=pool.pool_id,
+                        action="THROTTLED_BUDGET",
+                        current_nodes=pool.current_nodes,
+                        target_nodes=0,
+                        pending_jobs=pending_jobs,
+                        reason=(
+                            f"Scale-up throttled by budget strategy {strategy_label}: "
+                            "burst ceiling is 0"
+                        ),
+                    )
+                effective_max = min(effective_max, paced_max)
+
+            if effective_max <= 0 and pool.current_nodes > 0:
                 return AutoscalerDecision(
                     pool_id=pool.pool_id,
                     action="SCALE_DOWN",
@@ -165,14 +475,14 @@ class BudgetAwareInstancePoolAutoscaler:
                     pending_jobs=pending_jobs,
                     reason="Pool ceiling is 0 (HEXAQUEUE_OCI_MAX_POOL_SIZE=0); scaling down to 0",
                 )
-            if pool.current_nodes >= pool.max_nodes:
+            if pool.current_nodes >= effective_max:
                 return AutoscalerDecision(
                     pool_id=pool.pool_id,
                     action="NOOP",
                     current_nodes=pool.current_nodes,
                     target_nodes=pool.current_nodes,
                     pending_jobs=pending_jobs,
-                    reason=f"Pool at maximum capacity ceiling ({pool.max_nodes})",
+                    reason=f"Pool at maximum capacity ceiling ({effective_max})",
                 )
 
             if (
@@ -192,7 +502,7 @@ class BudgetAwareInstancePoolAutoscaler:
                 )
 
             target = min(
-                pool.max_nodes, max(pool.min_nodes, pool.current_nodes + pending_jobs)
+                effective_max, max(pool.min_nodes, pool.current_nodes + pending_jobs)
             )
             return AutoscalerDecision(
                 pool_id=pool.pool_id,
@@ -343,3 +653,10 @@ class BudgetAwareInstancePoolAutoscaler:
                 raise
 
         return decision
+
+
+__all__ = [
+    "BudgetAwareInstancePoolAutoscaler",
+    "BudgetStrategyMode",
+    "CreditPacingPolicy",
+]
