@@ -8,6 +8,8 @@ Notes/Architectural Intent:
 
 from __future__ import annotations
 
+import os
+
 from hexastack_auth.domain.models import Identity
 from hexastack_cqrs.infra.pipeline import ExecutionPipeline
 from hexastack_ui.adapters.nicegui import dispatch_query
@@ -18,6 +20,7 @@ from hexaqueue_core.domain.explainability import (
     FairShareNodeReport,
     FairShareTreeReport,
 )
+from hexaqueue_dashboard.adapters.ui.nodes_view import _is_baseline_worker
 from hexaqueue_worker.domain.telemetry import NodeTelemetryPulse
 
 FAIRSHARE_COLUMNS: list[dict[str, object]] = [
@@ -103,17 +106,28 @@ async def render_fairshare_section(
     """
     ui.label("Fair-Share & OCI Pool Quotas").classes("text-lg font-semibold mt-4")
 
+    baseline_nodes = [n for n in nodes if _is_baseline_worker(n.worker_id)]
+    pool_nodes = [n for n in nodes if not _is_baseline_worker(n.worker_id)]
+    pool_name = (
+        os.environ.get("HEXAQUEUE_OCI_POOL_NAME", "").strip() or "hq-worker-pool-a1"
+    )
     pool_status = (
         "Active"
-        if nodes
+        if pool_nodes
         else ("Provisioning" if stats.pending_jobs > 0 else "Idle (Scaled Down)")
     )
+    baseline_status = "Active" if baseline_nodes else "Offline"
     with ui.row().classes("w-full gap-4 mt-2"):
         with ui.card().classes("p-4"):
-            ui.label("Pool: hq-worker-pool-a1").classes("font-semibold")
-            ui.label(f"Status: {pool_status} | Active Workers: {len(nodes)}").classes(
-                "text-xs font-mono text-slate-300 mt-1"
-            )
+            ui.label(f"Pool: {pool_name}").classes("font-semibold")
+            ui.label(
+                f"Status: {pool_status} | Pool Workers: {len(pool_nodes)}"
+            ).classes("text-xs font-mono text-slate-300 mt-1")
+        with ui.card().classes("p-4"):
+            ui.label("Baseline Capacity").classes("font-semibold")
+            ui.label(
+                f"Status: {baseline_status} | Baseline Workers: {len(baseline_nodes)}"
+            ).classes("text-xs font-mono text-slate-300 mt-1")
         with ui.card().classes("p-4"):
             ui.label("Queue Demand").classes("font-semibold")
             ui.label(

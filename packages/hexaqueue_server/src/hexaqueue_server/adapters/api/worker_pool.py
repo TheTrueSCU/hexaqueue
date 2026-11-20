@@ -63,6 +63,10 @@ class WorkerHeartbeatRequest(BaseModel):
         le=100.0,
         description="Observed worker CPU utilization (%)",
     )
+    load_average: tuple[float, float, float] | None = Field(
+        default=None,
+        description="Observed system load averages (1m, 5m, 15m)",
+    )
     memory_used_mb: int | None = Field(
         default=None, ge=0, description="Observed worker RAM used in MB"
     )
@@ -144,10 +148,11 @@ def create_worker_pool_router(
         req: WorkerHeartbeatRequest | None = None,
     ) -> dict[str, Any]:
         active_ids = req.active_lease_ids if req else None
-        telemetry: dict[str, float | int] | None = None
+        telemetry: dict[str, Any] | None = None
         if req is not None:
-            raw_telemetry = {
+            raw_telemetry: dict[str, Any] = {
                 "cpu_utilization_pct": req.cpu_utilization_pct,
+                "load_average": req.load_average,
                 "memory_used_mb": req.memory_used_mb,
                 "memory_total_mb": req.memory_total_mb,
                 "scratch_used_mb": req.scratch_used_mb,

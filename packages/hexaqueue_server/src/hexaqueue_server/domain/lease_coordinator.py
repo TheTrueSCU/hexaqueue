@@ -76,7 +76,7 @@ class SliceLeaseCoordinator:
         # Worker tracking
         self._registered_workers: dict[str, WorkerRegistration] = {}
         self._worker_last_seen: dict[str, datetime] = {}
-        self._worker_telemetry: dict[str, dict[str, float | int]] = {}
+        self._worker_telemetry: dict[str, dict[str, Any]] = {}
 
         # Queue tracking
         self._pending_tasks: deque[SliceTaskDescriptor] = deque()
@@ -191,14 +191,14 @@ class SliceLeaseCoordinator:
             self._registered_workers[reg.worker_id] = reg
             self._worker_last_seen[reg.worker_id] = datetime.now(UTC)
 
-    def get_worker_telemetry(self, worker_id: str) -> dict[str, float | int]:
+    def get_worker_telemetry(self, worker_id: str) -> dict[str, Any]:
         """Return latest reported host telemetry for a registered worker.
 
         Args:
             worker_id: Worker node identifier.
 
         Returns:
-            Dictionary of latest CPU/RAM/scratch telemetry metrics (empty if none).
+            Dictionary of latest CPU/RAM/scratch/load telemetry metrics (empty if none).
         """
         return dict(self._worker_telemetry.get(worker_id, {}))
 
@@ -206,7 +206,7 @@ class SliceLeaseCoordinator:
         self,
         worker_id: str,
         active_lease_ids: list[str] | None = None,
-        telemetry: dict[str, float | int] | None = None,
+        telemetry: dict[str, Any] | None = None,
     ) -> bool:
         """Record worker pulse and automatically renew active leases.
 

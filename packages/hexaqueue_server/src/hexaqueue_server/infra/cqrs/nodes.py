@@ -5,6 +5,8 @@ Notes/Architectural Intent:
     and elevated administrative bastion shell session management.
 """
 
+import os
+
 from hexaqueue_core.domain.cqrs import (
     CreateBastionSessionCommand,
     GetNodesQuery,
@@ -53,7 +55,7 @@ class NodesCqrsMixin(BaseCqrsService):
             session_id=cmd.session_id,
             job_id=f"bastion-{cmd.node_id}",
             user_id=cmd.user_id,
-            pid=54321,
+            pid=max(1, os.getpid()),
             is_active=True,
         )
 
@@ -76,14 +78,14 @@ class NodesCqrsMixin(BaseCqrsService):
 
         pulses: dict[str, NodeTelemetryPulse] = {}
         for node in await self.controller.list_nodes():
-            total_ram = node.capacity.total_ram_mb if node.capacity else 64 * 1024
+            total_ram = max(1, node.capacity.total_ram_mb) if node.capacity else 1
             avail_ram = node.capacity.available_ram_mb if node.capacity else total_ram
             pulses[node.node_id] = NodeTelemetryPulse(
                 worker_id=node.node_id,
                 cpu_utilization_pct=0.0,
                 memory_total_mb=total_ram,
                 memory_used_mb=max(0, total_ram - avail_ram),
-                scratch_total_mb=500 * 1024,
+                scratch_total_mb=1,
                 scratch_used_mb=0,
                 active_jobs=len(node.active_job_ids),
                 gpu_metrics=[],
@@ -93,29 +95,35 @@ class NodesCqrsMixin(BaseCqrsService):
         coord = getattr(self.controller, "_lease_coordinator", None)
         if coord is not None and hasattr(coord, "list_active_workers"):
             for reg, active_leases, last_seen in coord.list_active_workers():
-                if reg.worker_id not in pulses:
-                    telem = (
-                        coord.get_worker_telemetry(reg.worker_id)
-                        if hasattr(coord, "get_worker_telemetry")
-                        else {}
+                telem = (
+                    coord.get_worker_telemetry(reg.worker_id)
+                    if hasattr(coord, "get_worker_telemetry")
+                    else {}
+                )
+                raw_load = telem.get("load_average")
+                load_avg = (
+                    (
+                        float(raw_load[0]),
+                        float(raw_load[1]),
+                        float(raw_load[2]),
                     )
-                    pulses[reg.worker_id] = NodeTelemetryPulse(
-                        worker_id=reg.worker_id,
-                        cpu_utilization_pct=float(
-                            telem.get("cpu_utilization_pct", 0.0)
-                        ),
-                        memory_total_mb=max(
-                            1, int(telem.get("memory_total_mb") or reg.memory_mb or 1)
-                        ),
-                        memory_used_mb=max(0, int(telem.get("memory_used_mb", 0))),
-                        scratch_total_mb=max(
-                            1, int(telem.get("scratch_total_mb") or 1)
-                        ),
-                        scratch_used_mb=max(0, int(telem.get("scratch_used_mb", 0))),
-                        active_jobs=active_leases,
-                        gpu_metrics=[],
-                        timestamp=last_seen,
-                    )
+                    if isinstance(raw_load, (list, tuple)) and len(raw_load) >= 3
+                    else (0.0, 0.0, 0.0)
+                )
+                pulses[reg.worker_id] = NodeTelemetryPulse(
+                    worker_id=reg.worker_id,
+                    cpu_utilization_pct=float(telem.get("cpu_utilization_pct", 0.0)),
+                    load_average=load_avg,
+                    memory_total_mb=max(
+                        1, int(telem.get("memory_total_mb") or reg.memory_mb or 1)
+                    ),
+                    memory_used_mb=max(0, int(telem.get("memory_used_mb", 0))),
+                    scratch_total_mb=max(1, int(telem.get("scratch_total_mb") or 1)),
+                    scratch_used_mb=max(0, int(telem.get("scratch_used_mb", 0))),
+                    active_jobs=active_leases,
+                    gpu_metrics=[],
+                    timestamp=last_seen,
+                )
 
         return list(pulses.values())
 

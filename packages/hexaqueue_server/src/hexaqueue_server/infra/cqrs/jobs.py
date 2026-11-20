@@ -150,14 +150,22 @@ class JobsCqrsMixin(BaseCqrsService):
         all_jobs = await self.controller.list_jobs()
         nodes = await self.controller.list_nodes()
         total_cpus = sum(n.capacity.total_cpus for n in nodes if n.capacity is not None)
+        seen = {n.node_id for n in nodes}
         coord = getattr(self.controller, "_lease_coordinator", None)
         if coord is not None and hasattr(coord, "list_active_workers"):
-            seen = {n.node_id for n in nodes}
             for reg, _, _ in coord.list_active_workers():
                 if reg.worker_id not in seen:
                     total_cpus += reg.ocpus
+                    seen.add(reg.worker_id)
+        else:
+            list_pulses = getattr(self.controller, "list_node_pulses", None)
+            if callable(list_pulses):
+                for pulse in await list_pulses():
+                    if pulse.worker_id not in seen:
+                        total_cpus += 1
+                        seen.add(pulse.worker_id)
 
-        total_slots = max(1, total_cpus) if total_cpus > 0 else 16
+        total_slots = max(1, total_cpus)
         pool = ResourceSlotPool(total_slots=total_slots, total_cpus=total_slots)
         engine = SchedulerExplainabilityEngine()
         report = engine.explain_job(

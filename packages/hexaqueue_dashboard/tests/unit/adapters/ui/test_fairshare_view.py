@@ -79,12 +79,28 @@ async def test_fairshare_view_rendering(
         scratch_total_mb=1000,
         load_average=(0.5, 0.4, 0.3),
     )
-    stats = ClusterStatsReport(active_workers=1, running_jobs=1, pending_jobs=0)
+    pulse_baseline = NodeTelemetryPulse(
+        worker_id="baseline-controller-01",
+        active_jobs=0,
+        cpu_utilization_pct=5.0,
+        memory_used_mb=512,
+        memory_total_mb=4096,
+        scratch_used_mb=50,
+        scratch_total_mb=1000,
+        load_average=(0.1, 0.1, 0.1),
+    )
+    stats = ClusterStatsReport(active_workers=2, running_jobs=1, pending_jobs=0)
 
-    await fs_mod.render_fairshare_section(pipeline, ident, [pulse], stats)
+    await fs_mod.render_fairshare_section(
+        pipeline, ident, [pulse, pulse_baseline], stats
+    )
     has_pool = any("hq-worker-pool-a1" in lbl for lbl in labels)
+    has_baseline = any("Baseline Workers: 1" in lbl for lbl in labels)
+    has_pool_workers = any("Pool Workers: 1" in lbl for lbl in labels)
     has_halflife = any("Half-Life: 3600s" in lbl for lbl in labels)
     assert has_pool is True
+    assert has_baseline is True
+    assert has_pool_workers is True
     assert has_halflife is True
 
     async def _fail_dispatch(_pipeline: object, _query: object) -> FairShareTreeReport:
