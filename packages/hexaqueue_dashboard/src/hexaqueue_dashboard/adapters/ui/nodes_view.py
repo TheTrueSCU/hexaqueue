@@ -160,26 +160,55 @@ def _inline_svg_images(svg_text: str) -> str:
     return _IMAGE_HREF_RE.sub(_replace, svg_text)
 
 
+def _is_baseline_worker(worker_id: str) -> bool:
+    """Return True if ``worker_id`` identifies a fixed controller-host baseline worker."""
+    lowered = worker_id.lower()
+    return lowered.startswith("baseline-") or "-baseline-" in lowered
+
+
 def _fallback_topology_svg(nodes: list[NodeTelemetryPulse]) -> str:
     """Return an accessible fallback SVG when Graphviz `dot` is unavailable."""
-    sorted_ids = sorted(pulse.worker_id for pulse in nodes)
-    worker_count = len(sorted_ids)
-    height = max(160, 70 + worker_count * 32)
-    worker_boxes = "".join(
-        f'<rect x="450" y="{54 + idx * 30}" width="170" height="24" rx="4" '
-        f'fill="#166534"/>'
-        f'<text x="535" y="{70 + idx * 30}" text-anchor="middle" '
-        f'fill="#ffffff" font-size="11">{html.escape(wid)}</text>'
-        for idx, wid in enumerate(sorted_ids)
+    baseline_ids = sorted(
+        pulse.worker_id for pulse in nodes if _is_baseline_worker(pulse.worker_id)
     )
-    worker_section = (
-        '<rect x="450" y="20" width="170" height="28" rx="6" fill="#15803d"/>'
-        '<text x="535" y="39" text-anchor="middle" fill="#ffffff" font-size="13">'
-        f"Workers ({worker_count})</text>"
-        f"{worker_boxes}"
-        if worker_count > 0
-        else ""
+    pool_ids = sorted(
+        pulse.worker_id for pulse in nodes if not _is_baseline_worker(pulse.worker_id)
     )
+    sections: list[str] = []
+    y_cursor = 20
+    if baseline_ids:
+        sections.append(
+            f'<rect x="450" y="{y_cursor}" width="170" height="28" rx="6" fill="#0369a1"/>'
+            f'<text x="535" y="{y_cursor + 19}" text-anchor="middle" fill="#ffffff" '
+            f'font-size="13">Baseline ({len(baseline_ids)})</text>'
+        )
+        y_cursor += 34
+        for wid in baseline_ids:
+            sections.append(
+                f'<rect x="450" y="{y_cursor}" width="170" height="24" rx="4" '
+                'fill="#075985"/>'
+                f'<text x="535" y="{y_cursor + 16}" text-anchor="middle" '
+                f'fill="#ffffff" font-size="11">{html.escape(wid)}</text>'
+            )
+            y_cursor += 30
+        y_cursor += 8
+    if pool_ids:
+        sections.append(
+            f'<rect x="450" y="{y_cursor}" width="170" height="28" rx="6" fill="#15803d"/>'
+            f'<text x="535" y="{y_cursor + 19}" text-anchor="middle" fill="#ffffff" '
+            f'font-size="13">Workers ({len(pool_ids)})</text>'
+        )
+        y_cursor += 34
+        for wid in pool_ids:
+            sections.append(
+                f'<rect x="450" y="{y_cursor}" width="170" height="24" rx="4" '
+                'fill="#166534"/>'
+                f'<text x="535" y="{y_cursor + 16}" text-anchor="middle" '
+                f'fill="#ffffff" font-size="11">{html.escape(wid)}</text>'
+            )
+            y_cursor += 30
+    height = max(160, y_cursor + 16)
+    worker_section = "".join(sections)
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 {height}" '
         'aria-hidden="true" '
@@ -244,11 +273,22 @@ def generate_cluster_topology_svg(
                 controller >> adb
                 controller >> cas
 
-                if nodes:
-                    with Cluster(f"Active Worker Pool ({len(nodes)})"):
-                        for pulse in sorted(nodes, key=lambda n: n.worker_id):
-                            worker_node = VM(pulse.worker_id)
-                            controller >> worker_node
+                baseline_nodes = sorted(
+                    (p for p in nodes if _is_baseline_worker(p.worker_id)),
+                    key=lambda n: n.worker_id,
+                )
+                pool_nodes = sorted(
+                    (p for p in nodes if not _is_baseline_worker(p.worker_id)),
+                    key=lambda n: n.worker_id,
+                )
+                if baseline_nodes:
+                    with Cluster(f"Baseline Workers ({len(baseline_nodes)})"):
+                        for pulse in baseline_nodes:
+                            controller >> VM(pulse.worker_id)
+                if pool_nodes:
+                    with Cluster(f"Burst Worker Pool ({len(pool_nodes)})"):
+                        for pulse in pool_nodes:
+                            controller >> VM(pulse.worker_id)
 
             svg_path = Path(f"{out_base}.svg")
             if svg_path.is_file():
