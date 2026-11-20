@@ -70,6 +70,10 @@ class NodesCqrsMixin(BaseCqrsService):
         if self.nodes:
             return self.nodes
 
+        list_pulses = getattr(self.controller, "list_node_pulses", None)
+        if callable(list_pulses):
+            return await list_pulses()
+
         pulses: dict[str, NodeTelemetryPulse] = {}
         for node in await self.controller.list_nodes():
             total_ram = node.capacity.total_ram_mb if node.capacity else 64 * 1024

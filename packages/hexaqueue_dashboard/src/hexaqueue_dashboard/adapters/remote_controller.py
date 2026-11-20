@@ -357,6 +357,25 @@ class HttpSchedulerControllerAdapter(SchedulerControllerPort):
         data = await self._request("GET", "/v1/nodes/profiles")
         return NodesReport.model_validate(data).nodes
 
+    async def list_node_pulses(self) -> list[NodeTelemetryPulse]:
+        """Retrieve live worker NodeTelemetryPulse records from the remote controller.
+
+        Returns:
+            List of live ``NodeTelemetryPulse`` records from ``GET /v1/nodes``.
+
+        Raises:
+            HexaqueueError: If the controller request fails.
+
+        Notes/Architectural Intent:
+            Fetches live CPU, RAM, scratch, and active-job telemetry directly from
+            the controller's ``/v1/nodes`` endpoint instead of reconstructing
+            synthetic zeros from static ``ComputeNodeProfile`` records.
+        """
+        data = await self._request("GET", "/v1/nodes")
+        if not isinstance(data, list):
+            return []
+        return [NodeTelemetryPulse.model_validate(item) for item in data]
+
     async def evaluate_node_failures(
         self,
         timeout_unhealthy_seconds: float = 15.0,
