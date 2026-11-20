@@ -113,20 +113,7 @@ class NodesCqrsMixin(BaseCqrsService):
                         timestamp=last_seen,
                     )
 
-        if pulses:
-            return list(pulses.values())
-
-        pulse = NodeTelemetryPulse(
-            worker_id="node-local-01",
-            cpu_utilization_pct=15.5,
-            memory_total_mb=64 * 1024,
-            memory_used_mb=16 * 1024,
-            scratch_total_mb=500 * 1024,
-            scratch_used_mb=50 * 1024,
-            active_jobs=0,
-            gpu_metrics=[],
-        )
-        return [pulse]
+        return list(pulses.values())
 
     async def handle_register_node(self, cmd: RegisterNodeCommand) -> None:
         """Handle RegisterNodeCommand.

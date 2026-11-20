@@ -172,6 +172,14 @@ def _fallback_topology_svg(nodes: list[NodeTelemetryPulse]) -> str:
         f'fill="#ffffff" font-size="11">{html.escape(wid)}</text>'
         for idx, wid in enumerate(sorted_ids)
     )
+    worker_section = (
+        '<rect x="450" y="20" width="170" height="28" rx="6" fill="#15803d"/>'
+        '<text x="535" y="39" text-anchor="middle" fill="#ffffff" font-size="13">'
+        f"Workers ({worker_count})</text>"
+        f"{worker_boxes}"
+        if worker_count > 0
+        else ""
+    )
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 {height}" '
         'aria-hidden="true" '
@@ -186,10 +194,7 @@ def _fallback_topology_svg(nodes: list[NodeTelemetryPulse]) -> str:
         '<rect x="240" y="90" width="160" height="50" rx="6" fill="#374151"/>'
         '<text x="320" y="120" text-anchor="middle" fill="#ffffff" font-size="13">'
         "Object Storage</text>"
-        '<rect x="450" y="20" width="170" height="28" rx="6" fill="#15803d"/>'
-        '<text x="535" y="39" text-anchor="middle" fill="#ffffff" font-size="13">'
-        f"Workers ({worker_count})</text>"
-        f"{worker_boxes}"
+        f"{worker_section}"
         "</svg>"
     )
 
@@ -239,14 +244,11 @@ def generate_cluster_topology_svg(
                 controller >> adb
                 controller >> cas
 
-                with Cluster(f"Active Worker Pool ({len(nodes)})"):
-                    if nodes:
+                if nodes:
+                    with Cluster(f"Active Worker Pool ({len(nodes)})"):
                         for pulse in sorted(nodes, key=lambda n: n.worker_id):
                             worker_node = VM(pulse.worker_id)
                             controller >> worker_node
-                    else:
-                        idle = VM("No active workers")
-                        controller >> idle
 
             svg_path = Path(f"{out_base}.svg")
             if svg_path.is_file():

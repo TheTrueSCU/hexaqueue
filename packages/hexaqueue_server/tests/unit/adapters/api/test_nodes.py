@@ -7,13 +7,13 @@ def test_nodes_telemetry_and_ssh(hermetic_api_client: TestClient) -> None:
     """Verify node telemetry pulses query and bastion SSH session creation."""
     client = hermetic_api_client
 
-    # 1. Get telemetry pulses
+    # 1. Get telemetry pulses (empty when no real workers are registered)
     resp_nodes = client.get("/v1/nodes", headers={"X-Hexaqueue-User": "operator"})
     nodes_code = resp_nodes.status_code
     assert nodes_code == 200
     pulses = resp_nodes.json()
     pulse_count = len(pulses)
-    assert pulse_count >= 1
+    assert pulse_count == 0
 
     # 2. Launch bastion SSH
     resp_ssh = client.post(
