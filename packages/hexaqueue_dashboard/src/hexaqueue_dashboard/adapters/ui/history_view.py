@@ -24,7 +24,10 @@ from hexaqueue_dashboard.adapters.ui.inspection_drawer import (
 from hexaqueue_dashboard.adapters.ui.jobs_table import build_job_rows, filter_jobs
 from hexaqueue_dashboard.adapters.ui.state import DrawerUIState, HistoryUIState
 from hexaqueue_dashboard.adapters.ui.status import (
+    JOB_STATUS_FILTER_OPTIONS,
+    RUN_STATUS_FILTER_OPTIONS,
     STATUS_BADGE_COLORS,
+    matches_status_filter,
     resolve_job_display_status,
     resolve_run_display_status,
 )
@@ -313,7 +316,7 @@ def filter_history_runs(
     matched: list[RunStatusReport] = []
     for run in runs:
         run_status = resolve_run_display_status(run)
-        if target_status not in ("", "ALL") and run_status != target_status:
+        if not matches_status_filter(run_status, target_status):
             continue
         if not _within_date_bounds(run.updated_at, date_from, date_to):
             continue
@@ -484,6 +487,70 @@ def _render_history_jobs_table(
     return len(filtered_jobs), total_pages, clamped_page
 
 
+def _render_history_controls(
+    history_state: HistoryUIState,
+    on_scope_change: Callable[[str], None],
+    on_filter_change: Callable[[], None],
+) -> None:
+    """Render scope toggles, search, status, and date filter controls."""
+
+    def _bind_str_field(attr: str, default: str = "") -> Callable[[object], None]:
+        def _handler(ev: object) -> None:
+            val = str(getattr(ev, "value", default) or default)
+            if val != getattr(history_state, attr):
+                setattr(history_state, attr, val)
+                history_state.page = 1
+                on_filter_change()
+
+        return _handler
+
+    with ui.row().classes("w-full items-center flex-wrap gap-3 mt-2"):
+        ui.button(
+            "Jobs History",
+            on_click=lambda: on_scope_change("jobs"),
+            color="primary" if history_state.kind == "jobs" else "grey-8",
+        ).props('size="sm" aria-label="Explore jobs history"')
+        ui.button(
+            "Runs History",
+            on_click=lambda: on_scope_change("runs"),
+            color="primary" if history_state.kind == "runs" else "grey-8",
+        ).props('size="sm" aria-label="Explore runs history"')
+
+        ui.input(
+            label="History Search",
+            value=history_state.search,
+            placeholder="Search historical ID, run, name...",
+            on_change=_bind_str_field("search"),
+        ).props('clearable aria-label="Search historical jobs and runs"').classes(
+            "w-72"
+        )
+
+        status_opts = (
+            RUN_STATUS_FILTER_OPTIONS
+            if history_state.kind == "runs"
+            else JOB_STATUS_FILTER_OPTIONS
+        )
+        if history_state.status not in status_opts:
+            history_state.status = "ALL"
+        ui.select(
+            options=status_opts,
+            value=history_state.status,
+            label="History Status",
+            on_change=_bind_str_field("status", "ALL"),
+        ).props('aria-label="Filter history by status"').classes("w-56")
+
+        ui.input(
+            label="From Date",
+            value=history_state.date_from,
+            on_change=_bind_str_field("date_from"),
+        ).props('type="date" clearable aria-label="History start date"').classes("w-40")
+        ui.input(
+            label="To Date",
+            value=history_state.date_to,
+            on_change=_bind_str_field("date_to"),
+        ).props('type="date" clearable aria-label="History end date"').classes("w-40")
+
+
 def render_history_section(
     pipeline: ExecutionPipeline,
     identity: Identity,
@@ -515,104 +582,12 @@ def render_history_section(
         if on_refresh is not None:
             on_refresh()
 
-    with ui.row().classes("w-full items-center flex-wrap gap-3 mt-2"):
-        ui.button(
-            "Jobs History",
-            on_click=lambda: _set_scope("jobs"),
-            color="primary" if history_state.kind == "jobs" else "grey-8",
-        ).props('size="sm" aria-label="Explore jobs history"')
-        ui.button(
-            "Runs History",
-            on_click=lambda: _set_scope("runs"),
-            color="primary" if history_state.kind == "runs" else "grey-8",
-        ).props('size="sm" aria-label="Explore runs history"')
+    def _set_scope(kind: str) -> None:
+        history_state.kind = kind
+        history_state.page = 1
+        _trigger_refresh()
 
-        def _set_scope(kind: str) -> None:
-            history_state.kind = kind
-            history_state.page = 1
-            _trigger_refresh()
-
-        def _on_search(ev: object) -> None:
-            val = str(getattr(ev, "value", "") or "")
-            if val != history_state.search:
-                history_state.search = val
-                history_state.page = 1
-                _render_results()
-
-        def _on_status(ev: object) -> None:
-            val = str(getattr(ev, "value", "ALL") or "ALL")
-            if val != history_state.status:
-                history_state.status = val
-                history_state.page = 1
-                _render_results()
-
-        ui.input(
-            label="History Search",
-            value=history_state.search,
-            placeholder="Search historical ID, run, name...",
-            on_change=_on_search,
-        ).props('clearable aria-label="Search historical jobs and runs"').classes(
-            "w-72"
-        )
-
-        status_opts = (
-            [
-                "ALL",
-                "PENDING",
-                "IN_PROGRESS",
-                "RUNNING",
-                "SUCCEEDED",
-                "COMPLETED",
-                "FAILED",
-                "CANCELLED",
-            ]
-            if history_state.kind == "runs"
-            else [
-                "ALL",
-                "PENDING",
-                "RUNNING",
-                "HELD",
-                "BLOCKED",
-                "SUCCEEDED",
-                "COMPLETED",
-                "FAILED",
-                "CANCELLED",
-            ]
-        )
-        if history_state.status not in status_opts:
-            history_state.status = "ALL"
-        ui.select(
-            options=status_opts,
-            value=history_state.status,
-            label="History Status",
-            on_change=_on_status,
-        ).props('aria-label="Filter history by status"').classes("w-44")
-
-        def _on_date_from(ev: object) -> None:
-            val = str(getattr(ev, "value", "") or "")
-            if val != history_state.date_from:
-                history_state.date_from = val
-                history_state.page = 1
-                _render_results()
-
-        def _on_date_to(ev: object) -> None:
-            val = str(getattr(ev, "value", "") or "")
-            if val != history_state.date_to:
-                history_state.date_to = val
-                history_state.page = 1
-                _render_results()
-
-        ui.input(
-            label="From Date",
-            value=history_state.date_from,
-            on_change=_on_date_from,
-        ).props('type="date" clearable aria-label="History start date"').classes("w-40")
-        ui.input(
-            label="To Date",
-            value=history_state.date_to,
-            on_change=_on_date_to,
-        ).props('type="date" clearable aria-label="History end date"').classes("w-40")
-
+    _render_history_controls(history_state, _set_scope, lambda: _render_results())
     results_box = ui.column().classes("w-full")
 
     def _render_results() -> None:

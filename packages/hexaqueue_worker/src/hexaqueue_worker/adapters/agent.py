@@ -175,18 +175,16 @@ class WorkerAgent:
     def _collect_host_telemetry(self) -> dict[str, float | int]:
         """Collect lightweight live host CPU, RAM, and scratch disk telemetry."""
         telemetry: dict[str, float | int] = {}
-        try:
+        with contextlib.suppress(OSError):
             load_1m = os.getloadavg()[0]
             cpu_count = max(1, os.cpu_count() or self.config.ocpus or 1)
             telemetry["cpu_utilization_pct"] = round(
                 min(100.0, (load_1m / cpu_count) * 100.0), 1
             )
-        except OSError:
-            pass
 
         meminfo = Path("/proc/meminfo")
         if meminfo.is_file():
-            try:
+            with contextlib.suppress(OSError, ValueError):
                 vals: dict[str, int] = {}
                 for line in meminfo.read_text(encoding="utf-8").splitlines():
                     if line.startswith(("MemTotal:", "MemAvailable:")):
@@ -197,16 +195,12 @@ class WorkerAgent:
                     avail_mb = vals.get("MemAvailable", 0) // 1024
                     telemetry["memory_total_mb"] = total_mb
                     telemetry["memory_used_mb"] = max(0, total_mb - avail_mb)
-            except (OSError, ValueError):
-                pass
 
-        try:
+        with contextlib.suppress(OSError):
             scratch_path = self.config.scratch_dir or Path(tempfile.gettempdir())
             usage = shutil.disk_usage(scratch_path)
             telemetry["scratch_total_mb"] = usage.total // (1024 * 1024)
             telemetry["scratch_used_mb"] = usage.used // (1024 * 1024)
-        except OSError:
-            pass
         return telemetry
 
     async def heartbeat(self, client: httpx.AsyncClient) -> bool:
