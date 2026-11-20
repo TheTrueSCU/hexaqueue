@@ -201,6 +201,7 @@ def bootstrap_server_container(
         collateral_service = LocalCollateralServiceAdapter(
             security_port=NoOpSecurityQuarantineAdapter(),
             storage_port=storage_port,
+            metadata_store=scheduler_storage,
         )
         di.add_instance(collateral_service, declared_class=CollateralServicePort)
 

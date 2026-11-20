@@ -250,6 +250,60 @@ async def test_oracle_adapter_telemetry_pulses(sync_engine):
 
 
 @pytest.mark.anyio
+async def test_oracle_adapter_collateral_lifecycle(sync_engine: Any) -> None:
+    """Verify collateral bundle persistence, hot cache, DB query, update, and deletion."""
+    from hexaqueue_core.domain.collateral import (
+        CollateralBundle,
+        CollateralKind,
+        CollateralState,
+        CollateralTier,
+    )
+
+    adapter = OciAutonomousDatabaseStorageAdapter(
+        engine=sync_engine,
+        flush_interval_seconds=0.05,
+    )
+    bundle = CollateralBundle(
+        id="col-adb-1",
+        job_id="job-1",
+        owner="rjdw",
+        filename="dataset.tar.gz",
+        size_bytes=8192,
+        sha256_checksum="b" * 64,
+        kind=CollateralKind.DATASET,
+        tier=CollateralTier.TEMPORARY,
+        state=CollateralState.APPROVED,
+        staging_uri="/tmp/dataset.tar.gz",
+        active_uri="/tmp/active/dataset.tar.gz",
+    )
+    await adapter.record_collateral(bundle)
+    hot = await adapter.get_collateral("col-adb-1")
+    assert hot is not None
+    assert hot.filename == "dataset.tar.gz"
+
+    await adapter.flush()
+    adapter._hot_collateral.clear()
+    durable = await adapter.get_collateral("col-adb-1")
+    assert durable is not None
+    assert durable.tier == CollateralTier.TEMPORARY
+
+    promoted = bundle.model_copy(update={"tier": CollateralTier.PERMANENT})
+    await adapter.record_collateral(promoted)
+    await adapter.flush()
+    adapter._hot_collateral.clear()
+    listed = await adapter.list_collateral()
+    assert len(listed) == 1
+    assert listed[0].tier == CollateralTier.PERMANENT
+
+    await adapter.delete_collateral("col-adb-1")
+    await adapter.flush()
+    missing = await adapter.get_collateral("col-adb-1")
+    assert missing is None
+
+    await adapter.close()
+
+
+@pytest.mark.anyio
 async def test_oracle_adapter_queue_full_drain(sync_engine):
     """Verify queue full condition forces synchronous drain across all entity types."""
     adapter = OciAutonomousDatabaseStorageAdapter(

@@ -179,3 +179,59 @@ async def test_reconcile_pool_unregistered() -> None:
     autoscaler = BudgetAwareInstancePoolAutoscaler()
     with pytest.raises(HexaqueueError, match="No governor registered"):
         await autoscaler.reconcile_pool("unknown-pool", pending_jobs=1)
+
+
+@pytest.mark.asyncio
+async def test_reconcile_pool_circuit_breaker_on_stall_and_capacity_error() -> None:
+    """Verify autoscaler trips circuit breaker on stalled scale-up or CSP capacity error."""
+    pool = InstancePoolState(
+        pool_id="pool-a1",
+        provider=CspProvider.OCI,
+        min_nodes=0,
+        max_nodes=4,
+        desired_nodes=2,
+        current_nodes=2,
+        ready_nodes=0,
+    )
+    gov = MockGovernor(pool)
+    autoscaler = BudgetAwareInstancePoolAutoscaler(
+        governors={"pool-a1": gov},
+        scale_up_grace_seconds=60.0,
+        circuit_cooldown_seconds=120.0,
+    )
+
+    # First tick at t=1000 starts grace timer
+    dec1 = await autoscaler.reconcile_pool(
+        pool_id="pool-a1", pending_jobs=2, running_jobs=0, now=1000.0
+    )
+    assert dec1.action in ("SCALE_UP", "NOOP")
+    status1 = autoscaler.get_pool_circuit_status("pool-a1", now=1000.0)
+    assert status1["state"] == "CLOSED"
+
+    # Simulate pool still having 0 ready_nodes at t=1070 (> 60s grace) -> trips circuit and scales to 0
+    gov.pool = gov.pool.model_copy(update={"desired_nodes": 2, "ready_nodes": 0})
+    dec2 = await autoscaler.reconcile_pool(
+        pool_id="pool-a1", pending_jobs=2, running_jobs=0, now=1070.0
+    )
+    assert dec2.action == "SCALE_DOWN"
+    assert dec2.target_nodes == 0
+    status2 = autoscaler.get_pool_circuit_status("pool-a1", now=1070.0)
+    assert status2["state"] == "OPEN"
+    assert status2["trip_count"] == 1
+
+    # While OPEN, subsequent scale-up request is NOOP
+    dec3 = await autoscaler.reconcile_pool(
+        pool_id="pool-a1", pending_jobs=5, running_jobs=0, now=1080.0
+    )
+    assert dec3.action == "NOOP"
+    assert "Circuit breaker OPEN" in dec3.reason
+
+    # Reset when ready_nodes > 0
+    gov.pool = gov.pool.model_copy(
+        update={"desired_nodes": 1, "current_nodes": 1, "ready_nodes": 1}
+    )
+    _dec4 = await autoscaler.reconcile_pool(
+        pool_id="pool-a1", pending_jobs=0, running_jobs=1, now=1200.0
+    )
+    status4 = autoscaler.get_pool_circuit_status("pool-a1", now=1200.0)
+    assert status4["state"] == "CLOSED"

@@ -8,6 +8,7 @@ Notes/Architectural Intent:
 
 from collections.abc import Sequence
 
+from hexaqueue_core.domain.collateral import CollateralBundle
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.node import ComputeNodeProfile
 from hexaqueue_core.domain.telemetry import NodeTelemetryPulse
@@ -33,6 +34,7 @@ class InMemorySchedulerStorageAdapter(SchedulerStoragePort):
         self._jobs: dict[str, JobSpec] = {}
         self._nodes: dict[str, ComputeNodeProfile] = {}
         self._telemetry: list[NodeTelemetryPulse] = []
+        self._collateral: dict[str, CollateralBundle] = {}
 
     async def record_run(self, run: RunStatusReport) -> None:
         """Persist or update a pipeline run status record.
@@ -185,6 +187,52 @@ class InMemorySchedulerStorageAdapter(SchedulerStoragePort):
             reverse=True,
         )
         return sorted_pulses[offset : offset + limit]
+
+    async def record_collateral(self, bundle: CollateralBundle) -> None:
+        """Persist or update a collateral bundle record.
+
+        Args:
+            bundle: CollateralBundle metadata instance.
+        """
+        self._collateral[bundle.id] = bundle
+
+    async def get_collateral(self, collateral_id: str) -> CollateralBundle | None:
+        """Retrieve a collateral bundle record by identifier.
+
+        Args:
+            collateral_id: Unique collateral bundle identifier.
+
+        Returns:
+            CollateralBundle instance if found, None otherwise.
+        """
+        return self._collateral.get(collateral_id)
+
+    async def list_collateral(
+        self, limit: int = 1000, offset: int = 0
+    ) -> Sequence[CollateralBundle]:
+        """List persisted collateral bundle records ordered by creation time descending.
+
+        Args:
+            limit: Maximum records to return.
+            offset: Number of records to skip.
+
+        Returns:
+            Sequence of CollateralBundle instances.
+        """
+        sorted_bundles = sorted(
+            self._collateral.values(),
+            key=lambda b: b.created_at,
+            reverse=True,
+        )
+        return sorted_bundles[offset : offset + limit]
+
+    async def delete_collateral(self, collateral_id: str) -> None:
+        """Delete a collateral bundle record from storage.
+
+        Args:
+            collateral_id: Unique collateral bundle identifier.
+        """
+        self._collateral.pop(collateral_id, None)
 
     async def flush(self) -> None:
         """Flush any pending buffered write-behind records to durable storage."""

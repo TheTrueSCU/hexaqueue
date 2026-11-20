@@ -79,8 +79,9 @@ def _probe_health(
     Returns:
         Tuple of (is_healthy, payload_dict_or_none, elapsed_time_ms).
     """
+    stripped = url.rstrip("/")
     health_url = (
-        url if url.rstrip("/").endswith("/health") else f"{url.rstrip('/')}/health"
+        url if stripped.endswith(("/health", "/health/ready")) else f"{stripped}/health"
     )
     if not health_url.startswith(("http://", "https://")):
         return False, None, 0.0

@@ -86,6 +86,7 @@ class SliceLeaseCoordinator:
         self._session_total_slices: dict[str, int] = {}
         self._session_reports: dict[str, list[SliceOutcomeResponse]] = {}
         self._session_events: dict[str, asyncio.Event] = {}
+        self._session_leased_events: dict[str, asyncio.Event] = {}
 
     def set_controller(self, controller: Any) -> None:
         """Attach scheduler controller to coordinator for job lifecycle synchronizations.
@@ -143,6 +144,57 @@ class SliceLeaseCoordinator:
     def has_autoscaler(self) -> bool:
         """Return whether an instance pool autoscaler is registered."""
         return self._autoscaler is not None and self._pool_id is not None
+
+    def get_capacity_readiness(self) -> dict[str, Any]:
+        """Evaluate current worker and burst-pool capacity readiness.
+
+        Returns:
+            Dictionary containing ``capacity_state`` (``"READY"``, ``"SCALING"``,
+            or ``"DEGRADED"``), ``ready`` boolean, ``active_workers``,
+            ``pending_slices``, ``active_leases``, and ``pool_circuit``.
+        """
+        active_workers = self.active_worker_count
+        pending = self.pending_count
+        active = self.active_lease_count
+        circuit_info: dict[str, Any] = {
+            "state": "CLOSED",
+            "reason": None,
+            "retry_after_seconds": 0.0,
+            "trip_count": 0,
+        }
+        if (
+            self._autoscaler is not None
+            and self._pool_id is not None
+            and hasattr(self._autoscaler, "get_pool_circuit_status")
+        ):
+            circuit_info = self._autoscaler.get_pool_circuit_status(self._pool_id)
+
+        if active_workers > 0:
+            capacity_state = "READY"
+            is_ready = True
+        elif circuit_info.get("state") == "OPEN":
+            capacity_state = "DEGRADED"
+            is_ready = False
+        elif self.has_autoscaler:
+            capacity_state = "SCALING" if pending > 0 else "READY"
+            is_ready = True
+        else:
+            capacity_state = "DEGRADED" if pending > 0 else "READY"
+            is_ready = pending == 0
+
+        return {
+            "capacity_state": capacity_state,
+            "ready": is_ready,
+            "active_workers": active_workers,
+            "pending_slices": pending,
+            "active_leases": active,
+            "pool_id": self._pool_id,
+            "pool_circuit": circuit_info,
+        }
+
+    def get_session_leased_event(self, session_id: str) -> asyncio.Event | None:
+        """Return the event that triggers when the first slice of a session is leased."""
+        return self._session_leased_events.get(session_id)
 
     async def _reconcile_autoscaler(self) -> None:
         """Evaluate pending slices and running leases, dispatching autoscaler decisions."""
@@ -298,11 +350,13 @@ class SliceLeaseCoordinator:
             tasks.append(descriptor)
 
         completion_event = asyncio.Event()
+        leased_event = asyncio.Event()
 
         async with self._condition:
             self._session_total_slices[session_id] = total
             self._session_reports[session_id] = []
             self._session_events[session_id] = completion_event
+            self._session_leased_events[session_id] = leased_event
             for t in tasks:
                 self._pending_tasks.append(t)
             self._condition.notify_all()
@@ -427,6 +481,9 @@ class SliceLeaseCoordinator:
             )
             self._active_leases[lease.lease_id] = lease
             self._worker_last_seen[worker_id] = now
+            leased_ev = self._session_leased_events.get(task.session_id)
+            if leased_ev is not None and not leased_ev.is_set():
+                leased_ev.set()
 
         if (
             task.task_type == "job"

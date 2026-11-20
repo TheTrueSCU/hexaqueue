@@ -10,6 +10,7 @@ Notes/Architectural Intent:
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 
+from hexaqueue_core.domain.collateral import CollateralBundle
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.node import ComputeNodeProfile
 from hexaqueue_core.domain.telemetry import NodeTelemetryPulse
@@ -161,6 +162,50 @@ class SchedulerStoragePort(ABC):
 
         Returns:
             Sequence of NodeTelemetryPulse instances.
+        """
+
+    @abstractmethod
+    async def record_collateral(self, bundle: CollateralBundle) -> None:
+        """Persist or update a collateral bundle record.
+
+        Args:
+            bundle: CollateralBundle metadata instance.
+
+        Raises:
+            HexaqueueError: If persistence encounters an unrecoverable storage failure.
+        """
+
+    @abstractmethod
+    async def get_collateral(self, collateral_id: str) -> CollateralBundle | None:
+        """Retrieve a collateral bundle record by identifier.
+
+        Args:
+            collateral_id: Unique collateral bundle identifier.
+
+        Returns:
+            CollateralBundle instance if found, None otherwise.
+        """
+
+    @abstractmethod
+    async def list_collateral(
+        self, limit: int = 1000, offset: int = 0
+    ) -> Sequence[CollateralBundle]:
+        """List persisted collateral bundle records ordered by creation time descending.
+
+        Args:
+            limit: Maximum records to return.
+            offset: Number of records to skip.
+
+        Returns:
+            Sequence of CollateralBundle instances.
+        """
+
+    @abstractmethod
+    async def delete_collateral(self, collateral_id: str) -> None:
+        """Delete a collateral bundle record from durable storage.
+
+        Args:
+            collateral_id: Unique collateral bundle identifier to delete.
         """
 
     @abstractmethod

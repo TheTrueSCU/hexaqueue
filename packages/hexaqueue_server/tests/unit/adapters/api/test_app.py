@@ -101,3 +101,52 @@ def test_create_server_app_dedicated_mcp_node() -> None:
     assert "/v1/runs" not in openapi_paths
     assert "/v1/nodes" not in openapi_paths
     assert "/v1/webhooks/github" not in openapi_paths
+
+
+def test_health_and_health_ready_capacity_circuit_breaker() -> None:
+    """Verify /health and /health/ready report capacity_state and return 503 when DEGRADED."""
+    from fastapi.testclient import TestClient
+
+    from hexaqueue_core.domain.config import CspProvider
+    from hexaqueue_core.domain.pool import InstancePoolState
+    from hexaqueue_server.adapters.cloud.oci import OciInstancePoolAdapter
+    from hexaqueue_server.domain.autoscaler import BudgetAwareInstancePoolAutoscaler
+    from hexaqueue_server.domain.lease_coordinator import SliceLeaseCoordinator
+
+    app = create_server_app()
+    client = TestClient(app)
+
+    h_resp = client.get("/health")
+    assert h_resp.status_code == 200
+    h_data = h_resp.json()
+    assert h_data["status"] == "ok"
+    assert h_data["capacity_state"] == "READY"
+
+    r_resp = client.get("/health/ready")
+    assert r_resp.status_code == 200
+    r_data = r_resp.json()
+    assert r_data["ready"] is True
+    assert r_data["capacity_state"] == "READY"
+
+    # Trip autoscaler circuit breaker with 0 active workers -> /health/ready returns 503 DEGRADED
+    coord = app.state.container.resolve(SliceLeaseCoordinator)
+    gov = OciInstancePoolAdapter()
+    gov.register_mock_pool(
+        InstancePoolState(
+            pool_id="pool-a1",
+            provider=CspProvider.OCI,
+            min_nodes=0,
+            max_nodes=4,
+        )
+    )
+    autoscaler = BudgetAwareInstancePoolAutoscaler(governors={"pool-a1": gov})
+    autoscaler.trip_circuit("pool-a1", "Out of host capacity")
+    coord._autoscaler = autoscaler
+    coord._pool_id = "pool-a1"
+
+    deg_resp = client.get("/health/ready")
+    assert deg_resp.status_code == 503
+    deg_data = deg_resp.json()
+    assert deg_data["ready"] is False
+    assert deg_data["capacity_state"] == "DEGRADED"
+    assert deg_data["pool_circuit"]["state"] == "OPEN"
