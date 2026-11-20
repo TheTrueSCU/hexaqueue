@@ -61,7 +61,7 @@ def test_build_node_rows_and_topology_svg(
     assert "Jobs 1" not in svg_text
 
     pulse_two = NodeTelemetryPulse(
-        worker_id="oci-worker-2",
+        worker_id="baseline-controller-01",
         active_jobs=0,
         cpu_utilization_pct=10.0,
         memory_used_mb=1024,
@@ -71,8 +71,11 @@ def test_build_node_rows_and_topology_svg(
         scratch_total_mb=1000,
     )
     svg_two = nodes_mod.generate_cluster_topology_svg([pulse, pulse_two], [running_job])
+    svg_two_text = html.unescape(svg_two)
     assert svg_two != svg
-    assert "oci-worker-2" in html.unescape(svg_two)
+    assert "baseline-controller-01" in svg_two_text
+    assert "oci-worker-1" in svg_two_text
+    assert "Baseline" in svg_two_text
 
     icon_file = tmp_path / "vm.png"
     icon_file.write_bytes(b"\x89PNG\r\n\x1a\n")

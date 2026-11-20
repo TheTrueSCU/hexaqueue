@@ -79,10 +79,12 @@ def test_dashboard_overview_and_telemetry(
     assert stats_resp.status_code == 200
     assert "total_jobs" in stats_resp.json()
 
-    # Nodes
+    # Nodes (empty list when no real workers are registered)
     nodes_resp = client.get("/dashboard/nodes")
-    assert nodes_resp.status_code == 200
-    assert len(nodes_resp.json()) >= 1
+    nodes_status = nodes_resp.status_code
+    assert nodes_status == 200
+    nodes_payload = nodes_resp.json()
+    assert nodes_payload == []
 
     # Fair-share
     fs_resp = client.get("/dashboard/fairshare")

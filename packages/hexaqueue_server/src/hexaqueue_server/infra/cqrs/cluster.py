@@ -355,12 +355,16 @@ class ClusterCqrsMixin(BaseCqrsService):
         if self.nodes:
             active_workers = len(self.nodes)
         else:
-            worker_ids = {n.node_id for n in await self.controller.list_nodes()}
+            list_pulses = getattr(self.controller, "list_node_pulses", None)
+            if callable(list_pulses):
+                worker_ids = {p.worker_id for p in await list_pulses()}
+            else:
+                worker_ids = {n.node_id for n in await self.controller.list_nodes()}
             coord = getattr(self.controller, "_lease_coordinator", None)
             if coord is not None and hasattr(coord, "list_active_workers"):
                 for reg, _, _ in coord.list_active_workers():
                     worker_ids.add(reg.worker_id)
-            active_workers = len(worker_ids) if worker_ids else 1
+            active_workers = len(worker_ids)
 
         return ClusterStatsReport(
             total_runs=len(run_ids),

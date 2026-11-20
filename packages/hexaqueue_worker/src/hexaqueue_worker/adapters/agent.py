@@ -172,14 +172,19 @@ class WorkerAgent:
         except Exception:
             return False
 
-    def _collect_host_telemetry(self) -> dict[str, float | int]:
-        """Collect lightweight live host CPU, RAM, and scratch disk telemetry."""
-        telemetry: dict[str, float | int] = {}
+    def _collect_host_telemetry(self) -> dict[str, Any]:
+        """Collect lightweight live host CPU, load average, RAM, and scratch disk telemetry."""
+        telemetry: dict[str, Any] = {}
         with contextlib.suppress(OSError):
-            load_1m = os.getloadavg()[0]
+            loads = os.getloadavg()
+            telemetry["load_average"] = [
+                round(loads[0], 2),
+                round(loads[1], 2),
+                round(loads[2], 2),
+            ]
             cpu_count = max(1, os.cpu_count() or self.config.ocpus or 1)
             telemetry["cpu_utilization_pct"] = round(
-                min(100.0, (load_1m / cpu_count) * 100.0), 1
+                min(100.0, (loads[0] / cpu_count) * 100.0), 1
             )
 
         meminfo = Path("/proc/meminfo")

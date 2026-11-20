@@ -1,0 +1,30 @@
+[Unit]
+Description=Hexaqueue Fixed Baseline Compute Worker (Controller Host)
+After=network-online.target hexaqueue.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/hexaqueue
+Environment="HEXAQUEUE_CONTROLLER_URL=http://127.0.0.1:8001"
+Environment="HEXAQUEUE_WORKER_ID=baseline-controller-01"
+Environment="HEXAQUEUE_WORKER_OCPUS=2"
+Environment="HEXAQUEUE_WORKER_MEMORY_MB=14336"
+Environment="HEXAQUEUE_AGENT_IDLE_TIMEOUT=0"
+EnvironmentFile=-/home/ubuntu/.config/hexaqueue/worker.env
+
+# Strict cgroup & scheduler isolation so baseline jobs never starve controller/dashboard/SSH
+CPUQuota=250%
+MemoryHigh=14G
+MemoryMax=16G
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+
+ExecStart=/home/ubuntu/.local/bin/uv run python -m hexaqueue_worker.adapters.agent
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

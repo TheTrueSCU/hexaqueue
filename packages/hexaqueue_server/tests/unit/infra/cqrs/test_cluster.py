@@ -62,7 +62,7 @@ def test_cluster_stats_fairshare_and_dlq_queries(
 
     # Queue stats
     stats = pipeline.execute(GetQueueStatsQuery())
-    assert stats.active_workers >= 1
+    assert stats.active_workers == 0
     assert stats.running_jobs == 0
     assert stats.blocked_jobs == 0
 

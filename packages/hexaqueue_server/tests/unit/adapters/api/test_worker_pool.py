@@ -128,15 +128,24 @@ async def test_worker_heartbeat() -> None:
         data1 = hb_empty.json()
         assert data1["status"] == "ok"
 
-        # Heartbeat with active leases
+        # Heartbeat with active leases and host telemetry (including load_average)
         hb_active = await client.post(
             "/worker/w-1/heartbeat",
-            json={"active_lease_ids": ["lease-123"]},
+            json={
+                "active_lease_ids": ["lease-123"],
+                "cpu_utilization_pct": 37.5,
+                "load_average": [1.5, 1.0, 0.5],
+                "memory_used_mb": 4096,
+                "memory_total_mb": 12288,
+            },
         )
         hb_active_code = hb_active.status_code
         assert hb_active_code == 200
         data2 = hb_active.json()
         assert data2["status"] == "ok"
+        telem = coord.get_worker_telemetry("w-1")
+        assert telem["cpu_utilization_pct"] == 37.5
+        assert telem["load_average"] == (1.5, 1.0, 0.5)
 
 
 @pytest.mark.asyncio
