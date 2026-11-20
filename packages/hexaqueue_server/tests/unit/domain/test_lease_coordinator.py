@@ -414,3 +414,38 @@ def test_format_failure_reason_includes_stderr_tail() -> None:
     assert reason is not None
     assert "Command failed with exit code 1" in reason
     assert "ImportError: boom" in reason
+
+
+@pytest.mark.asyncio
+async def test_capacity_readiness_and_session_leased_event() -> None:
+    """Verify get_capacity_readiness states and get_session_leased_event trigger."""
+    coord = SliceLeaseCoordinator()
+    cap_idle = coord.get_capacity_readiness()
+    assert cap_idle["capacity_state"] == "READY"
+    assert cap_idle["ready"] is True
+
+    slice_item = TestSliceDispatch(
+        slice_id="sl-cap-1",
+        slice_index=0,
+        total_slices=1,
+        test_nodeids=["tests/test_a.py::test_1"],
+    )
+    await coord.enqueue_session_slices("sess-cap", [slice_item])
+
+    # With 0 workers and no autoscaler, pending slices make capacity DEGRADED
+    cap_no_workers = coord.get_capacity_readiness()
+    assert cap_no_workers["capacity_state"] == "DEGRADED"
+    assert cap_no_workers["ready"] is False
+
+    leased_ev = coord.get_session_leased_event("sess-cap")
+    assert leased_ev is not None
+    assert leased_ev.is_set() is False
+
+    await coord.register_worker(WorkerRegistration(worker_id="w-cap-1", ocpus=2))
+    cap_with_worker = coord.get_capacity_readiness()
+    assert cap_with_worker["capacity_state"] == "READY"
+    assert cap_with_worker["ready"] is True
+
+    lease = await coord.lease_slice("w-cap-1")
+    assert lease is not None
+    assert leased_ev.is_set() is True

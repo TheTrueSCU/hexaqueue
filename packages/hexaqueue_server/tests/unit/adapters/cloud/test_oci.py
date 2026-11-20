@@ -80,6 +80,10 @@ async def test_oci_instance_pool_with_client() -> None:
     ready = state.ready_nodes
     assert ready == 2
 
+    with patch.dict("os.environ", {"HEXAQUEUE_OCI_MAX_POOL_SIZE": "0"}, clear=False):
+        capped_state = await adapter.get_pool_state("ocid1.instancepool.oc1..pool1")
+        assert capped_state.max_nodes == 0
+
     # Scaling
     scale_res = await adapter.scale_pool(
         PoolScaleRequest(

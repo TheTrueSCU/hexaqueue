@@ -19,5 +19,9 @@ def test_scheduler_storage_port_is_abstract() -> None:
     assert "list_nodes" in SchedulerStoragePort.__abstractmethods__
     assert "record_telemetry_pulse" in SchedulerStoragePort.__abstractmethods__
     assert "list_telemetry_pulses" in SchedulerStoragePort.__abstractmethods__
+    assert "record_collateral" in SchedulerStoragePort.__abstractmethods__
+    assert "get_collateral" in SchedulerStoragePort.__abstractmethods__
+    assert "list_collateral" in SchedulerStoragePort.__abstractmethods__
+    assert "delete_collateral" in SchedulerStoragePort.__abstractmethods__
     assert "flush" in SchedulerStoragePort.__abstractmethods__
     assert "close" in SchedulerStoragePort.__abstractmethods__

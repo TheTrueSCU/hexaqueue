@@ -607,6 +607,27 @@ async def _dispatch_remote_slices(
     )
     est_total = sum(s.total_estimated_duration for s in req.slices)
     timeout = max(300.0, est_total * 2.0)
+    pickup_timeout = float(
+        os.environ.get("HEXAQUEUE_LEASE_PICKUP_TIMEOUT", "300.0") or "300.0"
+    )
+    leased_ev = (
+        coord.get_session_leased_event(req.session_id)
+        if hasattr(coord, "get_session_leased_event")
+        else None
+    )
+    if (
+        leased_ev is not None
+        and coord.active_worker_count == 0
+        and 0.0 < pickup_timeout < timeout
+    ):
+        try:
+            await asyncio.wait_for(leased_ev.wait(), timeout=pickup_timeout)
+        except TimeoutError:
+            cancel_fn = getattr(coord, "cancel_task", None)
+            if callable(cancel_fn):
+                await cancel_fn(req.session_id)
+            return []
+
     with suppress(TimeoutError):
         await asyncio.wait_for(completion_ev.wait(), timeout=timeout)
     return await coord.get_session_reports(req.session_id)

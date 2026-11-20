@@ -7,6 +7,7 @@ Notes/Architectural Intent:
     scaling, compartment isolation, and real-time fault domain distribution.
 """
 
+import os
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
@@ -21,6 +22,17 @@ from hexaqueue_core.domain.pool import (
 )
 from hexaqueue_core.ports.pool import InstancePoolGovernorPort
 from hexaqueue_core.utils.imports import optional_dependency
+
+
+def _resolve_oci_max_pool_size(current_size: int) -> int:
+    """Resolve OCI instance pool maximum capacity ceiling from env or default."""
+    raw = os.environ.get("HEXAQUEUE_OCI_MAX_POOL_SIZE", "").strip()
+    if raw:
+        try:
+            return max(0, int(raw))
+        except ValueError:
+            pass
+    return max(10, current_size)
 
 
 class OciInstancePoolAdapter(InstancePoolGovernorPort):
@@ -161,7 +173,7 @@ class OciInstancePoolAdapter(InstancePoolGovernorPort):
                     pool_id=pool_id,
                     provider=CspProvider.OCI,
                     min_nodes=0,
-                    max_nodes=max(10, pool.size),
+                    max_nodes=_resolve_oci_max_pool_size(int(pool.size)),
                     desired_nodes=pool.size,
                     current_nodes=len(instances),
                     ready_nodes=ready_count,
@@ -200,7 +212,7 @@ class OciInstancePoolAdapter(InstancePoolGovernorPort):
                             pool_id=p.id,
                             provider=CspProvider.OCI,
                             min_nodes=0,
-                            max_nodes=max(10, p.size),
+                            max_nodes=_resolve_oci_max_pool_size(int(p.size)),
                             desired_nodes=p.size,
                             current_nodes=p.size,
                             ready_nodes=p.size,

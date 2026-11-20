@@ -133,3 +133,41 @@ async def test_in_memory_storage_telemetry():
     # Flush and close are no-ops
     await adapter.flush()
     await adapter.close()
+
+
+@pytest.mark.anyio
+async def test_in_memory_storage_collateral() -> None:
+    """Verify collateral bundle persistence, listing, and deletion in in-memory adapter."""
+    from hexaqueue_core.domain.collateral import (
+        CollateralBundle,
+        CollateralKind,
+        CollateralState,
+        CollateralTier,
+    )
+
+    adapter = InMemorySchedulerStorageAdapter()
+    bundle = CollateralBundle(
+        id="col-mem-1",
+        job_id="job-1",
+        owner="alice",
+        filename="weights.pt",
+        size_bytes=4096,
+        sha256_checksum="a" * 64,
+        kind=CollateralKind.BUNDLE,
+        tier=CollateralTier.PERMANENT,
+        state=CollateralState.APPROVED,
+        staging_uri="/tmp/weights.pt",
+        active_uri="/tmp/active/weights.pt",
+    )
+    await adapter.record_collateral(bundle)
+    fetched = await adapter.get_collateral("col-mem-1")
+    assert fetched is not None
+    assert fetched.filename == "weights.pt"
+
+    listed = await adapter.list_collateral()
+    assert len(listed) == 1
+    assert listed[0].id == "col-mem-1"
+
+    await adapter.delete_collateral("col-mem-1")
+    missing = await adapter.get_collateral("col-mem-1")
+    assert missing is None

@@ -12,7 +12,7 @@ import inspect
 import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
 from uuid import uuid4
 
 from hexaqueue_collateral.domain.models import IngestionRequest, StagedUploadDescriptor
@@ -40,6 +40,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
         base_dir: str | Path | None = None,
         security_port: SecurityQuarantinePort | None = None,
         storage_port: PresignedStoragePort | None = None,
+        metadata_store: Any = None,
     ) -> None:
         """Initialize local collateral service with storage directories.
 
@@ -47,6 +48,9 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
             base_dir: Base directory for collateral storage (defaults to ~/.hexaqueue/collateral).
             security_port: Optional security scanner port (defaults to NoOp if None).
             storage_port: Optional presigned storage port for upload link vending.
+            metadata_store: Optional durable metadata repository (e.g. SchedulerStoragePort
+                backed by Oracle ADB, SQLite, or in-memory test oracle) providing
+                ``record_collateral``, ``list_collateral``, and ``delete_collateral``.
         """
         self._base_dir = (
             Path(base_dir) if base_dir else Path.home() / ".hexaqueue" / "collateral"
@@ -62,7 +66,136 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
 
         self._security_port = security_port
         self._storage_port = storage_port
+        self._metadata_store = metadata_store
+        self._hydrated = False
         self._bundles: dict[str, CollateralBundle] = {}
+
+    async def _persist_bundle(self, bundle: CollateralBundle) -> None:
+        """Persist bundle to in-memory map and durable metadata store if configured."""
+        self._bundles[bundle.id] = bundle
+        record_fn = getattr(self._metadata_store, "record_collateral", None)
+        if callable(record_fn):
+            res = record_fn(bundle)
+            if inspect.isawaitable(res):
+                await res
+
+    async def _delete_persisted_bundle(self, collateral_id: str) -> None:
+        """Remove bundle from in-memory map and durable metadata store if configured."""
+        self._bundles.pop(collateral_id, None)
+        delete_fn = getattr(self._metadata_store, "delete_collateral", None)
+        if callable(delete_fn):
+            res = delete_fn(collateral_id)
+            if inspect.isawaitable(res):
+                await res
+
+    def _scan_active_cas_directory(
+        self, known_shas: set[str]
+    ) -> list[CollateralBundle]:
+        """Discover pre-existing CAS artifacts under active/<sha256>/<filename>."""
+        discovered: list[CollateralBundle] = []
+        if not self._active_dir.is_dir():
+            return discovered
+        for sha_dir in sorted(self._active_dir.iterdir()):
+            if not sha_dir.is_dir():
+                continue
+            sha = sha_dir.name.lower().strip()
+            if len(sha) != 64 or sha in known_shas:
+                continue
+            files = [f for f in sha_dir.iterdir() if f.is_file()]
+            if not files:
+                continue
+            active_file = files[0]
+            stat = active_file.stat()
+            mtime = datetime.fromtimestamp(stat.st_mtime, tz=UTC)
+            cid = f"cas-{sha[:12]}"
+            bundle = CollateralBundle(
+                id=cid,
+                job_id="cas-discovered",
+                filename=active_file.name,
+                size_bytes=stat.st_size,
+                sha256_checksum=sha,
+                kind=CollateralKind.BUNDLE,
+                tier=CollateralTier.TEMPORARY,
+                state=CollateralState.APPROVED,
+                staging_uri=str(active_file),
+                active_uri=str(active_file),
+                created_at=mtime,
+                updated_at=mtime,
+                last_accessed_at=mtime,
+            )
+            discovered.append(bundle)
+            known_shas.add(sha)
+        return discovered
+
+    async def _hydrate_remote_objects(self, known_shas: set[str]) -> None:
+        """Reconcile pre-existing object storage keys when storage_port supports list_objects."""
+        list_objs_fn = getattr(self._storage_port, "list_objects", None)
+        if not callable(list_objs_fn):
+            return
+        raw_objs = list_objs_fn(prefix="collateral/")
+        objs = await raw_objs if inspect.isawaitable(raw_objs) else raw_objs
+        for obj in objs or []:
+            key = str(obj.get("key", "") if isinstance(obj, dict) else obj)
+            parts = key.strip("/").split("/")
+            if len(parts) != 3 or parts[0] != "collateral":
+                continue
+            _, sha_part, fname = parts
+            clean_sha = sha_part.lower().strip()
+            if len(clean_sha) != 64 or clean_sha in known_shas:
+                continue
+            size_val = int(obj.get("size_bytes", 0)) if isinstance(obj, dict) else 0
+            cid = f"cas-{clean_sha[:12]}"
+            if cid not in self._bundles:
+                active_target = self._active_dir / clean_sha / fname
+                remote_bundle = CollateralBundle(
+                    id=cid,
+                    job_id="cas-discovered",
+                    filename=fname,
+                    size_bytes=max(0, size_val),
+                    sha256_checksum=clean_sha,
+                    kind=CollateralKind.BUNDLE,
+                    tier=CollateralTier.TEMPORARY,
+                    state=CollateralState.APPROVED,
+                    staging_uri=str(active_target),
+                    active_uri=str(active_target),
+                )
+                await self._persist_bundle(remote_bundle)
+                known_shas.add(clean_sha)
+
+    async def hydrate_from_storage(self) -> int:
+        """Hydrate collateral metadata from durable store, on-disk CAS, and object storage.
+
+        Returns:
+            Total number of collateral bundles loaded into the registry.
+        """
+        if self._hydrated:
+            return len(self._bundles)
+        self._hydrated = True
+
+        # 1. Load durable metadata records from SchedulerStoragePort (ADB / SQLite / memory)
+        list_fn = getattr(self._metadata_store, "list_collateral", None)
+        if callable(list_fn):
+            res = list_fn(limit=2000)
+            records = await res if inspect.isawaitable(res) else res
+            for item in records or []:
+                if item.id not in self._bundles:
+                    self._bundles[item.id] = item
+
+        known_shas = {
+            b.sha256_checksum.lower()
+            for b in self._bundles.values()
+            if b.state == CollateralState.APPROVED
+        }
+
+        # 2. Reconcile pre-existing on-disk CAS files under active/<sha256>/<filename>
+        for bundle in self._scan_active_cas_directory(known_shas):
+            if bundle.id not in self._bundles:
+                await self._persist_bundle(bundle)
+
+        # 3. Reconcile pre-existing object storage keys
+        await self._hydrate_remote_objects(known_shas)
+
+        return len(self._bundles)
 
     async def register(self, request: IngestionRequest) -> StagedUploadDescriptor:
         """Register a new collateral artifact and prepare its staging descriptor.
@@ -84,7 +217,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
         existing = await self.find_by_checksum(request.sha256_checksum)
         if existing is not None and existing.state == CollateralState.APPROVED:
             touched = existing.touch()
-            self._bundles[touched.id] = touched
+            await self._persist_bundle(touched)
             return StagedUploadDescriptor(
                 bundle=touched,
                 upload_url=f"file://{touched.active_uri}",
@@ -115,7 +248,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
             active_uri=None,
             ttl_seconds=request.ttl_seconds,
         )
-        self._bundles[collateral_id] = bundle
+        await self._persist_bundle(bundle)
 
         if self._storage_port is not None:
             upload_url = await self._storage_port.generate_presigned_upload_url(
@@ -195,7 +328,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
                     ),
                 }
             )
-            self._bundles[collateral_id] = rejected_bundle
+            await self._persist_bundle(rejected_bundle)
             msg = f"Checksum mismatch for collateral '{collateral_id}'"
             raise ChecksumMismatchError(msg)
 
@@ -205,7 +338,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
                 "state": CollateralState.UPLOADED,
             }
         )
-        self._bundles[collateral_id] = uploaded_bundle
+        await self._persist_bundle(uploaded_bundle)
         return uploaded_bundle
 
     async def process_quarantine(self, collateral_id: str) -> CollateralBundle:
@@ -256,7 +389,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
                     "active_uri": str(active_path),
                 }
             )
-            self._bundles[collateral_id] = approved_bundle
+            await self._persist_bundle(approved_bundle)
             return approved_bundle
 
         if next_state == CollateralState.QUARANTINED:
@@ -273,7 +406,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
                     or "Threat detected during security scan",
                 }
             )
-            self._bundles[collateral_id] = quarantined_bundle
+            await self._persist_bundle(quarantined_bundle)
             return quarantined_bundle
 
         # Rejected
@@ -283,18 +416,27 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
                 "quarantine_reason": reason or "Security scan rejected artifact",
             }
         )
-        self._bundles[collateral_id] = rejected_bundle
+        await self._persist_bundle(rejected_bundle)
         return rejected_bundle
 
     async def get_bundle(self, collateral_id: str) -> CollateralBundle:
         """Retrieve current metadata and status of a collateral bundle."""
+        await self.hydrate_from_storage()
         if collateral_id not in self._bundles:
+            get_fn = getattr(self._metadata_store, "get_collateral", None)
+            if callable(get_fn):
+                res = get_fn(collateral_id)
+                persisted = await res if inspect.isawaitable(res) else res
+                if persisted is not None:
+                    self._bundles[collateral_id] = persisted
+                    return persisted
             msg = f"Collateral with id '{collateral_id}' not found"
             raise HexaqueueError(msg)
         return self._bundles[collateral_id]
 
     async def find_by_checksum(self, sha256_checksum: str) -> CollateralBundle | None:
         """Search Content-Addressable Storage for an existing approved bundle by digest."""
+        await self.hydrate_from_storage()
         clean_sha = sha256_checksum.lower().strip()
         for bundle in self._bundles.values():
             if (
@@ -324,7 +466,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
                     staging_uri=str(active_file),
                     active_uri=str(active_file),
                 )
-                self._bundles[collateral_id] = discovered
+                await self._persist_bundle(discovered)
                 return discovered
         return None
 
@@ -360,7 +502,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
         """Pin a collateral bundle to declare active usage by a running job."""
         bundle = await self.get_bundle(collateral_id)
         pinned = bundle.pin()
-        self._bundles[collateral_id] = pinned
+        await self._persist_bundle(pinned)
         return pinned
 
     async def unpin_bundle(self, collateral_id: str) -> CollateralBundle:
@@ -370,7 +512,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
             unpinned = bundle.unpin()
         except ValueError as exc:
             raise HexaqueueError(str(exc)) from exc
-        self._bundles[collateral_id] = unpinned
+        await self._persist_bundle(unpinned)
         return unpinned
 
     async def evict_expired(
@@ -379,6 +521,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
         high_watermark_bytes: int | None = None,
     ) -> list[str]:
         """Evict eligible unpinned temporary collateral bundles based on TTL and LRU thresholds."""
+        await self.hydrate_from_storage()
         now = datetime.now(UTC)
         evicted_ids: list[str] = []
 
@@ -398,6 +541,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
                 cutoff = now - timedelta(seconds=bundle_ttl)
                 if b.last_accessed_at < cutoff:
                     self._purge_bundle(b)
+                    await self._delete_persisted_bundle(b.id)
                     evicted_ids.append(b.id)
                     eligible.remove(b)
 
@@ -416,6 +560,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
                     if total_bytes <= high_watermark_bytes:
                         break
                     self._purge_bundle(b)
+                    await self._delete_persisted_bundle(b.id)
                     evicted_ids.append(b.id)
                     total_bytes -= b.size_bytes
 
@@ -423,6 +568,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
 
     async def list_bundles(self) -> list[CollateralBundle]:
         """List all registered collateral bundles ordered newest-first."""
+        await self.hydrate_from_storage()
         return sorted(
             self._bundles.values(),
             key=lambda b: b.created_at,
@@ -440,7 +586,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
                 "updated_at": datetime.now(UTC),
             }
         )
-        self._bundles[collateral_id] = promoted
+        await self._persist_bundle(promoted)
         return promoted
 
     async def delete_bundle(self, collateral_id: str) -> str:
@@ -450,6 +596,7 @@ class LocalCollateralServiceAdapter(CollateralServicePort):
             msg = f"Cannot delete collateral {collateral_id}: active_pin_count={bundle.active_pin_count}"
             raise HexaqueueError(msg)
         self._purge_bundle(bundle)
+        await self._delete_persisted_bundle(collateral_id)
         return collateral_id
 
     def _purge_bundle(self, bundle: CollateralBundle) -> None:
