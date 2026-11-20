@@ -9,6 +9,10 @@ on:
 
 permissions: read-all
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   # =========================================================================
   # Stage 1: Fast Quality Gate & Schema Governance (Fail-Fast Static Checks)
@@ -301,7 +305,8 @@ jobs:
         run: uv sync --all-packages --all-extras --all-groups
 
       - name: Connect to Hexaqueue Cluster (Cloud Execution)
-        if: needs.cluster-probe.outputs.cluster_ready == 'true'
+        # Temporary guard (#201): require explicit opt-in until /health/ready capacity circuit breaker lands
+        if: needs.cluster-probe.outputs.cluster_ready == 'true' && vars.HEXAQUEUE_CLOUD_MUTATION == 'true'
         uses: ./
         with:
           cluster-env: ${{ secrets.HEXAQUEUE_ENV }}
@@ -309,18 +314,58 @@ jobs:
           step-summary: "false"
 
       - name: Run Package Mutation Testing via Hexaqueue Cloud
-        if: needs.cluster-probe.outputs.cluster_ready == 'true'
+        if: needs.cluster-probe.outputs.cluster_ready == 'true' && vars.HEXAQUEUE_CLOUD_MUTATION == 'true'
         env:
           HEXAQUEUE_TIMEOUT: "3600"
         run: uv run hexaqual mutate run -p "${{ matrix.package }}" --targets "${{ matrix.targets }}" -e gremlins -w auto --batch-size 10 -n auto --cluster hexaqueue
 
       - name: Run Package Mutation Testing Locally (Fallback)
-        if: needs.cluster-probe.outputs.cluster_ready != 'true'
+        if: needs.cluster-probe.outputs.cluster_ready != 'true' || vars.HEXAQUEUE_CLOUD_MUTATION != 'true'
         run: uv run hexaqual mutate run -p "${{ matrix.package }}" --targets "${{ matrix.targets }}" -e gremlins -w auto --batch-size 10 -n auto
 
       - name: Disconnect Hexaqueue Cluster Tunnel
-        if: always() && needs.cluster-probe.outputs.cluster_ready == 'true'
+        if: always() && needs.cluster-probe.outputs.cluster_ready == 'true' && vars.HEXAQUEUE_CLOUD_MUTATION == 'true'
         run: uv run hq cluster tunnel --stop || true
+
+  # =========================================================================
+  # Stage 4: E2E Browser & Visual Accessibility (axe-core) Verification
+  # Runs Playwright Chromium tests and UI accessibility scans
+  # =========================================================================
+  e2e-a11y:
+    name: E2E Browser & A11y Verification
+    needs: [test-suite]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --all-packages --all-extras --all-groups
+
+      - name: Cache Playwright Browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+
+      - name: Install Playwright Chromium & OS Dependencies
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: uv run playwright install --with-deps chromium
+
+      - name: Run E2E & Visual A11y Tests
+        run: uv run pytest tests/e2e --no-cov
 
   # =========================================================================
   # Stage 5: Unified CI Success Status Check (Branch Protection Gate)
@@ -334,6 +379,7 @@ jobs:
       - test-suite
       - architecture-diagrams
       - hypothesis-fuzzing
+      - e2e-a11y
       - mutation-verification
     if: ${{ always() }}
     runs-on: ubuntu-latest
@@ -378,6 +424,7 @@ jobs:
           echo "  Unit & Integration Tests:     ${{ needs.test-suite.result }}"
           echo "  Architecture Diagrams:        ${{ needs.architecture-diagrams.result }}"
           echo "  Property-Based Fuzzing:       ${{ needs.hypothesis-fuzzing.result }}"
+          echo "  E2E Browser & A11y:           ${{ needs.e2e-a11y.result }}"
           echo "  Mutation Verification:        ${{ needs.mutation-verification.result }}"
 
           results=(
@@ -386,6 +433,7 @@ jobs:
             "${{ needs.test-suite.result }}"
             "${{ needs.architecture-diagrams.result }}"
             "${{ needs.hypothesis-fuzzing.result }}"
+            "${{ needs.e2e-a11y.result }}"
             "${{ needs.mutation-verification.result }}"
           )
 

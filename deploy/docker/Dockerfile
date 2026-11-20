@@ -45,6 +45,25 @@ HEALTHCHECK --interval=10s --timeout=3s --retries=3 \
 ENTRYPOINT ["hq", "server", "start", "--host", "0.0.0.0", "--port", "8000"]
 
 # ------------------------------------------------------------------------------
+# Dashboard Target (Standalone NiceGUI Operator Console with Graphviz)
+# ------------------------------------------------------------------------------
+FROM runtime-base AS dashboard
+
+USER root
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends graphviz && \
+    rm -rf /var/lib/apt/lists/*
+USER 10001:10001
+
+ENV HEXAQUEUE_CONTROLLER_URL="http://127.0.0.1:8000"
+EXPOSE 8080
+
+HEALTHCHECK --interval=10s --timeout=3s --retries=3 \
+    CMD ["python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/dashboard/ui')"]
+
+ENTRYPOINT ["uvicorn", "hexaqueue_dashboard.infra.app:create_standalone_dashboard_app", "--factory", "--host", "0.0.0.0", "--port", "8080"]
+
+# ------------------------------------------------------------------------------
 # Worker Target
 # ------------------------------------------------------------------------------
 FROM runtime-base AS worker

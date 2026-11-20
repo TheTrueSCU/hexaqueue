@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 from hexastack_fastapi.testing.server import EphemeralServer
-from playwright.sync_api import Page, expect
+from playwright.async_api import Page, async_playwright, expect
 
 AXE_CORE_CDN_URL = "https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.10.2/axe.min.js"
 
@@ -78,7 +78,7 @@ def dashboard_server() -> Generator[str]:
     server.stop()
 
 
-def run_axe_scan(page: Page) -> list[dict[str, Any]]:
+async def run_axe_scan(page: Page) -> list[dict[str, Any]]:
     """Inject axe-core and execute a WCAG 2.1 AA audit against the current page.
 
     Args:
@@ -87,12 +87,12 @@ def run_axe_scan(page: Page) -> list[dict[str, Any]]:
     Returns:
         List of axe-core violation dictionaries.
     """
-    has_axe = page.evaluate("() => typeof window.axe !== 'undefined'")
+    has_axe = await page.evaluate("() => typeof window.axe !== 'undefined'")
     if not has_axe:
-        page.add_script_tag(url=AXE_CORE_CDN_URL)
-        page.wait_for_function("() => typeof window.axe !== 'undefined'")
+        await page.add_script_tag(url=AXE_CORE_CDN_URL)
+        await page.wait_for_function("() => typeof window.axe !== 'undefined'")
 
-    results_json = page.evaluate(
+    results_json = await page.evaluate(
         """async () => {
             const res = await window.axe.run(document, {
                 runOnly: {
@@ -110,21 +110,31 @@ def run_axe_scan(page: Page) -> list[dict[str, Any]]:
 
 
 @pytest.mark.e2e
-def test_dashboard_ui_wcag_accessibility(
+@pytest.mark.asyncio
+async def test_dashboard_ui_wcag_accessibility(
     dashboard_server: str,
-    page: Page,
 ) -> None:
     """Verify Hexaqueue Dashboard login and console views pass WCAG 2.1 AA audits.
 
     Args:
         dashboard_server: Base URL to the running `/dashboard/ui` endpoint.
-        page: Playwright browser page fixture.
     """
-    page.goto(dashboard_server)
-    expect(page.get_by_text("Hexaqueue Operator Sign In")).to_be_visible()
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch()
+        page = await browser.new_page()
+        try:
+            await _run_dashboard_wcag_checks(page, dashboard_server)
+        finally:
+            await browser.close()
+
+
+async def _run_dashboard_wcag_checks(page: Page, dashboard_server: str) -> None:
+    """Execute end-to-end WCAG 2.1 AA accessibility checks across all dashboard views."""
+    await page.goto(dashboard_server)
+    await expect(page.get_by_text("Hexaqueue Operator Sign In")).to_be_visible()
 
     # 1. Audit unauthenticated login card
-    login_violations = run_axe_scan(page)
+    login_violations = await run_axe_scan(page)
     critical_login = [
         v for v in login_violations if v.get("impact") in ("critical", "serious")
     ]
@@ -134,16 +144,16 @@ def test_dashboard_ui_wcag_accessibility(
     )
 
     # 2. Authenticate via the NiceGUI login form and audit operator console
-    page.get_by_label("Username").fill("e2e-admin")
-    page.get_by_label("Web Password / CI Token").fill("e2e-secret-pass")
-    page.get_by_role("button", name="Sign in to Hexaqueue Dashboard").click()
+    await page.get_by_label("Username").fill("e2e-admin")
+    await page.get_by_label("Web Password / CI Token").fill("e2e-secret-pass")
+    await page.get_by_role("button", name="Sign in to Hexaqueue Dashboard").click()
 
-    expect(page.get_by_text("Hexaqueue Operator Console")).to_be_visible()
-    expect(page.locator("#hq-live-badge")).to_be_visible()
-    expect(page.locator("#hq-live-text")).to_contain_text("Connected")
-    expect(page.get_by_text("wcag_audit_job")).to_be_visible()
+    await expect(page.get_by_text("Hexaqueue Operator Console")).to_be_visible()
+    await expect(page.locator("#hq-live-badge")).to_be_visible()
+    await expect(page.locator("#hq-live-text")).to_contain_text("Connected")
+    await expect(page.get_by_text("wcag_audit_job")).to_be_visible()
 
-    console_violations = run_axe_scan(page)
+    console_violations = await run_axe_scan(page)
     critical_console = [
         v for v in console_violations if v.get("impact") in ("critical", "serious")
     ]
@@ -153,10 +163,10 @@ def test_dashboard_ui_wcag_accessibility(
     )
 
     # 2b. Switch to Runs & DAG view and audit under WCAG 2.1 AA
-    page.get_by_role("button", name="Switch to Runs and DAG view").click()
-    expect(page.get_by_text("Runs & DAG Tree")).to_be_visible()
+    await page.get_by_role("button", name="Switch to Runs and DAG view").click()
+    await expect(page.get_by_text("Runs & DAG Tree")).to_be_visible()
 
-    runs_violations = run_axe_scan(page)
+    runs_violations = await run_axe_scan(page)
     critical_runs = [
         v for v in runs_violations if v.get("impact") in ("critical", "serious")
     ]
@@ -166,13 +176,15 @@ def test_dashboard_ui_wcag_accessibility(
     )
 
     # 2c. Switch to Active Nodes & Topology view and audit under WCAG 2.1 AA
-    page.get_by_role("button", name="Switch to Active Nodes and Topology view").click()
-    expect(page.get_by_text("Cluster Topology", exact=True)).to_be_visible()
-    expect(
+    await page.get_by_role(
+        "button", name="Switch to Active Nodes and Topology view"
+    ).click()
+    await expect(page.get_by_text("Cluster Topology", exact=True)).to_be_visible()
+    await expect(
         page.get_by_role("img", name="Hexaqueue cluster topology diagram")
     ).to_be_visible()
 
-    nodes_violations = run_axe_scan(page)
+    nodes_violations = await run_axe_scan(page)
     critical_nodes = [
         v for v in nodes_violations if v.get("impact") in ("critical", "serious")
     ]
@@ -182,10 +194,10 @@ def test_dashboard_ui_wcag_accessibility(
     )
 
     # 2d. Switch to History Explorer view and audit under WCAG 2.1 AA
-    page.get_by_role("button", name="Switch to History Explorer view").click()
-    expect(page.get_by_text("History Explorer", exact=True)).to_be_visible()
+    await page.get_by_role("button", name="Switch to History Explorer view").click()
+    await expect(page.get_by_text("History Explorer", exact=True)).to_be_visible()
 
-    history_violations = run_axe_scan(page)
+    history_violations = await run_axe_scan(page)
     critical_history = [
         v for v in history_violations if v.get("impact") in ("critical", "serious")
     ]
@@ -195,11 +207,13 @@ def test_dashboard_ui_wcag_accessibility(
     )
 
     # 2e. Switch to Fair-Share & Quotas view and audit under WCAG 2.1 AA
-    page.get_by_role("button", name="Switch to Fair-Share and Quotas view").click()
-    expect(page.get_by_text("Fair-Share & OCI Pool Quotas")).to_be_visible()
-    expect(page.get_by_text("Pool: hq-worker-pool-a1")).to_be_visible()
+    await page.get_by_role(
+        "button", name="Switch to Fair-Share and Quotas view"
+    ).click()
+    await expect(page.get_by_text("Fair-Share & OCI Pool Quotas")).to_be_visible()
+    await expect(page.get_by_text("Pool: hq-worker-pool-a1")).to_be_visible()
 
-    fairshare_violations = run_axe_scan(page)
+    fairshare_violations = await run_axe_scan(page)
     critical_fairshare = [
         v for v in fairshare_violations if v.get("impact") in ("critical", "serious")
     ]
@@ -209,10 +223,14 @@ def test_dashboard_ui_wcag_accessibility(
     )
 
     # 2e2. Switch to Collateral & Quarantine view and audit under WCAG 2.1 AA
-    page.get_by_role("button", name="Switch to Collateral and Quarantine view").click()
-    expect(page.get_by_text("Collateral & Quarantine", exact=True)).to_be_visible()
+    await page.get_by_role(
+        "button", name="Switch to Collateral and Quarantine view"
+    ).click()
+    await expect(
+        page.get_by_text("Collateral & Quarantine", exact=True)
+    ).to_be_visible()
 
-    collateral_violations = run_axe_scan(page)
+    collateral_violations = await run_axe_scan(page)
     critical_collateral = [
         v for v in collateral_violations if v.get("impact") in ("critical", "serious")
     ]
@@ -222,11 +240,11 @@ def test_dashboard_ui_wcag_accessibility(
     )
 
     # 2f. Open Change Password modal and audit under WCAG 2.1 AA
-    page.get_by_role("button", name="Change password").click()
-    page.wait_for_timeout(350)
-    expect(page.get_by_text("Update Password")).to_be_visible()
+    await page.get_by_role("button", name="Change password").click()
+    await page.wait_for_timeout(350)
+    await expect(page.get_by_text("Update Password")).to_be_visible()
 
-    pw_violations = run_axe_scan(page)
+    pw_violations = await run_axe_scan(page)
     critical_pw = [
         v for v in pw_violations if v.get("impact") in ("critical", "serious")
     ]
@@ -234,19 +252,19 @@ def test_dashboard_ui_wcag_accessibility(
     assert crit_pw_count == 0, (
         f"Accessibility violations in Change Password modal: {critical_pw}"
     )
-    page.get_by_role("button", name="Cancel password change").click()
+    await page.get_by_role("button", name="Cancel password change").click()
 
-    page.get_by_role("button", name="Switch to Jobs view").click()
-    expect(page.get_by_text("wcag_audit_job")).to_be_visible()
+    await page.get_by_role("button", name="Switch to Jobs view").click()
+    await expect(page.get_by_text("wcag_audit_job")).to_be_visible()
 
     # 3. Open the Job Inspection Drawer and audit under WCAG 2.1 AA
-    page.get_by_role("button", name="Inspect job a11y-job-1").click()
-    page.mouse.move(0, 0)
-    page.wait_for_timeout(350)
-    expect(page.get_by_text("Scheduler Explainability")).to_be_visible()
-    expect(page.get_by_text("Execution Logs")).to_be_visible()
+    await page.get_by_role("button", name="Inspect job a11y-job-1").click()
+    await page.mouse.move(0, 0)
+    await page.wait_for_timeout(350)
+    await expect(page.get_by_text("Scheduler Explainability")).to_be_visible()
+    await expect(page.get_by_text("Execution Logs")).to_be_visible()
 
-    drawer_violations = run_axe_scan(page)
+    drawer_violations = await run_axe_scan(page)
     critical_drawer = [
         v for v in drawer_violations if v.get("impact") in ("critical", "serious")
     ]

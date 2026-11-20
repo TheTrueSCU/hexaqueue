@@ -28,6 +28,7 @@ from hexaqueue_core.domain.lease import (
     SliceReportPayload,
     WorkerRegistration,
 )
+from hexaqueue_core.ports.logging import LogChunk
 from hexaqueue_server.domain.lease_coordinator import SliceLeaseCoordinator
 
 
@@ -51,10 +52,28 @@ def get_lease_coordinator(request: Request) -> SliceLeaseCoordinator:
 
 
 class WorkerHeartbeatRequest(BaseModel):
-    """Worker pulse payload including currently leased task identifiers."""
+    """Worker pulse payload including currently leased task identifiers and telemetry."""
 
     active_lease_ids: list[str] = Field(
         default_factory=list, description="Lease IDs actively executing on this worker"
+    )
+    cpu_utilization_pct: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="Observed worker CPU utilization (%)",
+    )
+    memory_used_mb: int | None = Field(
+        default=None, ge=0, description="Observed worker RAM used in MB"
+    )
+    memory_total_mb: int | None = Field(
+        default=None, ge=0, description="Observed worker total RAM in MB"
+    )
+    scratch_used_mb: int | None = Field(
+        default=None, ge=0, description="Observed worker scratch disk used in MB"
+    )
+    scratch_total_mb: int | None = Field(
+        default=None, ge=0, description="Observed worker total scratch disk in MB"
     )
 
 
@@ -125,7 +144,19 @@ def create_worker_pool_router(
         req: WorkerHeartbeatRequest | None = None,
     ) -> dict[str, Any]:
         active_ids = req.active_lease_ids if req else None
-        acknowledged = await coord.record_heartbeat(worker_id, active_ids)
+        telemetry: dict[str, float | int] | None = None
+        if req is not None:
+            raw_telemetry = {
+                "cpu_utilization_pct": req.cpu_utilization_pct,
+                "memory_used_mb": req.memory_used_mb,
+                "memory_total_mb": req.memory_total_mb,
+                "scratch_used_mb": req.scratch_used_mb,
+                "scratch_total_mb": req.scratch_total_mb,
+            }
+            telemetry = {k: v for k, v in raw_telemetry.items() if v is not None}
+        acknowledged = await coord.record_heartbeat(
+            worker_id, active_ids, telemetry=telemetry
+        )
         if not acknowledged:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -172,6 +203,25 @@ def create_worker_pool_router(
                 detail=f"Lease '{report.lease_id}' is missing, already completed, or revoked",
             )
         return {"status": "recorded", "slice_id": report.slice_id}
+
+    # 4b. Append Incremental Worker Log Chunks
+    @router.post(
+        "/worker/{worker_id}/logs/{job_id}",
+        summary="Append live execution log chunks for a leased job",
+    )
+    async def append_worker_logs(
+        worker_id: str,
+        job_id: str,
+        chunks: list[LogChunk],
+        coord: Annotated[SliceLeaseCoordinator, Depends(_get_coord)],
+    ) -> dict[str, Any]:
+        total = await coord.append_log_chunks(job_id, chunks)
+        return {
+            "status": "ok",
+            "worker_id": worker_id,
+            "job_id": job_id,
+            "total_chunks": total,
+        }
 
     # 5. Worker Pool Stats
     @router.get(

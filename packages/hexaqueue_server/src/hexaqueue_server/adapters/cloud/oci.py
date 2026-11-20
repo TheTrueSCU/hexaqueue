@@ -146,10 +146,16 @@ class OciInstancePoolAdapter(InstancePoolGovernorPort):
                 instances = (
                     instances_resp.data if hasattr(instances_resp, "data") else []
                 )
+
+                def _inst_state(inst: Any) -> str:
+                    state = getattr(inst, "state", None)
+                    if isinstance(state, str) and state:
+                        return state.lower()
+                    lifecycle = getattr(inst, "lifecycle_state", None)
+                    return lifecycle.lower() if isinstance(lifecycle, str) else ""
+
                 ready_count = sum(
-                    1
-                    for inst in instances
-                    if getattr(inst, "lifecycle_state", "").lower() == "running"
+                    1 for inst in instances if _inst_state(inst) == "running"
                 )
                 return InstancePoolState(
                     pool_id=pool_id,

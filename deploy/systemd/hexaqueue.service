@@ -8,6 +8,9 @@ Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/hexaqueue
 Environment="HEXAQUEUE_CSP_PROVIDER=OCI"
+Environment="HEXAQUEUE_WORKER_PORT=8001"
+Environment="HEXAQUEUE_COLLATERAL_BUCKET=hexaqueue-collateral"
+EnvironmentFile=-/home/ubuntu/.config/hexaqueue/server.env
 
 # Pull latest main and sync dependencies before server start; - prefix ensures non-zero exit doesn't block startup
 ExecStartPre=-/bin/bash -c 'timeout 30s git fetch origin main && git reset --hard origin/main && git clean -fd && /home/ubuntu/.local/bin/uv sync --all-packages --all-extras'

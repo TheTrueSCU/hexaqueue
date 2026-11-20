@@ -14,7 +14,12 @@ from hexaqueue_core.domain.cqrs import (
     RegisterNodeCommand,
 )
 from hexaqueue_core.domain.exceptions import PermissionDeniedError
-from hexaqueue_core.domain.node import ComputeNodeProfile
+from hexaqueue_core.domain.node import (
+    ComputeNodeProfile,
+    NodeHealthState,
+    NodeProvisioningTier,
+)
+from hexaqueue_core.ports.resources import NodeCapacity
 from hexaqueue_server.infra.cqrs.common import BaseCqrsService
 from hexaqueue_worker.domain.pty import PtySessionInfo
 from hexaqueue_worker.domain.telemetry import NodeTelemetryPulse
@@ -59,10 +64,58 @@ class NodesCqrsMixin(BaseCqrsService):
             qry: Query payload.
 
         Returns:
-            List of registered NodeTelemetryPulse records.
+            List of registered NodeTelemetryPulse records, merging static nodes
+            and active pull-leased burst workers from SliceLeaseCoordinator.
         """
         if self.nodes:
             return self.nodes
+
+        pulses: dict[str, NodeTelemetryPulse] = {}
+        for node in await self.controller.list_nodes():
+            total_ram = node.capacity.total_ram_mb if node.capacity else 64 * 1024
+            avail_ram = node.capacity.available_ram_mb if node.capacity else total_ram
+            pulses[node.node_id] = NodeTelemetryPulse(
+                worker_id=node.node_id,
+                cpu_utilization_pct=0.0,
+                memory_total_mb=total_ram,
+                memory_used_mb=max(0, total_ram - avail_ram),
+                scratch_total_mb=500 * 1024,
+                scratch_used_mb=0,
+                active_jobs=len(node.active_job_ids),
+                gpu_metrics=[],
+                timestamp=node.last_heartbeat_at,
+            )
+
+        coord = getattr(self.controller, "_lease_coordinator", None)
+        if coord is not None and hasattr(coord, "list_active_workers"):
+            for reg, active_leases, last_seen in coord.list_active_workers():
+                if reg.worker_id not in pulses:
+                    telem = (
+                        coord.get_worker_telemetry(reg.worker_id)
+                        if hasattr(coord, "get_worker_telemetry")
+                        else {}
+                    )
+                    pulses[reg.worker_id] = NodeTelemetryPulse(
+                        worker_id=reg.worker_id,
+                        cpu_utilization_pct=float(
+                            telem.get("cpu_utilization_pct", 0.0)
+                        ),
+                        memory_total_mb=max(
+                            1, int(telem.get("memory_total_mb") or reg.memory_mb or 1)
+                        ),
+                        memory_used_mb=max(0, int(telem.get("memory_used_mb", 0))),
+                        scratch_total_mb=max(
+                            1, int(telem.get("scratch_total_mb") or 1)
+                        ),
+                        scratch_used_mb=max(0, int(telem.get("scratch_used_mb", 0))),
+                        active_jobs=active_leases,
+                        gpu_metrics=[],
+                        timestamp=last_seen,
+                    )
+
+        if pulses:
+            return list(pulses.values())
+
         pulse = NodeTelemetryPulse(
             worker_id="node-local-01",
             cpu_utilization_pct=15.5,
@@ -137,9 +190,41 @@ class NodesCqrsMixin(BaseCqrsService):
             qry: Query payload.
 
         Returns:
-            NodesReport detailing registered compute worker nodes.
+            NodesReport detailing registered compute worker nodes, including
+            ephemeral pull-leased burst workers from SliceLeaseCoordinator.
         """
-        nodes = await self.controller.list_nodes()
+        nodes = list(await self.controller.list_nodes())
+        seen_ids = {n.node_id for n in nodes}
+
+        coord = getattr(self.controller, "_lease_coordinator", None)
+        if coord is not None and hasattr(coord, "list_active_workers"):
+            for reg, active_leases, last_seen in coord.list_active_workers():
+                if reg.worker_id in seen_ids:
+                    continue
+                provider = reg.labels.get("provider", "oci")
+                tier = (
+                    NodeProvisioningTier.EPHEMERAL
+                    if "pool" in reg.labels or provider.lower() != "local"
+                    else NodeProvisioningTier.STATIC
+                )
+                nodes.append(
+                    ComputeNodeProfile(
+                        node_id=reg.worker_id,
+                        tier=tier,
+                        health_state=NodeHealthState.HEALTHY,
+                        provider=provider,
+                        arch=reg.labels.get("arch", "arm64"),
+                        capacity=NodeCapacity(
+                            node_id=reg.worker_id,
+                            total_cpus=reg.ocpus,
+                            available_cpus=max(0, reg.ocpus - active_leases),
+                            total_ram_mb=reg.memory_mb,
+                            available_ram_mb=reg.memory_mb,
+                        ),
+                        last_heartbeat_at=last_seen,
+                        registered_at=reg.registered_at,
+                    )
+                )
         return NodesReport(nodes=nodes, total_nodes=len(nodes))
 
 

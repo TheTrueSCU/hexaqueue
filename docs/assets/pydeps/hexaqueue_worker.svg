@@ -44,7 +44,7 @@
 <!-- hexaqueue_worker_adapters_agent -->
 <g id="node5" class="node">
 <title>hexaqueue_worker_adapters_agent</title><style>.edge>path:hover{stroke-width:8}</style>
-<ellipse fill="#38a865" stroke="black" cx="253.49" cy="-172.99" rx="78.48" ry="28.98"/>
+<ellipse fill="#33995c" stroke="black" cx="253.49" cy="-172.99" rx="78.48" ry="28.98"/>
 <text text-anchor="middle" x="253.49" y="-181.49" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#ffffff">hexaqueue_worker.</text>
 <text text-anchor="middle" x="253.49" y="-170.49" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#ffffff">adapters.</text>
 <text text-anchor="middle" x="253.49" y="-159.49" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#ffffff">agent</text>
@@ -287,7 +287,7 @@
 <g id="edge20" class="edge">
 <title>hexaqueue_worker_adapters_agent&#45;&gt;hexaqueue_worker_adapters</title><style>.edge>path:hover{stroke-width:8}</style>
 <path fill="none" stroke="black" d="M308.87,-152.35C319.58,-149.13 330.8,-146.15 341.49,-144 530.53,-105.98 758.9,-95.23 869.32,-92.19"/>
-<polygon fill="#38a865" stroke="black" points="869.73,-95.68 879.63,-91.92 869.54,-88.69 869.73,-95.68"/>
+<polygon fill="#33995c" stroke="black" points="869.73,-95.68 879.63,-91.92 869.54,-88.69 869.73,-95.68"/>
 </g>
 <!-- hexaqueue_worker_adapters_apptainer&#45;&gt;hexaqueue_worker_adapters -->
 <g id="edge21" class="edge">

@@ -18,7 +18,6 @@ from starlette.testclient import TestClient
 
 from hexaqueue_cli.domain.session import LocalCliSession
 from hexaqueue_server.adapters.api import create_server_app
-from hexaqueue_server.infra.cqrs import create_hexaqueue_execution_pipeline
 
 
 @pytest.mark.asyncio
@@ -32,11 +31,12 @@ async def test_hexaqual_executes_pytest_on_local_cluster() -> None:
         HexaqueueClusterRunnerAdapter,
     )
 
-    session = LocalCliSession(concurrency=2)
+    # Run slices serially on the shared local checkout so two pytest-gremlins
+    # subprocesses do not race on the same .gremlins_cache SQLite database.
+    session = LocalCliSession(concurrency=1)
     await session.start()
     try:
-        pipeline = create_hexaqueue_execution_pipeline(session.controller)
-        app = create_server_app(pipeline=pipeline)
+        app = create_server_app(pipeline=session.pipeline)
         with TestClient(app, base_url="http://testcluster") as client:
             adapter = HexaqueueClusterRunnerAdapter(
                 cluster_url="http://testcluster",
@@ -81,11 +81,12 @@ async def test_hexaqual_executes_mutation_testing_on_local_cluster() -> None:
     )
     from hexaqual.domain.testing import MutationEngine
 
-    session = LocalCliSession(concurrency=2)
+    # Run slices serially on the shared local checkout so two pytest-gremlins
+    # subprocesses do not race on the same .gremlins_cache SQLite database.
+    session = LocalCliSession(concurrency=1)
     await session.start()
     try:
-        pipeline = create_hexaqueue_execution_pipeline(session.controller)
-        app = create_server_app(pipeline=pipeline)
+        app = create_server_app(pipeline=session.pipeline)
         with TestClient(app, base_url="http://testcluster") as client:
             adapter = HexaqueueClusterRunnerAdapter(
                 cluster_url="http://testcluster",

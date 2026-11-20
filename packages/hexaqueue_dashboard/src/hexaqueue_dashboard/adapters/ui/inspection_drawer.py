@@ -400,7 +400,12 @@ async def _fetch_job_drawer_details(
     if show_explainability:
         try:
             explain_report = await dispatch_query(
-                pipeline, ExplainJobQuery(job_id=job.id)
+                pipeline,
+                ExplainJobQuery(
+                    job_id=job.id,
+                    requesting_user=identity.user_id,
+                    is_admin=is_admin,
+                ),
             )
         except Exception as exc:
             explain_error = str(exc)

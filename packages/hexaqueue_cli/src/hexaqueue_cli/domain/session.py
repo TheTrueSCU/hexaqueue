@@ -59,6 +59,11 @@ class LocalCliSession:
             controller=self.controller,
             storage_port=self.presigned_storage,
         )
+        self.collateral_service = getattr(
+            getattr(self.pipeline, "service", None), "collateral_service", None
+        )
+        if self.collateral_service is not None:
+            self.controller._collateral_service = self.collateral_service
         self.worker = LocalSubprocessWorker(
             queue=self.queue,
             controller=self.controller,
@@ -66,6 +71,7 @@ class LocalCliSession:
             log_port=self.log_stream,
             config=WorkerConfig(concurrency=concurrency, poll_interval_seconds=0.01),
             presigned_storage=self.presigned_storage,
+            collateral_service=self.collateral_service,
         )
 
     async def start(self) -> None:
