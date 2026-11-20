@@ -35,10 +35,12 @@ Usage: hq [OPTIONS] COMMAND [ARGS]...
  Orchestrator
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --install-completion          Install completion for the current shell.      │
-│ --show-completion             Show completion for the current shell, to copy │
-│                               it or customize the installation.              │
-│ --help                        Show this message and exit.                    │
+│ --install-completion        <bool>  Install completion for the current       │
+│                                     shell.                                   │
+│ --show-completion           <bool>  Show completion for the current shell,   │
+│                                     to copy it or customize the              │
+│                                     installation.                            │
+│ --help                      <bool>  Show this message and exit.              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
 │ submit      Submit a workload run or suite definition file.                  │
@@ -94,7 +96,7 @@ Usage: hq admin [OPTIONS] COMMAND [ARGS]...
  Administrative operations and zero-trust session governance
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --help          Show this message and exit.                                  │
+│ --help        <bool>  Show this message and exit.                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
 │ session  Manage and audit zero-trust bastion operator access sessions        │
@@ -109,7 +111,7 @@ Usage: hq admin session [OPTIONS] COMMAND [ARGS]...
  Manage and audit zero-trust bastion operator access sessions
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --help          Show this message and exit.                                  │
+│ --help        <bool>  Show this message and exit.                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
 │ create     Mint an ephemeral zero-trust bastion session and generate         │
@@ -139,9 +141,9 @@ Usage: hq attach [OPTIONS] {job_id}
 │ *    job_id      <str>  Job ID to attach interactive shell to [required]     │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --user   -u      <str>  Requesting username [default: default]               │
-│ --admin                 Assert explicit administrative elevation             │
-│ --help                  Show this message and exit.                          │
+│ --user   -u      <str>   Requesting username [default: default]              │
+│ --admin          <bool>  Assert explicit administrative elevation            │
+│ --help           <bool>  Show this message and exit.                         │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -153,7 +155,7 @@ Usage: hq auth [OPTIONS] COMMAND [ARGS]...
  Dashboard authentication and credential management
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --help          Show this message and exit.                                  │
+│ --help        <bool>  Show this message and exit.                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
 │ rotate-password  Verify existing password and rotate to a confirmed new      │
@@ -174,12 +176,12 @@ Usage: hq auth rotate-password [OPTIONS]
  offline: Skip HTTP and write directly to configured ADB/SQLite store.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --user     -u      <str>  Principal username to rotate [default: rjdw]       │
-│ --url              <str>  Dashboard base URL (defaults to                    │
-│                           HEXAQUEUE_DASHBOARD_URL)                           │
-│ --offline                 Bypass HTTP and update Oracle ADB / SQLite         │
-│                           directly                                           │
-│ --help                    Show this message and exit.                        │
+│ --user     -u      <str>   Principal username to rotate [default: rjdw]      │
+│ --url              <str>   Dashboard base URL (defaults to                   │
+│                            HEXAQUEUE_DASHBOARD_URL)                          │
+│ --offline          <bool>  Bypass HTTP and update Oracle ADB / SQLite        │
+│                            directly                                          │
+│ --help             <bool>  Show this message and exit.                       │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -204,10 +206,10 @@ Usage: hq cancel [OPTIONS] {target_id}
 │ *    target_id      <str>  Run ID or Job ID to cancel [required]             │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --admin                 Assert explicit administrative elevation for         │
-│                         cross-user cancellation                              │
-│ --user   -u      <str>  Requesting user identity [default: default]          │
-│ --help                  Show this message and exit.                          │
+│ --admin          <bool>  Assert explicit administrative elevation for        │
+│                          cross-user cancellation                             │
+│ --user   -u      <str>   Requesting user identity [default: default]         │
+│ --help           <bool>  Show this message and exit.                         │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -219,7 +221,7 @@ Usage: hq cluster [OPTIONS] COMMAND [ARGS]...
  Manage and monitor remote cluster nodes, SSH tunnels, and CSP controllers
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --help          Show this message and exit.                                  │
+│ --help        <bool>  Show this message and exit.                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
 │ status    Inspect operational health and latency of the Hexaqueue cluster    │
@@ -267,13 +269,13 @@ Usage: hq cluster discover [OPTIONS]
  references.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --provider  -p      <str>  Provider discovery target ('auto', 'oci', 'ssh',  │
-│                            'env', 'profiles')                                │
-│                            [default: auto]                                   │
-│ --format    -f      <str>  Output presentation format (table, json,          │
-│                            markdown, rich, plain, auto).                     │
-│                            [default: table]                                  │
-│ --help                     Show this message and exit.                       │
+│ --provider  -p      <str>   Provider discovery target ('auto', 'oci', 'ssh', │
+│                             'env', 'profiles')                               │
+│                             [default: auto]                                  │
+│ --format    -f      <str>   Output presentation format (table, json,         │
+│                             markdown, rich, plain, auto).                    │
+│                             [default: table]                                 │
+│ --help              <bool>  Show this message and exit.                      │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -297,18 +299,18 @@ Usage: hq cluster journal [OPTIONS]
      and unhandled controller exceptions directly through the hq CLI.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --profile  -p                 <str>  Runner profile specifying target host   │
-│                                      and keys                                │
-│ --host     -h                 <str>  Target remote cluster host IP or        │
-│                                      hostname                                │
-│ --user     -u                 <str>  SSH login user (administrative,         │
-│                                      default: ubuntu)                        │
-│ --key      -i                 <str>  Path to SSH private key identity file   │
-│ --lines    -n                 <int>  Number of journal log lines to display  │
-│                                      [default: 50]                           │
-│            -f  --no-follow           Continuously follow journal stream      │
-│                                      [default: f]                            │
-│ --help                               Show this message and exit.             │
+│ --profile  -p                 <str>   Runner profile specifying target host  │
+│                                       and keys                               │
+│ --host     -h                 <str>   Target remote cluster host IP or       │
+│                                       hostname                               │
+│ --user     -u                 <str>   SSH login user (administrative,        │
+│                                       default: ubuntu)                       │
+│ --key      -i                 <str>   Path to SSH private key identity file  │
+│ --lines    -n                 <int>   Number of journal log lines to display │
+│                                       [default: 50]                          │
+│            -f  --no-follow    <bool>  Continuously follow journal stream     │
+│                                       [default: f]                           │
+│ --help                        <bool>  Show this message and exit.            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -337,9 +339,9 @@ Usage: hq cluster ping [OPTIONS]
      typer.Exit: With code 1 if ping probe fails.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --profile  -p      <str>  Profile name to target                             │
-│ --url      -u      <str>  Explicit Hexaqueue controller URL override         │
-│ --help                    Show this message and exit.                        │
+│ --profile  -p      <str>   Profile name to target                            │
+│ --url      -u      <str>   Explicit Hexaqueue controller URL override        │
+│ --help             <bool>  Show this message and exit.                       │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -363,16 +365,16 @@ Usage: hq cluster pool [OPTIONS]
      and private IP topology directly through the unified hq CLI.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --profile  -p      <str>  Runner profile specifying target host and keys     │
-│ --host     -h      <str>  Target remote cluster host IP or hostname          │
-│ --user     -u      <str>  SSH login user (administrative, default: ubuntu)   │
-│ --pool-id          <str>  Explicit OCI instance pool OCID override           │
-│ --local                   Query local OCI SDK instead of delegating to       │
-│                           remote host via SSH                                │
-│ --format   -f      <str>  Output presentation format (table, json, markdown, │
-│                           rich, plain, auto).                                │
-│                           [default: table]                                   │
-│ --help                    Show this message and exit.                        │
+│ --profile  -p      <str>   Runner profile specifying target host and keys    │
+│ --host     -h      <str>   Target remote cluster host IP or hostname         │
+│ --user     -u      <str>   SSH login user (administrative, default: ubuntu)  │
+│ --pool-id          <str>   Explicit OCI instance pool OCID override          │
+│ --local            <bool>  Query local OCI SDK instead of delegating to      │
+│                            remote host via SSH                               │
+│ --format   -f      <str>   Output presentation format (table, json,          │
+│                            markdown, rich, plain, auto).                     │
+│                            [default: table]                                  │
+│ --help             <bool>  Show this message and exit.                       │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -417,12 +419,12 @@ Usage: hq cluster status [OPTIONS]
      guards to give operators immediate visibility into cluster readiness.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --profile  -p      <str>  Active runner profile name to inspect              │
-│ --url      -u      <str>  Explicit Hexaqueue controller URL override         │
-│ --format   -f      <str>  Output presentation format (table, json, markdown, │
-│                           rich, plain, auto).                                │
-│                           [default: table]                                   │
-│ --help                    Show this message and exit.                        │
+│ --profile  -p      <str>   Active runner profile name to inspect             │
+│ --url      -u      <str>   Explicit Hexaqueue controller URL override        │
+│ --format   -f      <str>   Output presentation format (table, json,          │
+│                            markdown, rich, plain, auto).                     │
+│                            [default: table]                                  │
+│ --help             <bool>  Show this message and exit.                       │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -446,15 +448,15 @@ Usage: hq cluster sync [OPTIONS]
      typer.Exit: With code 1 if synchronization fails.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --profile   -p      <str>  Runner profile specifying target host and keys    │
-│ --host      -h      <str>  Target remote cluster host IP or hostname         │
-│ --user      -u      <str>  SSH login user [default: hexaqueue-ci]            │
-│ --key       -i      <str>  Path to SSH private key identity file             │
-│ --ssh-port          <int>  Remote SSH server port [default: 22]              │
-│ --repo-dir          <str>  Remote workspace repository directory             │
-│                            [default: ~/hexaqueue]                            │
-│ --branch    -b      <str>  Git branch to fetch and reset to [default: main]  │
-│ --help                     Show this message and exit.                       │
+│ --profile   -p      <str>   Runner profile specifying target host and keys   │
+│ --host      -h      <str>   Target remote cluster host IP or hostname        │
+│ --user      -u      <str>   SSH login user [default: hexaqueue-ci]           │
+│ --key       -i      <str>   Path to SSH private key identity file            │
+│ --ssh-port          <int>   Remote SSH server port [default: 22]             │
+│ --repo-dir          <str>   Remote workspace repository directory            │
+│                             [default: ~/hexaqueue]                           │
+│ --branch    -b      <str>   Git branch to fetch and reset to [default: main] │
+│ --help              <bool>  Show this message and exit.                      │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -486,15 +488,16 @@ Usage: hq cluster tunnel [OPTIONS]
  controller daemon.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --profile      -p      <str>  Runner profile specifying target host and keys │
-│ --host         -h      <str>  Target remote cluster host IP or hostname      │
-│ --port                 <int>  Local forwarding listen port [default: 8000]   │
-│ --remote-port          <int>  Remote daemon port [default: 8000]             │
-│ --user         -u      <str>  SSH login user [default: hexaqueue-ci]         │
-│ --key          -i      <str>  Path to SSH private key identity file          │
-│ --ssh-port             <int>  Remote SSH server port [default: 22]           │
-│ --stop                        Terminate active SSH tunnel on local port      │
-│ --help                        Show this message and exit.                    │
+│ --profile      -p      <str>   Runner profile specifying target host and     │
+│                                keys                                          │
+│ --host         -h      <str>   Target remote cluster host IP or hostname     │
+│ --port                 <int>   Local forwarding listen port [default: 8000]  │
+│ --remote-port          <int>   Remote daemon port [default: 8000]            │
+│ --user         -u      <str>   SSH login user [default: hexaqueue-ci]        │
+│ --key          -i      <str>   Path to SSH private key identity file         │
+│ --ssh-port             <int>   Remote SSH server port [default: 22]          │
+│ --stop                 <bool>  Terminate active SSH tunnel on local port     │
+│ --help                 <bool>  Show this message and exit.                   │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -506,7 +509,7 @@ Usage: hq collateral [OPTIONS] COMMAND [ARGS]...
  Manage, stage, and inspect collateral artifacts and binaries
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --help          Show this message and exit.                                  │
+│ --help        <bool>  Show this message and exit.                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
 │ push   Stage and register a collateral artifact for compute execution.       │
@@ -538,16 +541,16 @@ Usage: hq collateral push [OPTIONS] {file_path}
 │                             [required]                                       │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --name   -n      <str>  Override logical collateral name (defaults to        │
-│                         filename)                                            │
-│ --tier           <str>  Collateral retention tier (TEMPORARY, PERMANENT)     │
-│                         [default: TEMPORARY]                                 │
-│ --kind           <str>  Collateral kind (BUNDLE, OS_IMAGE, CONTAINER_IMAGE,  │
-│                         TEST_BINARY, DATASET)                                │
-│                         [default: BUNDLE]                                    │
-│ --user   -u      <str>  Submitting user identity [default: default]          │
-│ --admin                 Assert explicit administrative elevation             │
-│ --help                  Show this message and exit.                          │
+│ --name   -n      <str>   Override logical collateral name (defaults to       │
+│                          filename)                                           │
+│ --tier           <str>   Collateral retention tier (TEMPORARY, PERMANENT)    │
+│                          [default: TEMPORARY]                                │
+│ --kind           <str>   Collateral kind (BUNDLE, OS_IMAGE, CONTAINER_IMAGE, │
+│                          TEST_BINARY, DATASET)                               │
+│                          [default: BUNDLE]                                   │
+│ --user   -u      <str>   Submitting user identity [default: default]         │
+│ --admin          <bool>  Assert explicit administrative elevation            │
+│ --help           <bool>  Show this message and exit.                         │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -575,16 +578,16 @@ Usage: hq collateral stage [OPTIONS] {file_path}
 │                             [required]                                       │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --name   -n      <str>  Override logical collateral name (defaults to        │
-│                         filename)                                            │
-│ --tier           <str>  Collateral retention tier (TEMPORARY, PERMANENT)     │
-│                         [default: TEMPORARY]                                 │
-│ --kind           <str>  Collateral kind (BUNDLE, OS_IMAGE, CONTAINER_IMAGE,  │
-│                         TEST_BINARY, DATASET)                                │
-│                         [default: BUNDLE]                                    │
-│ --user   -u      <str>  Submitting user identity [default: default]          │
-│ --admin                 Assert explicit administrative elevation             │
-│ --help                  Show this message and exit.                          │
+│ --name   -n      <str>   Override logical collateral name (defaults to       │
+│                          filename)                                           │
+│ --tier           <str>   Collateral retention tier (TEMPORARY, PERMANENT)    │
+│                          [default: TEMPORARY]                                │
+│ --kind           <str>   Collateral kind (BUNDLE, OS_IMAGE, CONTAINER_IMAGE, │
+│                          TEST_BINARY, DATASET)                               │
+│                          [default: BUNDLE]                                   │
+│ --user   -u      <str>   Submitting user identity [default: default]         │
+│ --admin          <bool>  Assert explicit administrative elevation            │
+│ --help           <bool>  Show this message and exit.                         │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -596,7 +599,7 @@ Usage: hq dashboard [OPTIONS] COMMAND [ARGS]...
  Manage the Hexaqueue dashboard SSH tunnel and open the UI
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --help          Show this message and exit.                                  │
+│ --help        <bool>  Show this message and exit.                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
 │ open    Ensure the SSH tunnel is up (if required) and open the dashboard in  │
@@ -623,12 +626,12 @@ Usage: hq dashboard open [OPTIONS]
  Ensure the SSH tunnel is up (if required) and open the dashboard in a browser.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --host                 <str>  Remote OCI host                                │
-│ --user         -u      <str>  Remote SSH user                                │
-│ --local-port           <int>  Local loopback port [default: 8080]            │
-│ --remote-port          <int>  Remote dashboard port [default: 8080]          │
-│ --no-tunnel                   Skip starting SSH tunnel                       │
-│ --help                        Show this message and exit.                    │
+│ --host                 <str>   Remote OCI host                               │
+│ --user         -u      <str>   Remote SSH user                               │
+│ --local-port           <int>   Local loopback port [default: 8080]           │
+│ --remote-port          <int>   Remote dashboard port [default: 8080]         │
+│ --no-tunnel            <bool>  Skip starting SSH tunnel                      │
+│ --help                 <bool>  Show this message and exit.                   │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -640,7 +643,7 @@ Usage: hq dashboard tunnel [OPTIONS] COMMAND [ARGS]...
  Start, inspect, or stop the dashboard SSH tunnel
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --help          Show this message and exit.                                  │
+│ --help        <bool>  Show this message and exit.                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
 │ start   Start the SSH port-forward tunnel to the OCI dashboard if not        │
@@ -678,14 +681,15 @@ Usage: hq exec [OPTIONS] {job_id} {command}...
  authorization.
 
 ╭─ Arguments ──────────────────────────────────────────────────────────────────╮
-│ *    job_id       <str>  Job ID to execute command in [required]             │
-│ *    command      <str>  Command vector to run inside job environment        │
-│                          [required]                                          │
+│ *    job_id          <str>        Job ID to execute command in [required]    │
+│ *    command...      <list[str]>  Command vector to run inside job           │
+│                                   environment                                │
+│                                   [required]                                 │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --user   -u      <str>  Requesting username [default: default]               │
-│ --admin                 Assert explicit administrative elevation             │
-│ --help                  Show this message and exit.                          │
+│ --user   -u      <str>   Requesting username [default: default]              │
+│ --admin          <bool>  Assert explicit administrative elevation            │
+│ --help           <bool>  Show this message and exit.                         │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -700,12 +704,12 @@ Usage: hq explain [OPTIONS] {job_id}
 │ *    job_id      <str>  Job ID to explain [required]                         │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --format  -f      <str>  Output presentation format (table, json, markdown,  │
-│                          rich, plain, auto).                                 │
-│                          [default: table]                                    │
-│ --admin                  Assert explicit administrative elevation            │
-│ --user    -u      <str>  Requesting username [default: default]              │
-│ --help                   Show this message and exit.                         │
+│ --format  -f      <str>   Output presentation format (table, json, markdown, │
+│                           rich, plain, auto).                                │
+│                           [default: table]                                   │
+│ --admin           <bool>  Assert explicit administrative elevation           │
+│ --user    -u      <str>   Requesting username [default: default]             │
+│ --help            <bool>  Show this message and exit.                        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -717,12 +721,12 @@ Usage: hq fairshare [OPTIONS]
  Inspect hierarchical fair-share tree, historical usage, and decay factors.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --format  -f      <str>  Output presentation format (table, json, markdown,  │
-│                          rich, plain, auto).                                 │
-│                          [default: table]                                    │
-│ --admin                  Assert explicit administrative elevation            │
-│ --user    -u      <str>  Requesting username [default: default]              │
-│ --help                   Show this message and exit.                         │
+│ --format  -f      <str>   Output presentation format (table, json, markdown, │
+│                           rich, plain, auto).                                │
+│                           [default: table]                                   │
+│ --admin           <bool>  Assert explicit administrative elevation           │
+│ --user    -u      <str>   Requesting username [default: default]             │
+│ --help            <bool>  Show this message and exit.                        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -747,10 +751,10 @@ Usage: hq hold [OPTIONS] {job_id}
 │ *    job_id      <str>  Job ID to place on administrative hold [required]    │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --admin                 Assert explicit administrative elevation for         │
-│                         cross-user hold                                      │
-│ --user   -u      <str>  Requesting user identity [default: default]          │
-│ --help                  Show this message and exit.                          │
+│ --admin          <bool>  Assert explicit administrative elevation for        │
+│                          cross-user hold                                     │
+│ --user   -u      <str>   Requesting user identity [default: default]         │
+│ --help           <bool>  Show this message and exit.                         │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -777,11 +781,11 @@ Usage: hq logs [OPTIONS] {job_id}
 │ *    job_id      <str>  Job ID to fetch logs for [required]                  │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --follow  -f             Follow stream output in real time                   │
-│ --tail    -n      <int>  Number of lines to show from end                    │
-│ --url                    Print presigned direct download URL instead of      │
-│                          fetching                                            │
-│ --help                   Show this message and exit.                         │
+│ --follow  -f      <bool>  Follow stream output in real time                  │
+│ --tail    -n      <int>   Number of lines to show from end                   │
+│ --url             <bool>  Print presigned direct download URL instead of     │
+│                           fetching                                           │
+│ --help            <bool>  Show this message and exit.                        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -793,7 +797,7 @@ Usage: hq mcp [OPTIONS] COMMAND [ARGS]...
  Manage and run Hexaqueue Model Context Protocol (MCP) server
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --help          Show this message and exit.                                  │
+│ --help        <bool>  Show this message and exit.                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
 │ run  Run Hexaqueue MCP driving adapter over stdio transport.                 │
@@ -819,13 +823,13 @@ Usage: hq mcp run [OPTIONS]
      tools: Comma-separated list of enabled tools.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --name       -n      <str>  MCP server name [default: hexaqueue-mcp]         │
-│ --config     -c      <str>  Path to TOML configuration file                  │
-│ --read-only                 Restrict MCP tools to read-only queries          │
-│                             (disables mutations)                             │
-│ --tools              <str>  Comma-separated list of enabled tools (e.g.      │
-│                             'list_jobs,get_run_status')                      │
-│ --help                      Show this message and exit.                      │
+│ --name       -n      <str>   MCP server name [default: hexaqueue-mcp]        │
+│ --config     -c      <str>   Path to TOML configuration file                 │
+│ --read-only          <bool>  Restrict MCP tools to read-only queries         │
+│                              (disables mutations)                            │
+│ --tools              <str>   Comma-separated list of enabled tools (e.g.     │
+│                              'list_jobs,get_run_status')                     │
+│ --help               <bool>  Show this message and exit.                     │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -837,7 +841,7 @@ Usage: hq node [OPTIONS] COMMAND [ARGS]...
  Inspect worker nodes and establish administrative bastion sessions
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --help          Show this message and exit.                                  │
+│ --help        <bool>  Show this message and exit.                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
 │ list  List registered compute worker nodes and their telemetry pulses.       │
@@ -856,10 +860,10 @@ Usage: hq node list [OPTIONS]
  format_type: Chosen serialization output format.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --format  -f      <str>  Output presentation format (table, json, markdown,  │
-│                          rich, plain, auto).                                 │
-│                          [default: table]                                    │
-│ --help                   Show this message and exit.                         │
+│ --format  -f      <str>   Output presentation format (table, json, markdown, │
+│                           rich, plain, auto).                                │
+│                           [default: table]                                   │
+│ --help            <bool>  Show this message and exit.                        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -889,15 +893,15 @@ Usage: hq node ssh [OPTIONS] {node_id}
 │                          [required]                                          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --admin                     Assert explicit administrative elevation for     │
-│                             bastion shell access                             │
-│ --user       -u      <str>  Requesting user identity [default: default]      │
-│ --direct                    Connect directly via SSH jump-host through       │
-│                             controller instead of controller API session     │
-│ --jump-host          <str>  Jump host public IP/hostname for direct          │
-│                             connection                                       │
-│ --jump-user          <str>  Jump host SSH user [default: ubuntu]             │
-│ --help                      Show this message and exit.                      │
+│ --admin              <bool>  Assert explicit administrative elevation for    │
+│                              bastion shell access                            │
+│ --user       -u      <str>   Requesting user identity [default: default]     │
+│ --direct             <bool>  Connect directly via SSH jump-host through      │
+│                              controller instead of controller API session    │
+│ --jump-host          <str>   Jump host public IP/hostname for direct         │
+│                              connection                                      │
+│ --jump-user          <str>   Jump host SSH user [default: ubuntu]            │
+│ --help               <bool>  Show this message and exit.                     │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -915,10 +919,10 @@ Usage: hq nodes [OPTIONS]
      Surfaces real-time hardware telemetry per worker compute node.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --format  -f      <str>  Output presentation format (table, json, markdown,  │
-│                          rich, plain, auto).                                 │
-│                          [default: table]                                    │
-│ --help                   Show this message and exit.                         │
+│ --format  -f      <str>   Output presentation format (table, json, markdown, │
+│                           rich, plain, auto).                                │
+│                           [default: table]                                   │
+│ --help            <bool>  Show this message and exit.                        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -937,10 +941,10 @@ Usage: hq quota [OPTIONS]
  hierarchy.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --format  -f      <str>  Output presentation format (table, json, markdown,  │
-│                          rich, plain, auto).                                 │
-│                          [default: table]                                    │
-│ --help                   Show this message and exit.                         │
+│ --format  -f      <str>   Output presentation format (table, json, markdown, │
+│                           rich, plain, auto).                                │
+│                           [default: table]                                   │
+│ --help            <bool>  Show this message and exit.                        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -966,10 +970,10 @@ Usage: hq release [OPTIONS] {job_id}
 │                         [required]                                           │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --admin                 Assert explicit administrative elevation for         │
-│                         cross-user release                                   │
-│ --user   -u      <str>  Requesting user identity [default: default]          │
-│ --help                  Show this message and exit.                          │
+│ --admin          <bool>  Assert explicit administrative elevation for        │
+│                          cross-user release                                  │
+│ --user   -u      <str>   Requesting user identity [default: default]         │
+│ --help           <bool>  Show this message and exit.                         │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -981,7 +985,7 @@ Usage: hq run [OPTIONS] COMMAND [ARGS]...
  Pipeline run management commands.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --help          Show this message and exit.                                  │
+│ --help        <bool>  Show this message and exit.                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
 │ submit  Submit a DAG pipeline definition file.                               │
@@ -1010,10 +1014,10 @@ Usage: hq run cancel [OPTIONS] {run_id}
 │ *    run_id      <str>  Run ID to cancel [required]                          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --admin                 Assert explicit administrative elevation for         │
-│                         cross-user cancellation                              │
-│ --user   -u      <str>  Requesting user identity [default: default]          │
-│ --help                  Show this message and exit.                          │
+│ --admin          <bool>  Assert explicit administrative elevation for        │
+│                          cross-user cancellation                             │
+│ --user   -u      <str>   Requesting user identity [default: default]         │
+│ --help           <bool>  Show this message and exit.                         │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1028,18 +1032,18 @@ Usage: hq run submit [OPTIONS] {spec_path}
 │ *    spec_path      <path>  Path to pipeline YAML spec [required]            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --watch      -w             Watch run execution until completion             │
-│ --free-tier                 Enable Free-Tier Safety Mode ($0.00 spend guard  │
-│                             and strict resource clamping)                    │
-│ --notify     -n      <str>  Notification targets (e.g. slack://...,          │
-│                             pagerduty://...)                                 │
-│ --notify-on          <str>  Lifecycle triggers (e.g. COMPLETED, FAILED,      │
-│                             ERRORS, ALL)                                     │
-│                             [default: ERRORS]                                │
-│ --format     -f      <str>  Output presentation format (table, json,         │
-│                             markdown, rich, plain, auto).                    │
-│                             [default: table]                                 │
-│ --help                      Show this message and exit.                      │
+│ --watch      -w      <bool>       Watch run execution until completion       │
+│ --free-tier          <bool>       Enable Free-Tier Safety Mode ($0.00 spend  │
+│                                   guard and strict resource clamping)        │
+│ --notify     -n      <list[str]>  Notification targets (e.g. slack://...,    │
+│                                   pagerduty://...)                           │
+│ --notify-on          <str>        Lifecycle triggers (e.g. COMPLETED,        │
+│                                   FAILED, ERRORS, ALL)                       │
+│                                   [default: ERRORS]                          │
+│ --format     -f      <str>        Output presentation format (table, json,   │
+│                                   markdown, rich, plain, auto).              │
+│                                   [default: table]                           │
+│ --help               <bool>       Show this message and exit.                │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1051,7 +1055,7 @@ Usage: hq scan [OPTIONS] COMMAND [ARGS]...
  Malware inspection, antivirus verification, and quarantine daemon
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --help          Show this message and exit.                                  │
+│ --help        <bool>  Show this message and exit.                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
 │ file    Inspect a local file for virus signatures and YARA heuristic         │
@@ -1081,11 +1085,11 @@ Usage: hq scan daemon [OPTIONS]
 │ --poll-interval  -i              <float>  Polling interval in seconds for    │
 │                                           scan task queue                    │
 │                                           [default: 1.0]                     │
-│ --quarantine         --reject             Whether to isolate threats in      │
+│ --quarantine         --reject    <bool>   Whether to isolate threats in      │
 │                                           quarantine vault or reject         │
 │                                           outright                           │
 │                                           [default: quarantine]              │
-│ --help                                    Show this message and exit.        │
+│ --help                           <bool>   Show this message and exit.        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1111,10 +1115,10 @@ Usage: hq scan file [OPTIONS] {file_path}
 │                             [required]                                       │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --clamav-socket          <str>  Path to ClamAV UNIX domain socket            │
-│                                 [default: /var/run/clamav/clamd.ctl]         │
-│ --rule           -r      <str>  Path to YARA rule file (.yar)                │
-│ --help                          Show this message and exit.                  │
+│ --clamav-socket          <str>        Path to ClamAV UNIX domain socket      │
+│                                       [default: /var/run/clamav/clamd.ctl]   │
+│ --rule           -r      <list[str]>  Path to YARA rule file (.yar)          │
+│ --help                   <bool>       Show this message and exit.            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1129,9 +1133,9 @@ Usage: hq scan ping [OPTIONS]
  clamav_socket: UNIX domain socket path for clamd.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --clamav-socket        <str>  Path to ClamAV UNIX domain socket              │
-│                               [default: /var/run/clamav/clamd.ctl]           │
-│ --help                        Show this message and exit.                    │
+│ --clamav-socket        <str>   Path to ClamAV UNIX domain socket             │
+│                                [default: /var/run/clamav/clamd.ctl]          │
+│ --help                 <bool>  Show this message and exit.                   │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1143,7 +1147,7 @@ Usage: hq scanner [OPTIONS] COMMAND [ARGS]...
  Malware inspection, antivirus verification, and quarantine daemon
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --help          Show this message and exit.                                  │
+│ --help        <bool>  Show this message and exit.                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
 │ file    Inspect a local file for virus signatures and YARA heuristic         │
@@ -1173,11 +1177,11 @@ Usage: hq scanner daemon [OPTIONS]
 │ --poll-interval  -i              <float>  Polling interval in seconds for    │
 │                                           scan task queue                    │
 │                                           [default: 1.0]                     │
-│ --quarantine         --reject             Whether to isolate threats in      │
+│ --quarantine         --reject    <bool>   Whether to isolate threats in      │
 │                                           quarantine vault or reject         │
 │                                           outright                           │
 │                                           [default: quarantine]              │
-│ --help                                    Show this message and exit.        │
+│ --help                           <bool>   Show this message and exit.        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1203,10 +1207,10 @@ Usage: hq scanner file [OPTIONS] {file_path}
 │                             [required]                                       │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --clamav-socket          <str>  Path to ClamAV UNIX domain socket            │
-│                                 [default: /var/run/clamav/clamd.ctl]         │
-│ --rule           -r      <str>  Path to YARA rule file (.yar)                │
-│ --help                          Show this message and exit.                  │
+│ --clamav-socket          <str>        Path to ClamAV UNIX domain socket      │
+│                                       [default: /var/run/clamav/clamd.ctl]   │
+│ --rule           -r      <list[str]>  Path to YARA rule file (.yar)          │
+│ --help                   <bool>       Show this message and exit.            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1221,9 +1225,9 @@ Usage: hq scanner ping [OPTIONS]
  clamav_socket: UNIX domain socket path for clamd.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --clamav-socket        <str>  Path to ClamAV UNIX domain socket              │
-│                               [default: /var/run/clamav/clamd.ctl]           │
-│ --help                        Show this message and exit.                    │
+│ --clamav-socket        <str>   Path to ClamAV UNIX domain socket             │
+│                                [default: /var/run/clamav/clamd.ctl]          │
+│ --help                 <bool>  Show this message and exit.                   │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1245,7 +1249,7 @@ Usage: hq server [OPTIONS] COMMAND [ARGS]...
  Manage Hexaqueue central scheduler and HTTP/ASGI API server
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --help          Show this message and exit.                                  │
+│ --help        <bool>  Show this message and exit.                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
 │ start  Start Hexaqueue central scheduler and API server.                     │
@@ -1260,23 +1264,23 @@ Usage: hq server start [OPTIONS]
  Start Hexaqueue central scheduler and API server.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --config      -c              <str>  Path to TOML configuration file (e.g.   │
-│                                      hexaqueue.toml)                         │
-│ --host        -h              <str>  Bind host address [default: 0.0.0.0]    │
-│ --port        -p              <int>  Bind port number [default: 8000]        │
-│ --engine      -e              <str>  ASGI engine: 'uvicorn' or 'granian'     │
-│                                      [default: uvicorn]                      │
-│ --role        -r              <str>  Server role: 'all', 'gateway',          │
-│                                      'worker-api', 'analytics', 'mcp',       │
-│                                      'custom'                                │
-│                                      [default: all]                          │
-│ --interfaces                  <str>  Comma-separated interface list (e.g.    │
-│                                      'runs,webhooks,collateral,mcp')         │
-│ --mcp             --no-mcp           Explicitly enable or disable MCP        │
-│                                      driving adapter                         │
-│ --workers     -w              <int>  Number of worker processes              │
-│ --reload                             Enable auto-reload on code changes      │
-│ --help                               Show this message and exit.             │
+│ --config      -c              <str>   Path to TOML configuration file (e.g.  │
+│                                       hexaqueue.toml)                        │
+│ --host        -h              <str>   Bind host address [default: 0.0.0.0]   │
+│ --port        -p              <int>   Bind port number [default: 8000]       │
+│ --engine      -e              <str>   ASGI engine: 'uvicorn' or 'granian'    │
+│                                       [default: uvicorn]                     │
+│ --role        -r              <str>   Server role: 'all', 'gateway',         │
+│                                       'worker-api', 'analytics', 'mcp',      │
+│                                       'custom'                               │
+│                                       [default: all]                         │
+│ --interfaces                  <str>   Comma-separated interface list (e.g.   │
+│                                       'runs,webhooks,collateral,mcp')        │
+│ --mcp             --no-mcp    <bool>  Explicitly enable or disable MCP       │
+│                                       driving adapter                        │
+│ --workers     -w              <int>   Number of worker processes             │
+│ --reload                      <bool>  Enable auto-reload on code changes     │
+│ --help                        <bool>  Show this message and exit.            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1294,10 +1298,10 @@ Usage: hq stat [OPTIONS]
      Provides rapid cluster health and queue backlog telemetry.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --format  -f      <str>  Output presentation format (table, json, markdown,  │
-│                          rich, plain, auto).                                 │
-│                          [default: table]                                    │
-│ --help                   Show this message and exit.                         │
+│ --format  -f      <str>   Output presentation format (table, json, markdown, │
+│                           rich, plain, auto).                                │
+│                           [default: table]                                   │
+│ --help            <bool>  Show this message and exit.                        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1320,10 +1324,10 @@ Usage: hq status [OPTIONS] {target_id}
 │ *    target_id      <str>  Run ID or Job ID to inspect [required]            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --format  -f      <str>  Output presentation format (table, json, markdown,  │
-│                          rich, plain, auto).                                 │
-│                          [default: table]                                    │
-│ --help                   Show this message and exit.                         │
+│ --format  -f      <str>   Output presentation format (table, json, markdown, │
+│                           rich, plain, auto).                                │
+│                           [default: table]                                   │
+│ --help            <bool>  Show this message and exit.                        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1340,14 +1344,14 @@ Usage: hq submit [OPTIONS] {spec_path}
 │                             [required]                                       │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --watch      -w             Watch execution until completion                 │
-│ --free-tier                 Enable Free-Tier Safety Mode                     │
-│ --admin                     Assert explicit administrative elevation         │
-│ --user       -u      <str>  Submitting user identity [default: default]      │
-│ --format     -f      <str>  Output presentation format (table, json,         │
-│                             markdown, rich, plain, auto).                    │
-│                             [default: table]                                 │
-│ --help                      Show this message and exit.                      │
+│ --watch      -w      <bool>  Watch execution until completion                │
+│ --free-tier          <bool>  Enable Free-Tier Safety Mode                    │
+│ --admin              <bool>  Assert explicit administrative elevation        │
+│ --user       -u      <str>   Submitting user identity [default: default]     │
+│ --format     -f      <str>   Output presentation format (table, json,        │
+│                              markdown, rich, plain, auto).                   │
+│                              [default: table]                                │
+│ --help               <bool>  Show this message and exit.                     │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1359,7 +1363,7 @@ Usage: hq suite [OPTIONS] COMMAND [ARGS]...
  Manage and execute hierarchical suite workloads and parameter sweeps
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --help          Show this message and exit.                                  │
+│ --help        <bool>  Show this message and exit.                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
 │ run  Compile and submit a hierarchical suite workload.                       │
@@ -1388,14 +1392,14 @@ Usage: hq suite run [OPTIONS] {suite_file}
 │                              [required]                                      │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --user    -u      <str>  User identity submitting the suite workload         │
-│                          [default: default]                                  │
-│ --admin                  Assert explicit administrative elevation for        │
-│                          privileged execution                                │
-│ --format  -f      <str>  Output presentation format (table, json, markdown,  │
-│                          rich, plain, auto).                                 │
-│                          [default: table]                                    │
-│ --help                   Show this message and exit.                         │
+│ --user    -u      <str>   User identity submitting the suite workload        │
+│                           [default: default]                                 │
+│ --admin           <bool>  Assert explicit administrative elevation for       │
+│                           privileged execution                               │
+│ --format  -f      <str>   Output presentation format (table, json, markdown, │
+│                           rich, plain, auto).                                │
+│                           [default: table]                                   │
+│ --help            <bool>  Show this message and exit.                        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1416,8 +1420,8 @@ Usage: hq top [OPTIONS]
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
 │ --interval  -i      <float>  Refresh interval in seconds [default: 1.0]      │
-│ --once      -1               Print dashboard once and exit                   │
-│ --help                       Show this message and exit.                     │
+│ --once      -1      <bool>   Print dashboard once and exit                   │
+│ --help              <bool>   Show this message and exit.                     │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1432,9 +1436,9 @@ Usage: hq why [OPTIONS] {job_id}
 │ *    job_id      <str>  Job ID to explain [required]                         │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --admin                 Assert explicit administrative elevation             │
-│ --user   -u      <str>  Requesting username [default: default]               │
-│ --help                  Show this message and exit.                          │
+│ --admin          <bool>  Assert explicit administrative elevation            │
+│ --user   -u      <str>   Requesting username [default: default]              │
+│ --help           <bool>  Show this message and exit.                         │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1446,7 +1450,7 @@ Usage: hq workflow [OPTIONS] COMMAND [ARGS]...
  Hexaflow distributed workflow orchestration and cluster scheduling commands.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --help          Show this message and exit.                                  │
+│ --help        <bool>  Show this message and exit.                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
 │ submit  Submit a workflow definition for distributed cluster execution.      │
@@ -1478,12 +1482,12 @@ Usage: hq workflow abort [OPTIONS] {run_id} {target}
 │ *    target      <str>  Path to workflow file [required]                     │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --db              <str>  Path to SQLite state database                       │
-│                          [default: .hexaflow/state.db]                       │
-│ --format  -f      <str>  Output presentation format (table, json, markdown,  │
-│                          rich, plain, auto).                                 │
-│                          [default: table]                                    │
-│ --help                   Show this message and exit.                         │
+│ --db              <str>   Path to SQLite state database                      │
+│                           [default: .hexaflow/state.db]                      │
+│ --format  -f      <str>   Output presentation format (table, json, markdown, │
+│                           rich, plain, auto).                                │
+│                           [default: table]                                   │
+│ --help            <bool>  Show this message and exit.                        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1519,14 +1523,14 @@ Usage: hq workflow resume [OPTIONS] {run_id} {target}
 │                         [required]                                           │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --inputs  -i      <str>  Patch inputs for resuming step frontier             │
-│ --skip            <str>  Step names to explicitly skip                       │
-│ --db              <str>  Path to SQLite state database                       │
-│                          [default: .hexaflow/state.db]                       │
-│ --format  -f      <str>  Output presentation format (table, json, markdown,  │
-│                          rich, plain, auto).                                 │
-│                          [default: table]                                    │
-│ --help                   Show this message and exit.                         │
+│ --inputs  -i      <str>        Patch inputs for resuming step frontier       │
+│ --skip            <list[str]>  Step names to explicitly skip                 │
+│ --db              <str>        Path to SQLite state database                 │
+│                                [default: .hexaflow/state.db]                 │
+│ --format  -f      <str>        Output presentation format (table, json,      │
+│                                markdown, rich, plain, auto).                 │
+│                                [default: table]                              │
+│ --help            <bool>       Show this message and exit.                   │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1547,12 +1551,12 @@ Usage: hq workflow status [OPTIONS] {run_id}
 │                         [required]                                           │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --db              <str>  Path to SQLite state database                       │
-│                          [default: .hexaflow/state.db]                       │
-│ --format  -f      <str>  Output presentation format (table, json, markdown,  │
-│                          rich, plain, auto).                                 │
-│                          [default: table]                                    │
-│ --help                   Show this message and exit.                         │
+│ --db              <str>   Path to SQLite state database                      │
+│                           [default: .hexaflow/state.db]                      │
+│ --format  -f      <str>   Output presentation format (table, json, markdown, │
+│                           rich, plain, auto).                                │
+│                           [default: table]                                   │
+│ --help            <bool>  Show this message and exit.                        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1578,18 +1582,18 @@ Usage: hq workflow submit [OPTIONS] {target}
 │                         [required]                                           │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --inputs     -i      <str>  JSON dictionary of initial inputs                │
-│ --notify     -n      <str>  Notification targets (e.g. slack://...,          │
-│                             pagerduty://...)                                 │
-│ --notify-on          <str>  Lifecycle triggers (e.g. COMPLETED, FAILED,      │
-│                             ERRORS, ALL)                                     │
-│                             [default: ERRORS]                                │
-│ --db                 <str>  Path to SQLite state database                    │
-│                             [default: .hexaflow/state.db]                    │
-│ --watch      -w             Watch workflow execution until completion        │
-│ --format     -f      <str>  Output presentation format (table, json,         │
-│                             markdown, rich, plain, auto).                    │
-│                             [default: table]                                 │
-│ --help                      Show this message and exit.                      │
+│ --inputs     -i      <str>        JSON dictionary of initial inputs          │
+│ --notify     -n      <list[str]>  Notification targets (e.g. slack://...,    │
+│                                   pagerduty://...)                           │
+│ --notify-on          <str>        Lifecycle triggers (e.g. COMPLETED,        │
+│                                   FAILED, ERRORS, ALL)                       │
+│                                   [default: ERRORS]                          │
+│ --db                 <str>        Path to SQLite state database              │
+│                                   [default: .hexaflow/state.db]              │
+│ --watch      -w      <bool>       Watch workflow execution until completion  │
+│ --format     -f      <str>        Output presentation format (table, json,   │
+│                                   markdown, rich, plain, auto).              │
+│                                   [default: table]                           │
+│ --help               <bool>       Show this message and exit.                │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```

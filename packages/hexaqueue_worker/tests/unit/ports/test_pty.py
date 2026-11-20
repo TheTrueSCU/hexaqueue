@@ -69,7 +69,7 @@ def test_interactive_pty_port_is_abstract() -> None:
     is_abs = inspect.isabstract(InteractivePtyPort)
     assert is_abs is True
     with pytest.raises(TypeError, match="Can't instantiate abstract class"):
-        InteractivePtyPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+        InteractivePtyPort()  # ty: ignore[abstract-class-instantiation] # type: ignore[abstract]
 
 
 def test_interactive_pty_port_abstract_methods() -> None:

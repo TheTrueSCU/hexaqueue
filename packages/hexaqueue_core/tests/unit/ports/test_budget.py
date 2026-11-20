@@ -29,7 +29,7 @@ def test_cost_rate_model_port_is_abstract() -> None:
     is_abs = inspect.isabstract(CostRateModelPort)
     assert is_abs is True
     with pytest.raises(TypeError, match="Can't instantiate abstract class"):
-        CostRateModelPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+        CostRateModelPort()  # ty: ignore[abstract-class-instantiation] # type: ignore[abstract]
 
 
 def test_cost_rate_model_port_abstract_methods() -> None:
@@ -45,7 +45,7 @@ def test_budget_accounting_port_is_abstract() -> None:
     is_abs = inspect.isabstract(BudgetAccountingPort)
     assert is_abs is True
     with pytest.raises(TypeError, match="Can't instantiate abstract class"):
-        BudgetAccountingPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+        BudgetAccountingPort()  # ty: ignore[abstract-class-instantiation] # type: ignore[abstract]
 
 
 def test_budget_accounting_port_abstract_methods() -> None:

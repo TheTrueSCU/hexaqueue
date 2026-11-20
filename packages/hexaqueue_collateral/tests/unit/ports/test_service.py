@@ -28,7 +28,7 @@ def test_collateral_service_port_is_abstract() -> None:
     is_abs = inspect.isabstract(CollateralServicePort)
     assert is_abs is True
     with pytest.raises(TypeError, match="Can't instantiate abstract class"):
-        CollateralServicePort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+        CollateralServicePort()  # ty: ignore[abstract-class-instantiation] # type: ignore[abstract]
 
 
 def test_collateral_service_port_abstract_methods() -> None:

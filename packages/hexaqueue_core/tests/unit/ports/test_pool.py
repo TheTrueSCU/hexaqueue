@@ -87,7 +87,7 @@ def test_instance_pool_governor_port_is_abstract() -> None:
     is_abs = inspect.isabstract(InstancePoolGovernorPort)
     assert is_abs is True
     with pytest.raises(TypeError, match="Can't instantiate abstract class"):
-        InstancePoolGovernorPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+        InstancePoolGovernorPort()  # ty: ignore[abstract-class-instantiation] # type: ignore[abstract]
 
 
 def test_instance_pool_governor_port_abstract_methods() -> None:

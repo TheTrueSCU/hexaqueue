@@ -102,4 +102,4 @@ def test_federated_free_tier_governor_port_is_abstract() -> None:
     assert "mesh" in abstract_methods
 
     with pytest.raises(TypeError):
-        FederatedFreeTierGovernorPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+        FederatedFreeTierGovernorPort()  # ty: ignore[abstract-class-instantiation] # type: ignore[abstract]

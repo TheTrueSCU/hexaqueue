@@ -78,7 +78,7 @@ def test_gpu_device_manager_port_is_abstract() -> None:
     is_abs = inspect.isabstract(GpuDeviceManagerPort)
     assert is_abs is True
     with pytest.raises(TypeError, match="Can't instantiate abstract class"):
-        GpuDeviceManagerPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+        GpuDeviceManagerPort()  # ty: ignore[abstract-class-instantiation] # type: ignore[abstract]
 
 
 def test_gpu_device_manager_port_abstract_methods() -> None:

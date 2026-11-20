@@ -36,7 +36,7 @@ def test_log_stream_port_is_abstract() -> None:
     is_abs = inspect.isabstract(LogStreamPort)
     assert is_abs is True
     with pytest.raises(TypeError, match="Can't instantiate abstract class"):
-        LogStreamPort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+        LogStreamPort()  # ty: ignore[abstract-class-instantiation] # type: ignore[abstract]
 
 
 def test_log_stream_port_abstract_methods() -> None:

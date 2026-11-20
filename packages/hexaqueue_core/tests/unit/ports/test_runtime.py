@@ -37,7 +37,7 @@ def test_execution_runtime_port_is_abstract() -> None:
     is_abs = inspect.isabstract(ExecutionRuntimePort)
     assert is_abs is True
     with pytest.raises(TypeError, match="Can't instantiate abstract class"):
-        ExecutionRuntimePort()  # ty: ignore[call-non-callable] # type: ignore[abstract]
+        ExecutionRuntimePort()  # ty: ignore[abstract-class-instantiation] # type: ignore[abstract]
 
 
 def test_execution_runtime_port_abstract_methods() -> None:
