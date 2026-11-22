@@ -325,6 +325,10 @@ class ClusterCqrsMixin(BaseCqrsService):
         Returns:
             Aggregated ClusterStatsReport.
         """
+        get_stats = getattr(self.controller, "get_queue_stats", None)
+        if callable(get_stats):
+            return await get_stats()
+
         jobs = await self.controller.list_jobs()
         running = sum(1 for j in jobs if j.state == JobState.RUNNING)
         pending = sum(

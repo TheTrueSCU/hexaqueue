@@ -14,14 +14,31 @@ from hexaflow.domain.state import (
 from rich.console import Console
 
 from hexaqueue_cli.adapters.presenter import CliPresenter
+from hexaqueue_cli.domain.models import ClusterStatsReport
 from hexaqueue_cli.domain.options import OutputFormat
+from hexaqueue_core.domain.collateral import (
+    CollateralBundle,
+    CollateralKind,
+    CollateralState,
+    CollateralTier,
+)
+from hexaqueue_core.domain.explainability import (
+    FairShareNodeReport,
+    FairShareTreeReport,
+    PendingReason,
+    PendingReasonCode,
+    PriorityBreakdown,
+    SchedulingDecisionReport,
+)
 from hexaqueue_core.domain.freetier import CspProvider, FreeTierBurnReport
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import (
+    JobState,
     RunOutcome,
     RunState,
 )
 from hexaqueue_server.domain.models import RunStatusReport
+from hexaqueue_worker.domain.telemetry import GpuTelemetry, NodeTelemetryPulse
 
 
 def _sample_report() -> RunStatusReport:
@@ -215,16 +232,6 @@ def test_render_workflow_state_formats() -> None:
 
 def test_render_why_summary_and_explain() -> None:
     """Verify render_why_summary and render_explain_report formats."""
-    from hexaqueue_core.domain.explainability import (
-        FairShareNodeReport,
-        FairShareTreeReport,
-        PendingReason,
-        PendingReasonCode,
-        PriorityBreakdown,
-        SchedulingDecisionReport,
-    )
-    from hexaqueue_core.domain.lifecycle import JobState
-
     bd = PriorityBreakdown(
         base_score=100.0,
         age_score=50.0,
@@ -432,8 +439,6 @@ def test_render_run_status_free_tier_markdown() -> None:
 
 def test_render_cluster_stats_all_formats() -> None:
     """Verify render_cluster_stats across JSON, Markdown, Plain, and Table formats."""
-    from hexaqueue_cli.domain.models import ClusterStatsReport
-
     stats = ClusterStatsReport(
         total_runs=2,
         total_jobs=5,
@@ -481,8 +486,6 @@ def test_render_cluster_stats_all_formats() -> None:
 
 def test_render_nodes_table_all_formats() -> None:
     """Verify render_nodes_table across JSON, Markdown, Plain, and Table formats."""
-    from hexaqueue_worker.domain.telemetry import GpuTelemetry, NodeTelemetryPulse
-
     gpu = GpuTelemetry(
         index=0,
         model="NVIDIA A100-SXM4-80GB",
@@ -539,9 +542,6 @@ def test_render_nodes_table_all_formats() -> None:
 
 def test_top_dashboard_rendering() -> None:
     """Verify build_top_dashboard and render_top_dashboard."""
-    from hexaqueue_cli.domain.models import ClusterStatsReport
-    from hexaqueue_worker.domain.telemetry import NodeTelemetryPulse
-
     stats = ClusterStatsReport(total_runs=1, total_jobs=2, running_jobs=1)
     node = NodeTelemetryPulse(
         worker_id="node-1",
@@ -571,3 +571,86 @@ def test_top_dashboard_rendering() -> None:
     assert "Worker Nodes" in out
     assert "Active & Queued Jobs" in out
     assert "job-top-1" in out
+
+
+def _sample_bundle() -> CollateralBundle:
+    return CollateralBundle(
+        id="col-pres-1",
+        job_id="global",
+        owner="alice",
+        filename="weights.tar.gz",
+        size_bytes=2048,
+        sha256_checksum="a" * 64,
+        tier=CollateralTier.PERMANENT,
+        kind=CollateralKind.BUNDLE,
+        state=CollateralState.APPROVED,
+        active_pin_count=2,
+        staging_uri="s3://bucket/staging/col-pres-1",
+        active_uri="s3://bucket/cas/col-pres-1",
+    )
+
+
+def test_render_collateral_list_all_formats() -> None:
+    """Verify render_collateral_list across JSON, Markdown, Plain, and Table formats."""
+    bundle = _sample_bundle()
+    formats = [
+        (OutputFormat.JSON, '"col-pres-1"'),
+        (OutputFormat.MARKDOWN, "| `col-pres-1` | weights.tar.gz |"),
+        (OutputFormat.PLAIN, "COLLATERAL=col-pres-1"),
+        (OutputFormat.TABLE, "Collateral Bundles"),
+    ]
+    for fmt, needle in formats:
+        buf = StringIO()
+        presenter = CliPresenter(console=Console(file=buf, no_color=True, width=200))
+        presenter.render_collateral_list([bundle], fmt)
+        rendered = buf.getvalue()
+        assert needle in rendered
+
+
+def test_render_collateral_detail_all_formats() -> None:
+    """Verify render_collateral_detail across JSON, Markdown, Plain, and Table formats."""
+    bundle = _sample_bundle()
+    formats = [
+        (OutputFormat.JSON, '"weights.tar.gz"'),
+        (OutputFormat.MARKDOWN, "### Collateral Bundle: `col-pres-1`"),
+        (OutputFormat.PLAIN, "collateral_id\tcol-pres-1"),
+        (OutputFormat.TABLE, "Collateral Bundle: col-pres-1"),
+    ]
+    for fmt, needle in formats:
+        buf = StringIO()
+        presenter = CliPresenter(console=Console(file=buf, no_color=True, width=200))
+        presenter.render_collateral_detail(bundle, fmt)
+        rendered = buf.getvalue()
+        assert needle in rendered
+
+
+def test_render_runs_and_jobs_tables_all_formats() -> None:
+    """Verify render_runs_table and render_jobs_table across all formats."""
+    report = _sample_report()
+    job = _sample_job()
+
+    run_formats = [
+        (OutputFormat.JSON, '"run-123"'),
+        (OutputFormat.MARKDOWN, "| `run-123` |"),
+        (OutputFormat.PLAIN, "RUN=run-123"),
+        (OutputFormat.TABLE, "Pipeline Runs"),
+    ]
+    for fmt, needle in run_formats:
+        buf = StringIO()
+        presenter = CliPresenter(console=Console(file=buf, no_color=True, width=200))
+        presenter.render_runs_table([report], fmt)
+        rendered = buf.getvalue()
+        assert needle in rendered
+
+    job_formats = [
+        (OutputFormat.JSON, '"job-456"'),
+        (OutputFormat.MARKDOWN, "| `job-456` |"),
+        (OutputFormat.PLAIN, "JOB=job-456"),
+        (OutputFormat.TABLE, "Registered Jobs"),
+    ]
+    for fmt, needle in job_formats:
+        buf = StringIO()
+        presenter = CliPresenter(console=Console(file=buf, no_color=True, width=200))
+        presenter.render_jobs_table([job], fmt)
+        rendered = buf.getvalue()
+        assert needle in rendered

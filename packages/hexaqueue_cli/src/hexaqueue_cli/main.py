@@ -2,7 +2,8 @@
 
 Notes/Architectural Intent:
     Root Typer application dispatching subcommands and top-level helpers
-    (status, list, logs, cancel, hold, release, stat, top, nodes, quota, exec, attach).
+    (submit, status, jobs, list, logs, cancel, hold, release, stat, top, nodes,
+    quota, exec, attach, why, explain, fairshare).
 """
 
 import asyncio
@@ -13,6 +14,7 @@ from uuid import uuid4
 import typer
 import yaml
 from rich.console import Console
+from rich.live import Live
 
 from hexaqueue_cli.adapters.local import LocalClientAdapter
 from hexaqueue_cli.adapters.presenter import CliPresenter
@@ -24,11 +26,14 @@ from hexaqueue_cli.commands.dashboard import app as dashboard_app
 from hexaqueue_cli.commands.mcp import app as mcp_app
 from hexaqueue_cli.commands.node import app as node_app
 from hexaqueue_cli.commands.run import app as run_app
+from hexaqueue_cli.commands.run import submit_cmd as run_submit_cmd
 from hexaqueue_cli.commands.scanner import app as scanner_app
 from hexaqueue_cli.commands.server import app as server_app
 from hexaqueue_cli.commands.suite import app as suite_app
+from hexaqueue_cli.commands.suite import run_suite_cmd
 from hexaqueue_cli.commands.workflow import app as workflow_app
-from hexaqueue_cli.infra.options import format_option, resolve_format
+from hexaqueue_cli.domain.session import set_active_controller_url
+from hexaqueue_cli.infra.options import format_option, resolve_format, url_option
 from hexaqueue_core.ports.logging import LogChunk
 from hexaqueue_worker.domain.pty import PtySessionRequest
 
@@ -52,6 +57,22 @@ app.add_typer(scanner_app, name="scanner")
 app.add_typer(scanner_app, name="scan")
 
 console = Console()
+
+
+@app.callback()
+def main_callback(
+    url: str | None = url_option(),
+) -> None:
+    """Configure global controller connection options for CLI invocations.
+
+    Args:
+        url: Optional remote Hexaqueue controller base URL override.
+
+    Notes/Architectural Intent:
+        Resets and stores the root controller URL override on each invocation so
+        ``hq --url ... <subcmd>`` propagates cleanly without cross-invocation leaks.
+    """
+    set_active_controller_url(url)
 
 
 @app.command("submit")
@@ -82,23 +103,21 @@ def submit_cmd(
         help="Submitting user identity",
     ),
     format_type: str = format_option(),
+    url: str | None = url_option(),
 ) -> None:
     """Submit a workload run or suite definition file."""
     with spec_path.open("r", encoding="utf-8") as f:
         raw = yaml.safe_load(f)
 
     if isinstance(raw, dict) and ("suites" in raw or "tasks" in raw or "tests" in raw):
-        from hexaqueue_cli.commands.suite import run_suite_cmd
-
         run_suite_cmd(
             suite_file=spec_path,
             user=user,
             admin=admin,
             format_type=format_type,
+            url=url,
         )
         return
-
-    from hexaqueue_cli.commands.run import submit_cmd as run_submit_cmd
 
     run_submit_cmd(
         spec_path=spec_path,
@@ -107,19 +126,79 @@ def submit_cmd(
         notify=None,
         notify_on="ERRORS",
         format_type=format_type,
+        user=user,
+        admin=admin,
+        url=url,
     )
+
+
+@app.command("jobs")
+@app.command("list")
+def jobs_cmd(
+    run_id: str | None = typer.Option(
+        None,
+        "--run-id",
+        "-r",
+        help="Optional run identifier filter",
+    ),
+    user: str = typer.Option(
+        "default",
+        "--user",
+        "-u",
+        help="Requesting user identity",
+    ),
+    admin: bool = typer.Option(
+        False,
+        "--admin",
+        help="Assert explicit administrative elevation to list all tenants' jobs",
+    ),
+    format_type: str = format_option(),
+    url: str | None = url_option(),
+) -> None:
+    """List registered jobs across runs or within a specific run.
+
+    Args:
+        run_id: Optional run identifier filter.
+        user: Requesting user identity.
+        admin: Explicit administrative elevation flag.
+        format_type: Output presentation format.
+        url: Optional remote controller base URL.
+    """
+    resolved_fmt = resolve_format(format_type)
+    presenter = CliPresenter(console=console)
+
+    async def _jobs() -> None:
+        client = LocalClientAdapter(controller_url=url)
+        try:
+            jobs = await client.list_jobs(run_id=run_id, user_id=user, elevate=admin)
+            presenter.render_jobs_table(jobs, resolved_fmt)
+        except Exception as e:
+            console.print(f"[bold red]Error listing jobs:[/] {e}")
+            raise typer.Exit(code=1) from e
+
+    asyncio.run(_jobs())
 
 
 @app.command("status")
 def status_cmd(
     target_id: str = typer.Argument(..., help="Run ID or Job ID to inspect"),
     format_type: str = format_option(),
+    user: str = typer.Option(
+        "default", "--user", "-u", help="Requesting user identity"
+    ),
+    admin: bool = typer.Option(
+        False, "--admin", help="Assert explicit administrative elevation"
+    ),
+    url: str | None = url_option(),
 ) -> None:
     """Check status of a run or job.
 
     Args:
         target_id: Identifier of the run or job to inspect.
         format_type: Chosen serialization output format.
+        user: Requesting user identity.
+        admin: Explicit administrative elevation flag.
+        url: Optional remote controller base URL.
 
     Notes/Architectural Intent:
         Attempts run status resolution first, falling back to individual job inspection.
@@ -128,16 +207,16 @@ def status_cmd(
     presenter = CliPresenter(console=console)
 
     async def _status() -> None:
-        client = LocalClientAdapter()
+        client = LocalClientAdapter(controller_url=url)
         try:
-            report = await client.get_run_status(target_id)
+            report = await client.get_run_status(target_id, user_id=user, elevate=admin)
             presenter.render_run_status(report, resolved_fmt)
             return
         except Exception:
             pass
 
         try:
-            job = await client.get_job(target_id)
+            job = await client.get_job(target_id, user_id=user, elevate=admin)
             presenter.render_job(job, resolved_fmt)
         except Exception as e:
             console.print(f"[bold red]Error querying status for '{target_id}':[/] {e}")
@@ -180,6 +259,17 @@ def logs_cmd(
     url_only: bool = typer.Option(
         False, "--url", help="Print presigned direct download URL instead of fetching"
     ),
+    user: str = typer.Option(
+        "default", "--user", "-u", help="Requesting user identity"
+    ),
+    admin: bool = typer.Option(
+        False, "--admin", help="Assert explicit administrative elevation"
+    ),
+    controller_url: str | None = typer.Option(
+        None,
+        "--controller-url",
+        help="Remote Hexaqueue controller URL (or set HEXAQUEUE_CONTROLLER_URL / HEXAQUEUE_URL).",
+    ),
 ) -> None:
     """View stdout and stderr logs for a job.
 
@@ -188,6 +278,9 @@ def logs_cmd(
         follow: Stream chunks asynchronously in real time.
         tail: Number of historical lines to tail.
         url_only: Print preauthenticated direct storage download URL.
+        user: Requesting user identity.
+        admin: Explicit administrative elevation flag.
+        controller_url: Optional remote controller base URL.
 
     Notes/Architectural Intent:
         Demuxes real-time stdout, stderr, and system log chunks with ANSI fidelity.
@@ -195,9 +288,11 @@ def logs_cmd(
     """
 
     async def _logs() -> None:
-        client = LocalClientAdapter()
+        client = LocalClientAdapter(controller_url=controller_url)
         if url_only:
-            dl_url = await client.get_log_download_url(job_id)
+            dl_url = await client.get_log_download_url(
+                job_id, user_id=user, elevate=admin
+            )
             console.print(dl_url)
             return
 
@@ -205,7 +300,7 @@ def logs_cmd(
             await _stream_live_logs(client, job_id, tail)
             return
 
-        logs = await client.get_logs(job_id)
+        logs = await client.get_logs(job_id, user_id=user, elevate=admin)
         if not logs:
             console.print(f"[dim]No logs recorded for job '{job_id}'[/]")
             return
@@ -230,6 +325,7 @@ def cancel_cmd(
         "-u",
         help="Requesting user identity",
     ),
+    url: str | None = url_option(),
 ) -> None:
     """Cancel an active pipeline run or individual job.
 
@@ -237,6 +333,7 @@ def cancel_cmd(
         target_id: Identifier of the run or job to cancel.
         admin: Assert explicit administrative elevation.
         user: Requesting user identity.
+        url: Optional remote controller base URL.
 
     Notes/Architectural Intent:
         Attempts run cancellation first, falling back to individual job cancellation.
@@ -244,7 +341,7 @@ def cancel_cmd(
     """
 
     async def _cancel() -> None:
-        client = LocalClientAdapter()
+        client = LocalClientAdapter(controller_url=url)
         try:
             report = await client.cancel_run(target_id, user_id=user, elevate=admin)
             console.print(f"[bold yellow]✓[/] Run '{report.run_id}' cancelled.")
@@ -276,6 +373,7 @@ def hold_cmd(
         "-u",
         help="Requesting user identity",
     ),
+    url: str | None = url_option(),
 ) -> None:
     """Place an administrative hold on a pending job.
 
@@ -283,6 +381,7 @@ def hold_cmd(
         job_id: Identifier of the pending job to hold.
         admin: Assert explicit administrative elevation.
         user: Requesting user identity.
+        url: Optional remote controller base URL.
 
     Notes/Architectural Intent:
         Transitions job state to BLOCKED and removes it from the scheduling candidate pool.
@@ -290,7 +389,7 @@ def hold_cmd(
     """
 
     async def _hold() -> None:
-        client = LocalClientAdapter()
+        client = LocalClientAdapter(controller_url=url)
         try:
             job = await client.hold_job(job_id, user_id=user, elevate=admin)
             console.print(
@@ -319,6 +418,7 @@ def release_cmd(
         "-u",
         help="Requesting user identity",
     ),
+    url: str | None = url_option(),
 ) -> None:
     """Release an administrative hold on a job back to the queue.
 
@@ -326,6 +426,7 @@ def release_cmd(
         job_id: Identifier of the blocked job to release.
         admin: Assert explicit administrative elevation.
         user: Requesting user identity.
+        url: Optional remote controller base URL.
 
     Notes/Architectural Intent:
         Transitions job back to PENDING and re-enqueues into the priority scheduler queue.
@@ -333,7 +434,7 @@ def release_cmd(
     """
 
     async def _release() -> None:
-        client = LocalClientAdapter()
+        client = LocalClientAdapter(controller_url=url)
         try:
             job = await client.release_job(job_id, user_id=user, elevate=admin)
             console.print(f"[bold green]▶[/] Job '{job.id}' released from hold.")
@@ -347,11 +448,21 @@ def release_cmd(
 @app.command("stat")
 def stat_cmd(
     format_type: str = format_option(),
+    user: str = typer.Option(
+        "default", "--user", "-u", help="Requesting user identity"
+    ),
+    admin: bool = typer.Option(
+        False, "--admin", help="Assert explicit administrative elevation"
+    ),
+    url: str | None = url_option(),
 ) -> None:
     """Display high-level cluster state and backlog statistics.
 
     Args:
         format_type: Output format (table, json, markdown, plain, rich).
+        user: Requesting user identity.
+        admin: Explicit administrative elevation flag.
+        url: Optional remote controller base URL.
 
     Notes/Architectural Intent:
         Provides rapid cluster health and queue backlog telemetry.
@@ -360,9 +471,9 @@ def stat_cmd(
     presenter = CliPresenter(console=console)
 
     async def _stat() -> None:
-        client = LocalClientAdapter()
+        client = LocalClientAdapter(controller_url=url)
         try:
-            stats = await client.get_cluster_stats()
+            stats = await client.get_cluster_stats(user_id=user, elevate=admin)
             presenter.render_cluster_stats(stats, resolved_fmt)
         except Exception as e:
             console.print(f"[bold red]Error retrieving cluster stats:[/] {e}")
@@ -374,11 +485,21 @@ def stat_cmd(
 @app.command("nodes")
 def nodes_cmd(
     format_type: str = format_option(),
+    user: str = typer.Option(
+        "default", "--user", "-u", help="Requesting user identity"
+    ),
+    admin: bool = typer.Option(
+        False, "--admin", help="Assert explicit administrative elevation"
+    ),
+    url: str | None = url_option(),
 ) -> None:
     """Display compute worker nodes telemetry and accelerator status.
 
     Args:
         format_type: Output format (table, json, markdown, plain, rich).
+        user: Requesting user identity.
+        admin: Explicit administrative elevation flag.
+        url: Optional remote controller base URL.
 
     Notes/Architectural Intent:
         Surfaces real-time hardware telemetry per worker compute node.
@@ -387,9 +508,9 @@ def nodes_cmd(
     presenter = CliPresenter(console=console)
 
     async def _nodes() -> None:
-        client = LocalClientAdapter()
+        client = LocalClientAdapter(controller_url=url)
         try:
-            nodes = await client.get_nodes()
+            nodes = await client.get_nodes(user_id=user, elevate=admin)
             presenter.render_nodes_table(nodes, resolved_fmt)
         except Exception as e:
             console.print(f"[bold red]Error retrieving compute nodes:[/] {e}")
@@ -401,11 +522,21 @@ def nodes_cmd(
 @app.command("quota")
 def quota_cmd(
     format_type: str = format_option(),
+    user: str = typer.Option(
+        "default", "--user", "-u", help="Requesting user identity"
+    ),
+    admin: bool = typer.Option(
+        False, "--admin", help="Assert explicit administrative elevation"
+    ),
+    url: str | None = url_option(),
 ) -> None:
     """Inspect hierarchical fair-share tree, historical usage, and quota allowances.
 
     Args:
         format_type: Output format (table, json, markdown, plain, rich).
+        user: Requesting user identity.
+        admin: Explicit administrative elevation flag.
+        url: Optional remote controller base URL.
 
     Notes/Architectural Intent:
         Exposes fair-share tree and quota consumption under active multi-tenant hierarchy.
@@ -414,9 +545,11 @@ def quota_cmd(
     presenter = CliPresenter(console=console)
 
     async def _quota() -> None:
-        client = LocalClientAdapter()
+        client = LocalClientAdapter(controller_url=url)
         try:
-            report = await client.get_fairshare_tree()
+            report = await client.get_fairshare_tree(
+                requesting_user=user, is_admin=admin
+            )
             presenter.render_fairshare_tree(report, resolved_fmt)
         except Exception as e:
             console.print(f"[bold red]Error querying quota allowances:[/] {e}")
@@ -433,12 +566,22 @@ def top_cmd(
     once: bool = typer.Option(
         False, "--once", "-1", help="Print dashboard once and exit"
     ),
+    user: str = typer.Option(
+        "default", "--user", "-u", help="Requesting user identity"
+    ),
+    admin: bool = typer.Option(
+        False, "--admin", help="Assert explicit administrative elevation"
+    ),
+    url: str | None = url_option(),
 ) -> None:
     """Interactive live cluster and queue monitoring dashboard.
 
     Args:
         interval: Refresh period in seconds for live loop.
         once: Print static dashboard snapshot and exit immediately.
+        user: Requesting user identity.
+        admin: Explicit administrative elevation flag.
+        url: Optional remote controller base URL.
 
     Notes/Architectural Intent:
         Composes cluster summary, node telemetry, and top running/queued jobs into a reactive view.
@@ -446,19 +589,17 @@ def top_cmd(
     presenter = CliPresenter(console=console)
 
     async def _top() -> None:
-        client = LocalClientAdapter()
+        client = LocalClientAdapter(controller_url=url)
         if once:
-            stats = await client.get_cluster_stats()
-            nodes = await client.get_nodes()
-            jobs = await client.list_jobs()
+            stats = await client.get_cluster_stats(user_id=user, elevate=admin)
+            nodes = await client.get_nodes(user_id=user, elevate=admin)
+            jobs = await client.list_jobs(user_id=user, elevate=admin)
             presenter.render_top_dashboard(stats, nodes, jobs)
             return
 
-        from rich.live import Live
-
-        stats = await client.get_cluster_stats()
-        nodes = await client.get_nodes()
-        jobs = await client.list_jobs()
+        stats = await client.get_cluster_stats(user_id=user, elevate=admin)
+        nodes = await client.get_nodes(user_id=user, elevate=admin)
+        jobs = await client.list_jobs(user_id=user, elevate=admin)
         dashboard = presenter.build_top_dashboard(stats, nodes, jobs)
 
         refresh_rate = max(1, int(1.0 / max(interval, 0.1)))
@@ -468,9 +609,9 @@ def top_cmd(
             ) as live:
                 while True:
                     await asyncio.sleep(interval)
-                    stats = await client.get_cluster_stats()
-                    nodes = await client.get_nodes()
-                    jobs = await client.list_jobs()
+                    stats = await client.get_cluster_stats(user_id=user, elevate=admin)
+                    nodes = await client.get_nodes(user_id=user, elevate=admin)
+                    jobs = await client.list_jobs(user_id=user, elevate=admin)
                     live.update(presenter.build_top_dashboard(stats, nodes, jobs))
         except (asyncio.CancelledError, KeyboardInterrupt):
             pass
@@ -498,6 +639,7 @@ def exec_cmd(
     admin: bool = typer.Option(
         False, "--admin", help="Assert explicit administrative elevation"
     ),
+    url: str | None = url_option(),
 ) -> None:
     """Spawn an interactive PTY session inside a running job environment.
 
@@ -506,15 +648,16 @@ def exec_cmd(
         command: Command vector to execute in terminal PTY.
         user: Requesting user identity for RBAC validation.
         admin: Whether explicit administrative elevation is requested.
+        url: Optional remote controller base URL.
 
     Notes/Architectural Intent:
         Connects local terminal to remote worker PTY master bridge with RBAC authorization.
     """
 
     async def _exec() -> None:
-        client = LocalClientAdapter()
+        client = LocalClientAdapter(controller_url=url)
         try:
-            job = await client.get_job(job_id)
+            job = await client.get_job(job_id, user_id=user, elevate=admin)
             job_owner = _extract_job_owner(job)
             roles = ["operator"] if admin else []
             request = PtySessionRequest(
@@ -545,6 +688,7 @@ def attach_cmd(
     admin: bool = typer.Option(
         False, "--admin", help="Assert explicit administrative elevation"
     ),
+    url: str | None = url_option(),
 ) -> None:
     """Attach an interactive bash shell to a running job.
 
@@ -552,15 +696,16 @@ def attach_cmd(
         job_id: Target running job identifier.
         user: Requesting user identity for RBAC validation.
         admin: Whether explicit administrative elevation is requested.
+        url: Optional remote controller base URL.
 
     Notes/Architectural Intent:
         Convenience alias launching an interactive bash terminal inside the target job.
     """
 
     async def _attach() -> None:
-        client = LocalClientAdapter()
+        client = LocalClientAdapter(controller_url=url)
         try:
-            job = await client.get_job(job_id)
+            job = await client.get_job(job_id, user_id=user, elevate=admin)
             job_owner = _extract_job_owner(job)
             roles = ["operator"] if admin else []
             request = PtySessionRequest(
@@ -589,12 +734,13 @@ def why_cmd(
         False, "--admin", help="Assert explicit administrative elevation"
     ),
     user: str = typer.Option("default", "--user", "-u", help="Requesting username"),
+    url: str | None = url_option(),
 ) -> None:
     """Explain why a job is currently waiting in the queue."""
     presenter = CliPresenter(console=console)
 
     async def _why() -> None:
-        client = LocalClientAdapter()
+        client = LocalClientAdapter(controller_url=url)
         try:
             report = await client.explain_job(
                 job_id, requesting_user=user, is_admin=admin
@@ -617,13 +763,14 @@ def explain_cmd(
         False, "--admin", help="Assert explicit administrative elevation"
     ),
     user: str = typer.Option("default", "--user", "-u", help="Requesting username"),
+    url: str | None = url_option(),
 ) -> None:
     """Display rich priority math and resource blocker breakdown for a job."""
     resolved_fmt = resolve_format(format_type)
     presenter = CliPresenter(console=console)
 
     async def _explain() -> None:
-        client = LocalClientAdapter()
+        client = LocalClientAdapter(controller_url=url)
         try:
             report = await client.explain_job(
                 job_id, requesting_user=user, is_admin=admin
@@ -643,13 +790,14 @@ def fairshare_cmd(
         False, "--admin", help="Assert explicit administrative elevation"
     ),
     user: str = typer.Option("default", "--user", "-u", help="Requesting username"),
+    url: str | None = url_option(),
 ) -> None:
     """Inspect hierarchical fair-share tree, historical usage, and decay factors."""
     resolved_fmt = resolve_format(format_type)
     presenter = CliPresenter(console=console)
 
     async def _fairshare() -> None:
-        client = LocalClientAdapter()
+        client = LocalClientAdapter(controller_url=url)
         try:
             report = await client.get_fairshare_tree(
                 requesting_user=user, is_admin=admin

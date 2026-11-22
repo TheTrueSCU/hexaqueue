@@ -22,6 +22,7 @@ from rich.tree import Tree
 from hexaqueue_cli.domain.models import ClusterStatsReport
 from hexaqueue_cli.domain.options import OutputFormat
 from hexaqueue_core.domain.bastion import BastionSession
+from hexaqueue_core.domain.collateral import CollateralBundle
 from hexaqueue_core.domain.explainability import (
     FairShareNodeReport,
     FairShareTreeReport,
@@ -29,6 +30,7 @@ from hexaqueue_core.domain.explainability import (
 )
 from hexaqueue_core.domain.freetier import FreeTierBurnReport
 from hexaqueue_core.domain.job import JobSpec
+from hexaqueue_core.domain.lifecycle import JobState
 from hexaqueue_server.domain.models import RunStatusReport
 from hexaqueue_worker.domain.telemetry import NodeTelemetryPulse
 
@@ -803,8 +805,6 @@ class CliPresenter:
             Composes multiple distinct tables into a single atomic renderable suitable
             for Rich Live dynamic updates or one-off terminal inspection.
         """
-        from hexaqueue_core.domain.lifecycle import JobState
-
         stats_table = Table(
             title=f"Hexaqueue Cluster Summary ({stats.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')})",
             border_style="cyan",
@@ -903,3 +903,270 @@ class CliPresenter:
             Directly outputs composite dashboard to configured console.
         """
         self._console.print(self.build_top_dashboard(stats, nodes, jobs))
+
+    @staticmethod
+    def _normalize_format(format_type: str | OutputFormat) -> str:
+        """Normalize an OutputFormat enum or string to lowercase format name."""
+        return (
+            format_type.value
+            if isinstance(format_type, OutputFormat)
+            else str(format_type).lower().strip()
+        )
+
+    def render_collateral_list(
+        self,
+        bundles: list[CollateralBundle],
+        format_type: str | OutputFormat = OutputFormat.TABLE,
+    ) -> None:
+        """Render registered collateral bundles in the requested output format.
+
+        Args:
+            bundles: Sequence of CollateralBundle metadata records.
+            format_type: Target serialization format (table, json, markdown, plain, rich).
+        """
+        fmt = self._normalize_format(format_type)
+        if fmt == OutputFormat.JSON.value:
+            payload = [b.model_dump(mode="json") for b in bundles]
+            self._console.print(
+                json.dumps(payload, indent=2), soft_wrap=True, markup=False
+            )
+            return
+
+        if fmt == OutputFormat.MARKDOWN.value:
+            lines = [
+                "| Collateral ID | Filename | Owner | Tier | Kind | State | Size (B) | Pins |",
+                "|---|---|---|---|---|---|---|---|",
+            ]
+            for b in bundles:
+                lines.append(
+                    f"| `{b.id}` | {b.filename} | {b.owner} | {b.tier.value} "
+                    f"| {b.kind.value} | {b.state.value} | {b.size_bytes} | {b.active_pin_count} |"
+                )
+            self._console.print("\n".join(lines), soft_wrap=True)
+            return
+
+        if fmt == OutputFormat.PLAIN.value:
+            for b in bundles:
+                self._console.print(
+                    f"COLLATERAL={b.id} NAME={b.filename} OWNER={b.owner} "
+                    f"TIER={b.tier.value} STATE={b.state.value} SIZE={b.size_bytes} PINS={b.active_pin_count}",
+                    soft_wrap=True,
+                )
+            return
+
+        table = Table(title="Collateral Bundles", border_style="cyan")
+        table.add_column("ID", style="bold cyan", no_wrap=True)
+        table.add_column("Filename")
+        table.add_column("Owner", style="magenta")
+        table.add_column("Tier", style="yellow")
+        table.add_column("Kind")
+        table.add_column("State", style="green")
+        table.add_column("Size", justify="right")
+        table.add_column("Pins", justify="right")
+        for b in bundles:
+            table.add_row(
+                b.id,
+                b.filename,
+                b.owner,
+                b.tier.value,
+                b.kind.value,
+                b.state.value,
+                str(b.size_bytes),
+                str(b.active_pin_count),
+            )
+        self._console.print(table)
+
+    def render_collateral_detail(
+        self,
+        bundle: CollateralBundle,
+        format_type: str | OutputFormat = OutputFormat.TABLE,
+    ) -> None:
+        """Render detailed metadata for a single collateral bundle.
+
+        Args:
+            bundle: CollateralBundle domain model.
+            format_type: Target serialization format (table, json, markdown, plain, rich).
+        """
+        fmt = self._normalize_format(format_type)
+        if fmt == OutputFormat.JSON.value:
+            self._console.print(
+                json.dumps(bundle.model_dump(mode="json"), indent=2),
+                soft_wrap=True,
+                markup=False,
+            )
+            return
+
+        fields = [
+            ("Collateral ID", bundle.id),
+            ("Filename", bundle.filename),
+            ("Owner", bundle.owner),
+            ("Tier", bundle.tier.value),
+            ("Kind", bundle.kind.value),
+            ("State", bundle.state.value),
+            ("Size (B)", str(bundle.size_bytes)),
+            ("SHA-256", bundle.sha256_checksum),
+            ("Active Pins", str(bundle.active_pin_count)),
+            ("TTL (s)", str(bundle.ttl_seconds) if bundle.ttl_seconds else "-"),
+            ("Staging URI", bundle.staging_uri or "-"),
+            ("Active URI", bundle.active_uri or "-"),
+        ]
+        if fmt == OutputFormat.MARKDOWN.value:
+            lines = [
+                f"### Collateral Bundle: `{bundle.id}`",
+                "",
+                "| Field | Value |",
+                "|---|---|",
+                *[f"| {k} | `{v}` |" for k, v in fields],
+            ]
+            self._console.print("\n".join(lines), soft_wrap=True)
+            return
+
+        if fmt == OutputFormat.PLAIN.value:
+            for k, v in fields:
+                key_slug = k.lower().replace(" ", "_").replace("(", "").replace(")", "")
+                self._console.file.write(f"{key_slug}\t{v}\n")
+            self._console.file.flush()
+            return
+
+        table = Table(title=f"Collateral Bundle: {bundle.id}", border_style="cyan")
+        table.add_column("Field", style="bold")
+        table.add_column("Value")
+        for k, v in fields:
+            table.add_row(k, v)
+        self._console.print(table)
+
+    def render_runs_table(
+        self,
+        runs: list[RunStatusReport],
+        format_type: str | OutputFormat = OutputFormat.TABLE,
+    ) -> None:
+        """Render a list of pipeline runs in the requested format.
+
+        Args:
+            runs: List of RunStatusReport snapshots.
+            format_type: Target serialization format (table, json, markdown, plain, rich).
+        """
+        fmt = self._normalize_format(format_type)
+        if fmt == OutputFormat.JSON.value:
+            payload = [r.model_dump(mode="json") for r in runs]
+            self._console.print(
+                json.dumps(payload, indent=2), soft_wrap=True, markup=False
+            )
+            return
+
+        if fmt == OutputFormat.MARKDOWN.value:
+            lines = [
+                "| Run ID | Owner | State | Outcome | Jobs | Done | Failed | Running | Pending |",
+                "|---|---|---|---|---|---|---|---|---|",
+            ]
+            for r in runs:
+                state_val = r.state.value if hasattr(r.state, "value") else str(r.state)
+                outcome_val = r.outcome.value if r.outcome is not None else "-"
+                lines.append(
+                    f"| `{r.run_id}` | {r.owner} | {state_val} | {outcome_val} "
+                    f"| {r.total_jobs} | {r.completed_jobs} | {r.failed_jobs} "
+                    f"| {r.running_jobs} | {r.pending_jobs} |"
+                )
+            self._console.print("\n".join(lines), soft_wrap=True)
+            return
+
+        if fmt == OutputFormat.PLAIN.value:
+            for r in runs:
+                state_val = r.state.value if hasattr(r.state, "value") else str(r.state)
+                outcome_val = r.outcome.value if r.outcome is not None else "-"
+                self._console.print(
+                    f"RUN={r.run_id} OWNER={r.owner} STATE={state_val} "
+                    f"OUTCOME={outcome_val} JOBS={r.total_jobs}",
+                    soft_wrap=True,
+                )
+            return
+
+        table = Table(title="Pipeline Runs", border_style="cyan")
+        table.add_column("Run ID", style="bold cyan", no_wrap=True)
+        table.add_column("Owner", style="magenta")
+        table.add_column("State")
+        table.add_column("Outcome")
+        table.add_column("Jobs", justify="right")
+        table.add_column("Done", justify="right", style="green")
+        table.add_column("Fail", justify="right", style="red")
+        table.add_column("Run", justify="right", style="blue")
+        table.add_column("Pend", justify="right", style="yellow")
+        for r in runs:
+            state_val = r.state.value if hasattr(r.state, "value") else str(r.state)
+            outcome_val = r.outcome.value if r.outcome is not None else "-"
+            table.add_row(
+                r.run_id,
+                r.owner,
+                state_val,
+                outcome_val,
+                str(r.total_jobs),
+                str(r.completed_jobs),
+                str(r.failed_jobs),
+                str(r.running_jobs),
+                str(r.pending_jobs),
+            )
+        self._console.print(table)
+
+    def render_jobs_table(
+        self,
+        jobs: list[JobSpec],
+        format_type: str | OutputFormat = OutputFormat.TABLE,
+    ) -> None:
+        """Render a list of jobs across runs in the requested format.
+
+        Args:
+            jobs: List of JobSpec domain models.
+            format_type: Target serialization format (table, json, markdown, plain, rich).
+        """
+        fmt = self._normalize_format(format_type)
+        if fmt == OutputFormat.JSON.value:
+            payload = [j.model_dump(mode="json") for j in jobs]
+            self._console.print(
+                json.dumps(payload, indent=2), soft_wrap=True, markup=False
+            )
+            return
+
+        if fmt == OutputFormat.MARKDOWN.value:
+            lines = [
+                "| Job ID | Run ID | Name | User | State | Outcome | Command |",
+                "|---|---|---|---|---|---|---|",
+            ]
+            for j in jobs:
+                outcome_val = j.outcome.value if j.outcome is not None else "-"
+                lines.append(
+                    f"| `{j.id}` | `{j.run_id}` | {j.name} | {j.user} "
+                    f"| {j.state.value} | {outcome_val} | `{j.command}` |"
+                )
+            self._console.print("\n".join(lines), soft_wrap=True)
+            return
+
+        if fmt == OutputFormat.PLAIN.value:
+            for j in jobs:
+                outcome_val = j.outcome.value if j.outcome is not None else "-"
+                self._console.print(
+                    f"JOB={j.id} RUN={j.run_id} NAME={j.name} USER={j.user} "
+                    f"STATE={j.state.value} OUTCOME={outcome_val}",
+                    soft_wrap=True,
+                )
+            return
+
+        table = Table(title="Registered Jobs", border_style="green")
+        table.add_column("Job ID", style="bold cyan", no_wrap=True)
+        table.add_column("Run ID", style="dim", no_wrap=True)
+        table.add_column("Name")
+        table.add_column("User", style="magenta")
+        table.add_column("State")
+        table.add_column("Outcome")
+        table.add_column("Command")
+        for j in jobs:
+            outcome_val = j.outcome.value if j.outcome is not None else "-"
+            table.add_row(
+                j.id,
+                j.run_id,
+                j.name,
+                j.user,
+                j.state.value,
+                outcome_val,
+                j.command,
+            )
+        self._console.print(table)

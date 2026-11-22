@@ -3,7 +3,7 @@
 from unittest.mock import patch
 
 from hexaqueue_cli.domain.options import OutputFormat
-from hexaqueue_cli.infra.options import format_option, resolve_format
+from hexaqueue_cli.infra.options import format_option, resolve_format, url_option
 
 
 def test_format_option_factory() -> None:
@@ -50,3 +50,11 @@ def test_resolve_format_auto_pipe_detection() -> None:
             OutputFormat.AUTO, default_tty="rich", default_pipe="plain"
         )
         assert res_enum_pipe == "plain"
+
+
+def test_url_option_factory() -> None:
+    """Verify url_option constructs a Typer OptionInfo with expected flags."""
+    opt = url_option(help_text="Controller target")
+    assert opt.default is None
+    assert opt.param_decls == ("--url", "--controller-url")
+    assert opt.help == "Controller target"

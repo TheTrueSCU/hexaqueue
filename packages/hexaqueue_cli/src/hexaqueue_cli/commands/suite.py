@@ -15,7 +15,7 @@ from rich.console import Console
 
 from hexaqueue_cli.adapters.local import LocalClientAdapter
 from hexaqueue_cli.adapters.presenter import CliPresenter
-from hexaqueue_cli.infra.options import format_option, resolve_format
+from hexaqueue_cli.infra.options import format_option, resolve_format, url_option
 from hexaqueue_core.domain.suite import SuiteSpec
 
 app = typer.Typer(
@@ -46,6 +46,7 @@ def run_suite_cmd(
         help="Assert explicit administrative elevation for privileged execution",
     ),
     format_type: str = format_option(),
+    url: str | None = url_option(),
 ) -> None:
     """Compile and submit a hierarchical suite workload.
 
@@ -54,6 +55,7 @@ def run_suite_cmd(
         user: Submitting user identity.
         admin: Administrative elevation flag.
         format_type: Chosen serialization output format.
+        url: Optional remote controller base URL.
 
     Notes/Architectural Intent:
         Flattens multi-level parameter inheritance, matrix sweeps, and DAG
@@ -72,14 +74,15 @@ def run_suite_cmd(
         raise typer.Exit(code=1) from exc
 
     async def _submit() -> None:
-        client = LocalClientAdapter()
+        client = LocalClientAdapter(controller_url=url)
         try:
             report = await client.submit_suite(
                 suite=suite_spec, user_id=user, elevate=admin
             )
-            console.print(
-                f"[bold green]✓[/] Suite workload submitted successfully as run '[bold cyan]{report.run_id}[/]'"
-            )
+            if resolved_fmt in ("table", "rich"):
+                console.print(
+                    f"[bold green]✓[/] Suite workload submitted successfully as run '[bold cyan]{report.run_id}[/]'"
+                )
             presenter.render_run_status(report, resolved_fmt)
         except Exception as exc:
             console.print(f"[bold red]Error submitting suite workload:[/] {exc}")

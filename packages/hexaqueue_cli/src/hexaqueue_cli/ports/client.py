@@ -1,8 +1,4 @@
-"""Client port interface for CLI command dispatching.
-
-Notes/Architectural Intent:
-    Decouples CLI commands from transport (direct in-process vs gRPC/HTTP daemon).
-"""
+"""Client port interface for interacting with the scheduler backend."""
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
@@ -26,11 +22,30 @@ from hexaqueue_worker.domain.telemetry import NodeTelemetryPulse
 
 
 class ClientPort(ABC):
-    """Abstract client interface for CLI commands."""
+    """Abstract client interface for CLI commands.
+
+    Notes/Architectural Intent:
+        Defines the hexagonal driving port connecting Typer CLI subcommands to
+        local in-process CQRS execution or remote ``hexaqueue-server`` REST APIs.
+    """
 
     @abstractmethod
-    async def submit_run(self, submission: RunSubmission) -> RunStatusReport:
-        """Submit a pipeline run."""
+    async def submit_run(
+        self,
+        submission: RunSubmission,
+        user_id: str = "default",
+        elevate: bool = False,
+    ) -> RunStatusReport:
+        """Submit a pipeline run.
+
+        Args:
+            submission: Validated RunSubmission payload.
+            user_id: Submitting user identity.
+            elevate: Administrative privilege elevation flag.
+
+        Returns:
+            Initial RunStatusReport for the submitted run.
+        """
 
     @abstractmethod
     async def submit_suite(
@@ -39,19 +54,88 @@ class ClientPort(ABC):
         user_id: str = "default",
         elevate: bool = False,
     ) -> RunStatusReport:
-        """Submit a hierarchical suite pipeline run."""
+        """Submit a hierarchical suite pipeline run.
+
+        Args:
+            suite: Hierarchical SuiteSpec payload.
+            user_id: Submitting user identity.
+            elevate: Administrative privilege elevation flag.
+
+        Returns:
+            Initial RunStatusReport for the compiled suite run.
+        """
 
     @abstractmethod
-    async def get_run_status(self, run_id: str) -> RunStatusReport:
-        """Get aggregate run status."""
+    async def get_run_status(
+        self,
+        run_id: str,
+        user_id: str = "default",
+        elevate: bool = False,
+    ) -> RunStatusReport:
+        """Get aggregate run status.
+
+        Args:
+            run_id: Pipeline run identifier.
+            user_id: Requesting user identity.
+            elevate: Administrative privilege elevation flag.
+
+        Returns:
+            Current RunStatusReport snapshot.
+        """
 
     @abstractmethod
-    async def get_job(self, job_id: str) -> JobSpec:
-        """Get individual job status."""
+    async def get_job(
+        self,
+        job_id: str,
+        user_id: str = "default",
+        elevate: bool = False,
+    ) -> JobSpec:
+        """Get individual job status.
+
+        Args:
+            job_id: Job identifier.
+            user_id: Requesting user identity.
+            elevate: Administrative privilege elevation flag.
+
+        Returns:
+            Current JobSpec metadata and status.
+        """
 
     @abstractmethod
-    async def list_jobs(self) -> list[JobSpec]:
-        """List all registered jobs across runs."""
+    async def list_jobs(
+        self,
+        run_id: str | None = None,
+        user_id: str = "default",
+        elevate: bool = False,
+    ) -> list[JobSpec]:
+        """List registered jobs across runs or filtered by run identifier.
+
+        Args:
+            run_id: Optional run identifier filter.
+            user_id: Requesting user identity.
+            elevate: Administrative privilege elevation flag.
+
+        Returns:
+            List of authorized JobSpec instances.
+        """
+
+    @abstractmethod
+    async def list_runs(
+        self,
+        limit: int = 100,
+        user_id: str = "default",
+        elevate: bool = False,
+    ) -> list[RunStatusReport]:
+        """List registered pipeline runs visible to the requesting user.
+
+        Args:
+            limit: Maximum number of runs to return.
+            user_id: Requesting user identity.
+            elevate: Administrative privilege elevation flag.
+
+        Returns:
+            List of authorized RunStatusReport instances.
+        """
 
     @abstractmethod
     async def cancel_run(
@@ -78,8 +162,24 @@ class ClientPort(ABC):
         """Release an administrative hold on a job."""
 
     @abstractmethod
-    async def get_logs(self, job_id: str) -> list[LogChunk]:
-        """Retrieve historical logs for a job."""
+    async def get_logs(
+        self,
+        job_id: str,
+        tail: int | None = None,
+        user_id: str = "default",
+        elevate: bool = False,
+    ) -> list[LogChunk]:
+        """Retrieve historical logs for a job.
+
+        Args:
+            job_id: Target job identifier.
+            tail: Optional trailing chunk limit.
+            user_id: Requesting user identity.
+            elevate: Administrative privilege elevation flag.
+
+        Returns:
+            List of LogChunk records.
+        """
 
     @abstractmethod
     async def get_log_download_url(
@@ -108,12 +208,32 @@ class ClientPort(ABC):
         """Stream logs for a job with optional real-time tail follow."""
 
     @abstractmethod
-    async def get_cluster_stats(self) -> ClusterStatsReport:
-        """Retrieve high-level cluster state and backlog statistics."""
+    async def get_cluster_stats(
+        self, user_id: str = "default", elevate: bool = False
+    ) -> ClusterStatsReport:
+        """Retrieve high-level cluster state and backlog statistics.
+
+        Args:
+            user_id: Requesting user identity.
+            elevate: Administrative privilege elevation flag.
+
+        Returns:
+            Aggregate ClusterStatsReport snapshot.
+        """
 
     @abstractmethod
-    async def get_nodes(self) -> list[NodeTelemetryPulse]:
-        """Retrieve telemetry pulses for registered compute worker nodes."""
+    async def get_nodes(
+        self, user_id: str = "default", elevate: bool = False
+    ) -> list[NodeTelemetryPulse]:
+        """Retrieve telemetry pulses for registered compute worker nodes.
+
+        Args:
+            user_id: Requesting user identity.
+            elevate: Administrative privilege elevation flag.
+
+        Returns:
+            List of NodeTelemetryPulse metrics.
+        """
 
     @abstractmethod
     async def explain_job(
@@ -147,10 +267,137 @@ class ClientPort(ABC):
         tier: CollateralTier = CollateralTier.TEMPORARY,
         kind: CollateralKind = CollateralKind.BUNDLE,
         target_path: str = "",
+        ttl_seconds: int | None = None,
         user_id: str = "default",
         elevate: bool = False,
     ) -> CollateralBundle:
-        """Register and stage a collateral asset."""
+        """Register and stage a collateral bundle into CAS storage."""
+
+    @abstractmethod
+    async def list_collateral(
+        self,
+        user_id: str = "default",
+        elevate: bool = False,
+    ) -> list[CollateralBundle]:
+        """List collateral bundles visible to the requesting user.
+
+        Args:
+            user_id: Requesting user identity.
+            elevate: Administrative privilege elevation flag.
+
+        Returns:
+            List of authorized CollateralBundle records.
+        """
+
+    @abstractmethod
+    async def get_collateral(
+        self,
+        collateral_id: str,
+        user_id: str = "default",
+        elevate: bool = False,
+    ) -> CollateralBundle:
+        """Retrieve metadata for a single collateral bundle.
+
+        Args:
+            collateral_id: Collateral bundle identifier.
+            user_id: Requesting user identity.
+            elevate: Administrative privilege elevation flag.
+
+        Returns:
+            CollateralBundle metadata record.
+        """
+
+    @abstractmethod
+    async def promote_collateral(
+        self,
+        collateral_id: str,
+        user_id: str = "default",
+        elevate: bool = False,
+    ) -> CollateralBundle:
+        """Promote a TEMPORARY collateral bundle to the PERMANENT tier.
+
+        Args:
+            collateral_id: Collateral bundle identifier.
+            user_id: Requesting user identity.
+            elevate: Explicit administrative elevation flag.
+
+        Returns:
+            Updated CollateralBundle with PERMANENT tier.
+        """
+
+    @abstractmethod
+    async def pin_collateral(
+        self,
+        collateral_id: str,
+        user_id: str = "default",
+        elevate: bool = False,
+    ) -> CollateralBundle:
+        """Pin a collateral bundle to prevent eviction during execution.
+
+        Args:
+            collateral_id: Collateral bundle identifier.
+            user_id: Requesting user identity.
+            elevate: Administrative privilege elevation flag.
+
+        Returns:
+            Updated CollateralBundle with incremented active_pin_count.
+        """
+
+    @abstractmethod
+    async def unpin_collateral(
+        self,
+        collateral_id: str,
+        user_id: str = "default",
+        elevate: bool = False,
+    ) -> CollateralBundle:
+        """Unpin a collateral bundle to allow garbage collection eligibility.
+
+        Args:
+            collateral_id: Collateral bundle identifier.
+            user_id: Requesting user identity.
+            elevate: Administrative privilege elevation flag.
+
+        Returns:
+            Updated CollateralBundle with decremented active_pin_count.
+        """
+
+    @abstractmethod
+    async def delete_collateral(
+        self,
+        collateral_id: str,
+        user_id: str = "default",
+        elevate: bool = False,
+    ) -> str:
+        """Delete an unused collateral bundle from CAS storage.
+
+        Args:
+            collateral_id: Collateral bundle identifier.
+            user_id: Requesting user identity.
+            elevate: Administrative privilege elevation flag.
+
+        Returns:
+            Deleted collateral bundle identifier.
+        """
+
+    @abstractmethod
+    async def evict_expired_collateral(
+        self,
+        max_age_seconds: int | None = None,
+        high_watermark_bytes: int | None = None,
+        user_id: str = "default",
+        elevate: bool = False,
+    ) -> list[str]:
+        """Trigger garbage collection eviction for expired temporary collateral.
+
+        Args:
+            max_age_seconds: Optional maximum age in seconds before eviction.
+            high_watermark_bytes: Optional storage ceiling in bytes.
+            user_id: Requesting user identity.
+            elevate: Administrative privilege elevation flag.
+
+        Returns:
+            List of evicted collateral bundle identifiers.
+        """
 
     @abstractmethod
     async def create_bastion_session(

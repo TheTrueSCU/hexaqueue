@@ -35,15 +35,20 @@ Usage: hq [OPTIONS] COMMAND [ARGS]...
  Orchestrator
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --install-completion        <bool>  Install completion for the current       │
-│                                     shell.                                   │
-│ --show-completion           <bool>  Show completion for the current shell,   │
-│                                     to copy it or customize the              │
-│                                     installation.                            │
-│ --help                      <bool>  Show this message and exit.              │
+│ --url,--controller-url        <str>   Remote Hexaqueue controller URL (or    │
+│                                       set HEXAQUEUE_CONTROLLER_URL /         │
+│                                       HEXAQUEUE_URL).                        │
+│ --install-completion          <bool>  Install completion for the current     │
+│                                       shell.                                 │
+│ --show-completion             <bool>  Show completion for the current shell, │
+│                                       to copy it or customize the            │
+│                                       installation.                          │
+│ --help                        <bool>  Show this message and exit.            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
 │ submit      Submit a workload run or suite definition file.                  │
+│ list        List registered jobs across runs or within a specific run.       │
+│ jobs        List registered jobs across runs or within a specific run.       │
 │ status      Check status of a run or job.                                    │
 │ logs        View stdout and stderr logs for a job.                           │
 │ cancel      Cancel an active pipeline run or individual job.                 │
@@ -132,6 +137,7 @@ Usage: hq attach [OPTIONS] {job_id}
      job_id: Target running job identifier.
      user: Requesting user identity for RBAC validation.
      admin: Whether explicit administrative elevation is requested.
+     url: Optional remote controller base URL.
 
  Notes/Architectural Intent:
      Convenience alias launching an interactive bash terminal inside the target
@@ -141,9 +147,14 @@ Usage: hq attach [OPTIONS] {job_id}
 │ *    job_id      <str>  Job ID to attach interactive shell to [required]     │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --user   -u      <str>   Requesting username [default: default]              │
-│ --admin          <bool>  Assert explicit administrative elevation            │
-│ --help           <bool>  Show this message and exit.                         │
+│ --user                  -u      <str>   Requesting username                  │
+│                                         [default: default]                   │
+│ --admin                         <bool>  Assert explicit administrative       │
+│                                         elevation                            │
+│ --url,--controller-url          <str>   Remote Hexaqueue controller URL (or  │
+│                                         set HEXAQUEUE_CONTROLLER_URL /       │
+│                                         HEXAQUEUE_URL).                      │
+│ --help                          <bool>  Show this message and exit.          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -196,6 +207,7 @@ Usage: hq cancel [OPTIONS] {target_id}
      target_id: Identifier of the run or job to cancel.
      admin: Assert explicit administrative elevation.
      user: Requesting user identity.
+     url: Optional remote controller base URL.
 
  Notes/Architectural Intent:
      Attempts run cancellation first, falling back to individual job
@@ -206,10 +218,15 @@ Usage: hq cancel [OPTIONS] {target_id}
 │ *    target_id      <str>  Run ID or Job ID to cancel [required]             │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --admin          <bool>  Assert explicit administrative elevation for        │
-│                          cross-user cancellation                             │
-│ --user   -u      <str>   Requesting user identity [default: default]         │
-│ --help           <bool>  Show this message and exit.                         │
+│ --admin                         <bool>  Assert explicit administrative       │
+│                                         elevation for cross-user             │
+│                                         cancellation                         │
+│ --user                  -u      <str>   Requesting user identity             │
+│                                         [default: default]                   │
+│ --url,--controller-url          <str>   Remote Hexaqueue controller URL (or  │
+│                                         set HEXAQUEUE_CONTROLLER_URL /       │
+│                                         HEXAQUEUE_URL).                      │
+│ --help                          <bool>  Show this message and exit.          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -512,8 +529,214 @@ Usage: hq collateral [OPTIONS] COMMAND [ARGS]...
 │ --help        <bool>  Show this message and exit.                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
-│ push   Stage and register a collateral artifact for compute execution.       │
-│ stage  Stage and register a collateral artifact for compute execution.       │
+│ push     Stage and register a collateral artifact for compute execution.     │
+│ stage    Stage and register a collateral artifact for compute execution.     │
+│ list     List collateral bundles visible to the requesting identity.         │
+│ inspect  Inspect detailed metadata and URIs for a single collateral bundle.  │
+│ promote  Promote a TEMPORARY collateral bundle to PERMANENT retention tier.  │
+│ pin      Pin a collateral bundle to prevent eviction during active usage.    │
+│ unpin    Unpin a collateral bundle to allow garbage collection reclamation.  │
+│ delete   Delete an unused collateral bundle from CAS storage.                │
+│ evict    Trigger garbage collection eviction for expired temporary           │
+│          collateral.                                                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq collateral delete`
+
+```text
+Usage: hq collateral delete [OPTIONS] {collateral_id}
+
+ Delete an unused collateral bundle from CAS storage.
+
+ Args:
+ collateral_id: Target collateral bundle identifier.
+ user: Requesting user identity.
+ admin: Administrative elevation flag.
+ url: Optional remote controller base URL.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    collateral_id      <str>  Collateral bundle ID to delete [required]     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --user                  -u      <str>   Requesting user identity             │
+│                                         [default: default]                   │
+│ --admin                         <bool>  Assert explicit administrative       │
+│                                         elevation                            │
+│ --url,--controller-url          <str>   Remote Hexaqueue controller URL (or  │
+│                                         set HEXAQUEUE_CONTROLLER_URL /       │
+│                                         HEXAQUEUE_URL).                      │
+│ --help                          <bool>  Show this message and exit.          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq collateral evict`
+
+```text
+Usage: hq collateral evict [OPTIONS]
+
+ Trigger garbage collection eviction for expired temporary collateral.
+
+ Args:
+ max_age_seconds: Optional maximum age threshold in seconds.
+ high_watermark_bytes: Optional storage ceiling in bytes.
+ user: Requesting user identity.
+ admin: Administrative elevation flag.
+ format_type: Output presentation format.
+ url: Optional remote controller base URL.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --max-age                       <int range> [x>=1]  Maximum TTL age in       │
+│                                                     seconds before evicting  │
+│                                                     unused temporary bundles │
+│ --high-watermark                <int range> [x>=1]  Storage high watermark   │
+│                                                     ceiling in bytes to      │
+│                                                     enforce during eviction  │
+│ --user                  -u      <str>               Requesting user identity │
+│                                                     [default: default]       │
+│ --admin                         <bool>              Assert explicit          │
+│                                                     administrative elevation │
+│ --format                -f      <str>               Output presentation      │
+│                                                     format (table, json,     │
+│                                                     markdown, rich, plain,   │
+│                                                     auto).                   │
+│                                                     [default: table]         │
+│ --url,--controller-url          <str>               Remote Hexaqueue         │
+│                                                     controller URL (or set   │
+│                                                     HEXAQUEUE_CONTROLLER_URL │
+│                                                     / HEXAQUEUE_URL).        │
+│ --help                          <bool>              Show this message and    │
+│                                                     exit.                    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq collateral inspect`
+
+```text
+Usage: hq collateral inspect [OPTIONS] {collateral_id}
+
+ Inspect detailed metadata and URIs for a single collateral bundle.
+
+ Args:
+ collateral_id: Target collateral bundle identifier.
+ user: Requesting user identity.
+ admin: Administrative elevation flag.
+ format_type: Output presentation format.
+ url: Optional remote controller base URL.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    collateral_id      <str>  Collateral bundle ID to inspect [required]    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --user                  -u      <str>   Requesting user identity             │
+│                                         [default: default]                   │
+│ --admin                         <bool>  Assert explicit administrative       │
+│                                         elevation                            │
+│ --format                -f      <str>   Output presentation format (table,   │
+│                                         json, markdown, rich, plain, auto).  │
+│                                         [default: table]                     │
+│ --url,--controller-url          <str>   Remote Hexaqueue controller URL (or  │
+│                                         set HEXAQUEUE_CONTROLLER_URL /       │
+│                                         HEXAQUEUE_URL).                      │
+│ --help                          <bool>  Show this message and exit.          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq collateral list`
+
+```text
+Usage: hq collateral list [OPTIONS]
+
+ List collateral bundles visible to the requesting identity.
+
+ Args:
+     user: Requesting user identity.
+     admin: Administrative elevation flag.
+     format_type: Output presentation format.
+     url: Optional remote controller base URL.
+
+ Notes/Architectural Intent:
+     Non-admin callers see only bundles owned by ``user``; elevated callers
+     inspect all cluster collateral bundles.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --user                  -u      <str>   Requesting user identity             │
+│                                         [default: default]                   │
+│ --admin                         <bool>  Assert explicit administrative       │
+│                                         elevation to view all owners'        │
+│                                         collateral                           │
+│ --format                -f      <str>   Output presentation format (table,   │
+│                                         json, markdown, rich, plain, auto).  │
+│                                         [default: table]                     │
+│ --url,--controller-url          <str>   Remote Hexaqueue controller URL (or  │
+│                                         set HEXAQUEUE_CONTROLLER_URL /       │
+│                                         HEXAQUEUE_URL).                      │
+│ --help                          <bool>  Show this message and exit.          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq collateral pin`
+
+```text
+Usage: hq collateral pin [OPTIONS] {collateral_id}
+
+ Pin a collateral bundle to prevent eviction during active usage.
+
+ Args:
+ collateral_id: Target collateral bundle identifier.
+ user: Requesting user identity.
+ admin: Administrative elevation flag.
+ format_type: Output presentation format.
+ url: Optional remote controller base URL.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    collateral_id      <str>  Collateral bundle ID to pin [required]        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --user                  -u      <str>   Requesting user identity             │
+│                                         [default: default]                   │
+│ --admin                         <bool>  Assert explicit administrative       │
+│                                         elevation                            │
+│ --format                -f      <str>   Output presentation format (table,   │
+│                                         json, markdown, rich, plain, auto).  │
+│                                         [default: table]                     │
+│ --url,--controller-url          <str>   Remote Hexaqueue controller URL (or  │
+│                                         set HEXAQUEUE_CONTROLLER_URL /       │
+│                                         HEXAQUEUE_URL).                      │
+│ --help                          <bool>  Show this message and exit.          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq collateral promote`
+
+```text
+Usage: hq collateral promote [OPTIONS] {collateral_id}
+
+ Promote a TEMPORARY collateral bundle to PERMANENT retention tier.
+
+ Args:
+ collateral_id: Target collateral bundle identifier.
+ user: Requesting user identity.
+ admin: Administrative elevation flag (required).
+ format_type: Output presentation format.
+ url: Optional remote controller base URL.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    collateral_id      <str>  Collateral bundle ID to promote [required]    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --user                  -u      <str>   Requesting user identity             │
+│                                         [default: default]                   │
+│ --admin                         <bool>  Assert explicit administrative       │
+│                                         elevation (required for PERMANENT    │
+│                                         promotion)                           │
+│ --format                -f      <str>   Output presentation format (table,   │
+│                                         json, markdown, rich, plain, auto).  │
+│                                         [default: table]                     │
+│ --url,--controller-url          <str>   Remote Hexaqueue controller URL (or  │
+│                                         set HEXAQUEUE_CONTROLLER_URL /       │
+│                                         HEXAQUEUE_URL).                      │
+│ --help                          <bool>  Show this message and exit.          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -529,28 +752,46 @@ Usage: hq collateral push [OPTIONS] {file_path}
      name: Logical name override.
      tier: Retention tier string.
      kind: Collateral classification kind.
+     ttl_seconds: Optional custom TTL in seconds for TEMPORARY collateral.
      user: Submitting user identity.
      admin: Administrative elevation flag.
+     url: Optional remote controller base URL.
 
  Notes/Architectural Intent:
-     Calculates cryptographic SHA-256 digest and stages metadata through
-     the unified execution pipeline.
+     Calculates cryptographic SHA-256 digest and stages metadata and payload
+     through ``ClientPort`` (CQRS locally, or ``/v1/collateral/stage``
+ remotely).
 
 ╭─ Arguments ──────────────────────────────────────────────────────────────────╮
 │ *    file_path      <path>  Path to local collateral file or bundle to stage │
 │                             [required]                                       │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --name   -n      <str>   Override logical collateral name (defaults to       │
-│                          filename)                                           │
-│ --tier           <str>   Collateral retention tier (TEMPORARY, PERMANENT)    │
-│                          [default: TEMPORARY]                                │
-│ --kind           <str>   Collateral kind (BUNDLE, OS_IMAGE, CONTAINER_IMAGE, │
-│                          TEST_BINARY, DATASET)                               │
-│                          [default: BUNDLE]                                   │
-│ --user   -u      <str>   Submitting user identity [default: default]         │
-│ --admin          <bool>  Assert explicit administrative elevation            │
-│ --help           <bool>  Show this message and exit.                         │
+│ --name                  -n      <str>               Override logical         │
+│                                                     collateral name          │
+│                                                     (defaults to filename)   │
+│ --tier                          <str>               Collateral retention     │
+│                                                     tier (TEMPORARY,         │
+│                                                     PERMANENT)               │
+│                                                     [default: TEMPORARY]     │
+│ --kind                          <str>               Collateral kind (BUNDLE, │
+│                                                     OS_IMAGE,                │
+│                                                     CONTAINER_IMAGE,         │
+│                                                     TEST_BINARY, DATASET)    │
+│                                                     [default: BUNDLE]        │
+│ --ttl                           <int range> [x>=1]  Optional custom TTL in   │
+│                                                     seconds for TEMPORARY    │
+│                                                     collateral               │
+│ --user                  -u      <str>               Submitting user identity │
+│                                                     [default: default]       │
+│ --admin                         <bool>              Assert explicit          │
+│                                                     administrative elevation │
+│ --url,--controller-url          <str>               Remote Hexaqueue         │
+│                                                     controller URL (or set   │
+│                                                     HEXAQUEUE_CONTROLLER_URL │
+│                                                     / HEXAQUEUE_URL).        │
+│ --help                          <bool>              Show this message and    │
+│                                                     exit.                    │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -566,28 +807,78 @@ Usage: hq collateral stage [OPTIONS] {file_path}
      name: Logical name override.
      tier: Retention tier string.
      kind: Collateral classification kind.
+     ttl_seconds: Optional custom TTL in seconds for TEMPORARY collateral.
      user: Submitting user identity.
      admin: Administrative elevation flag.
+     url: Optional remote controller base URL.
 
  Notes/Architectural Intent:
-     Calculates cryptographic SHA-256 digest and stages metadata through
-     the unified execution pipeline.
+     Calculates cryptographic SHA-256 digest and stages metadata and payload
+     through ``ClientPort`` (CQRS locally, or ``/v1/collateral/stage``
+ remotely).
 
 ╭─ Arguments ──────────────────────────────────────────────────────────────────╮
 │ *    file_path      <path>  Path to local collateral file or bundle to stage │
 │                             [required]                                       │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --name   -n      <str>   Override logical collateral name (defaults to       │
-│                          filename)                                           │
-│ --tier           <str>   Collateral retention tier (TEMPORARY, PERMANENT)    │
-│                          [default: TEMPORARY]                                │
-│ --kind           <str>   Collateral kind (BUNDLE, OS_IMAGE, CONTAINER_IMAGE, │
-│                          TEST_BINARY, DATASET)                               │
-│                          [default: BUNDLE]                                   │
-│ --user   -u      <str>   Submitting user identity [default: default]         │
-│ --admin          <bool>  Assert explicit administrative elevation            │
-│ --help           <bool>  Show this message and exit.                         │
+│ --name                  -n      <str>               Override logical         │
+│                                                     collateral name          │
+│                                                     (defaults to filename)   │
+│ --tier                          <str>               Collateral retention     │
+│                                                     tier (TEMPORARY,         │
+│                                                     PERMANENT)               │
+│                                                     [default: TEMPORARY]     │
+│ --kind                          <str>               Collateral kind (BUNDLE, │
+│                                                     OS_IMAGE,                │
+│                                                     CONTAINER_IMAGE,         │
+│                                                     TEST_BINARY, DATASET)    │
+│                                                     [default: BUNDLE]        │
+│ --ttl                           <int range> [x>=1]  Optional custom TTL in   │
+│                                                     seconds for TEMPORARY    │
+│                                                     collateral               │
+│ --user                  -u      <str>               Submitting user identity │
+│                                                     [default: default]       │
+│ --admin                         <bool>              Assert explicit          │
+│                                                     administrative elevation │
+│ --url,--controller-url          <str>               Remote Hexaqueue         │
+│                                                     controller URL (or set   │
+│                                                     HEXAQUEUE_CONTROLLER_URL │
+│                                                     / HEXAQUEUE_URL).        │
+│ --help                          <bool>              Show this message and    │
+│                                                     exit.                    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq collateral unpin`
+
+```text
+Usage: hq collateral unpin [OPTIONS] {collateral_id}
+
+ Unpin a collateral bundle to allow garbage collection reclamation.
+
+ Args:
+ collateral_id: Target collateral bundle identifier.
+ user: Requesting user identity.
+ admin: Administrative elevation flag.
+ format_type: Output presentation format.
+ url: Optional remote controller base URL.
+
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    collateral_id      <str>  Collateral bundle ID to unpin [required]      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --user                  -u      <str>   Requesting user identity             │
+│                                         [default: default]                   │
+│ --admin                         <bool>  Assert explicit administrative       │
+│                                         elevation                            │
+│ --format                -f      <str>   Output presentation format (table,   │
+│                                         json, markdown, rich, plain, auto).  │
+│                                         [default: table]                     │
+│ --url,--controller-url          <str>   Remote Hexaqueue controller URL (or  │
+│                                         set HEXAQUEUE_CONTROLLER_URL /       │
+│                                         HEXAQUEUE_URL).                      │
+│ --help                          <bool>  Show this message and exit.          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -675,6 +966,7 @@ Usage: hq exec [OPTIONS] {job_id} {command}...
      command: Command vector to execute in terminal PTY.
      user: Requesting user identity for RBAC validation.
      admin: Whether explicit administrative elevation is requested.
+     url: Optional remote controller base URL.
 
  Notes/Architectural Intent:
      Connects local terminal to remote worker PTY master bridge with RBAC
@@ -687,9 +979,14 @@ Usage: hq exec [OPTIONS] {job_id} {command}...
 │                                   [required]                                 │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --user   -u      <str>   Requesting username [default: default]              │
-│ --admin          <bool>  Assert explicit administrative elevation            │
-│ --help           <bool>  Show this message and exit.                         │
+│ --user                  -u      <str>   Requesting username                  │
+│                                         [default: default]                   │
+│ --admin                         <bool>  Assert explicit administrative       │
+│                                         elevation                            │
+│ --url,--controller-url          <str>   Remote Hexaqueue controller URL (or  │
+│                                         set HEXAQUEUE_CONTROLLER_URL /       │
+│                                         HEXAQUEUE_URL).                      │
+│ --help                          <bool>  Show this message and exit.          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -704,12 +1001,17 @@ Usage: hq explain [OPTIONS] {job_id}
 │ *    job_id      <str>  Job ID to explain [required]                         │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --format  -f      <str>   Output presentation format (table, json, markdown, │
-│                           rich, plain, auto).                                │
-│                           [default: table]                                   │
-│ --admin           <bool>  Assert explicit administrative elevation           │
-│ --user    -u      <str>   Requesting username [default: default]             │
-│ --help            <bool>  Show this message and exit.                        │
+│ --format                -f      <str>   Output presentation format (table,   │
+│                                         json, markdown, rich, plain, auto).  │
+│                                         [default: table]                     │
+│ --admin                         <bool>  Assert explicit administrative       │
+│                                         elevation                            │
+│ --user                  -u      <str>   Requesting username                  │
+│                                         [default: default]                   │
+│ --url,--controller-url          <str>   Remote Hexaqueue controller URL (or  │
+│                                         set HEXAQUEUE_CONTROLLER_URL /       │
+│                                         HEXAQUEUE_URL).                      │
+│ --help                          <bool>  Show this message and exit.          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -721,12 +1023,17 @@ Usage: hq fairshare [OPTIONS]
  Inspect hierarchical fair-share tree, historical usage, and decay factors.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --format  -f      <str>   Output presentation format (table, json, markdown, │
-│                           rich, plain, auto).                                │
-│                           [default: table]                                   │
-│ --admin           <bool>  Assert explicit administrative elevation           │
-│ --user    -u      <str>   Requesting username [default: default]             │
-│ --help            <bool>  Show this message and exit.                        │
+│ --format                -f      <str>   Output presentation format (table,   │
+│                                         json, markdown, rich, plain, auto).  │
+│                                         [default: table]                     │
+│ --admin                         <bool>  Assert explicit administrative       │
+│                                         elevation                            │
+│ --user                  -u      <str>   Requesting username                  │
+│                                         [default: default]                   │
+│ --url,--controller-url          <str>   Remote Hexaqueue controller URL (or  │
+│                                         set HEXAQUEUE_CONTROLLER_URL /       │
+│                                         HEXAQUEUE_URL).                      │
+│ --help                          <bool>  Show this message and exit.          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -741,6 +1048,7 @@ Usage: hq hold [OPTIONS] {job_id}
      job_id: Identifier of the pending job to hold.
      admin: Assert explicit administrative elevation.
      user: Requesting user identity.
+     url: Optional remote controller base URL.
 
  Notes/Architectural Intent:
      Transitions job state to BLOCKED and removes it from the scheduling
@@ -751,10 +1059,74 @@ Usage: hq hold [OPTIONS] {job_id}
 │ *    job_id      <str>  Job ID to place on administrative hold [required]    │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --admin          <bool>  Assert explicit administrative elevation for        │
-│                          cross-user hold                                     │
-│ --user   -u      <str>   Requesting user identity [default: default]         │
-│ --help           <bool>  Show this message and exit.                         │
+│ --admin                         <bool>  Assert explicit administrative       │
+│                                         elevation for cross-user hold        │
+│ --user                  -u      <str>   Requesting user identity             │
+│                                         [default: default]                   │
+│ --url,--controller-url          <str>   Remote Hexaqueue controller URL (or  │
+│                                         set HEXAQUEUE_CONTROLLER_URL /       │
+│                                         HEXAQUEUE_URL).                      │
+│ --help                          <bool>  Show this message and exit.          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq jobs`
+
+```text
+Usage: hq jobs [OPTIONS]
+
+ List registered jobs across runs or within a specific run.
+
+ Args:
+ run_id: Optional run identifier filter.
+ user: Requesting user identity.
+ admin: Explicit administrative elevation flag.
+ format_type: Output presentation format.
+ url: Optional remote controller base URL.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --run-id                -r      <str>   Optional run identifier filter       │
+│ --user                  -u      <str>   Requesting user identity             │
+│                                         [default: default]                   │
+│ --admin                         <bool>  Assert explicit administrative       │
+│                                         elevation to list all tenants' jobs  │
+│ --format                -f      <str>   Output presentation format (table,   │
+│                                         json, markdown, rich, plain, auto).  │
+│                                         [default: table]                     │
+│ --url,--controller-url          <str>   Remote Hexaqueue controller URL (or  │
+│                                         set HEXAQUEUE_CONTROLLER_URL /       │
+│                                         HEXAQUEUE_URL).                      │
+│ --help                          <bool>  Show this message and exit.          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### `hq list`
+
+```text
+Usage: hq list [OPTIONS]
+
+ List registered jobs across runs or within a specific run.
+
+ Args:
+ run_id: Optional run identifier filter.
+ user: Requesting user identity.
+ admin: Explicit administrative elevation flag.
+ format_type: Output presentation format.
+ url: Optional remote controller base URL.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --run-id                -r      <str>   Optional run identifier filter       │
+│ --user                  -u      <str>   Requesting user identity             │
+│                                         [default: default]                   │
+│ --admin                         <bool>  Assert explicit administrative       │
+│                                         elevation to list all tenants' jobs  │
+│ --format                -f      <str>   Output presentation format (table,   │
+│                                         json, markdown, rich, plain, auto).  │
+│                                         [default: table]                     │
+│ --url,--controller-url          <str>   Remote Hexaqueue controller URL (or  │
+│                                         set HEXAQUEUE_CONTROLLER_URL /       │
+│                                         HEXAQUEUE_URL).                      │
+│ --help                          <bool>  Show this message and exit.          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -770,6 +1142,9 @@ Usage: hq logs [OPTIONS] {job_id}
      follow: Stream chunks asynchronously in real time.
      tail: Number of historical lines to tail.
      url_only: Print preauthenticated direct storage download URL.
+     user: Requesting user identity.
+     admin: Explicit administrative elevation flag.
+     controller_url: Optional remote controller base URL.
 
  Notes/Architectural Intent:
      Demuxes real-time stdout, stderr, and system log chunks with ANSI
@@ -781,11 +1156,16 @@ Usage: hq logs [OPTIONS] {job_id}
 │ *    job_id      <str>  Job ID to fetch logs for [required]                  │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --follow  -f      <bool>  Follow stream output in real time                  │
-│ --tail    -n      <int>   Number of lines to show from end                   │
-│ --url             <bool>  Print presigned direct download URL instead of     │
-│                           fetching                                           │
-│ --help            <bool>  Show this message and exit.                        │
+│ --follow          -f      <bool>  Follow stream output in real time          │
+│ --tail            -n      <int>   Number of lines to show from end           │
+│ --url                     <bool>  Print presigned direct download URL        │
+│                                   instead of fetching                        │
+│ --user            -u      <str>   Requesting user identity                   │
+│                                   [default: default]                         │
+│ --admin                   <bool>  Assert explicit administrative elevation   │
+│ --controller-url          <str>   Remote Hexaqueue controller URL (or set    │
+│                                   HEXAQUEUE_CONTROLLER_URL / HEXAQUEUE_URL). │
+│ --help                    <bool>  Show this message and exit.                │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -858,12 +1238,22 @@ Usage: hq node list [OPTIONS]
 
  Args:
  format_type: Chosen serialization output format.
+ user: Requesting user identity.
+ admin: Explicit administrative elevation flag.
+ url: Optional remote controller base URL.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --format  -f      <str>   Output presentation format (table, json, markdown, │
-│                           rich, plain, auto).                                │
-│                           [default: table]                                   │
-│ --help            <bool>  Show this message and exit.                        │
+│ --format                -f      <str>   Output presentation format (table,   │
+│                                         json, markdown, rich, plain, auto).  │
+│                                         [default: table]                     │
+│ --user                  -u      <str>   Requesting user identity             │
+│                                         [default: default]                   │
+│ --admin                         <bool>  Assert explicit administrative       │
+│                                         elevation                            │
+│ --url,--controller-url          <str>   Remote Hexaqueue controller URL (or  │
+│                                         set HEXAQUEUE_CONTROLLER_URL /       │
+│                                         HEXAQUEUE_URL).                      │
+│ --help                          <bool>  Show this message and exit.          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -881,6 +1271,7 @@ Usage: hq node ssh [OPTIONS] {node_id}
      direct: Whether to connect directly via SSH jump host.
      jump_host: Public IP/hostname of jump host.
      jump_user: Administrative user on jump host.
+     url: Optional remote controller base URL.
 
  Notes/Architectural Intent:
      Enforces least privilege: connecting to worker node underlying
@@ -893,15 +1284,20 @@ Usage: hq node ssh [OPTIONS] {node_id}
 │                          [required]                                          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --admin              <bool>  Assert explicit administrative elevation for    │
-│                              bastion shell access                            │
-│ --user       -u      <str>   Requesting user identity [default: default]     │
-│ --direct             <bool>  Connect directly via SSH jump-host through      │
-│                              controller instead of controller API session    │
-│ --jump-host          <str>   Jump host public IP/hostname for direct         │
-│                              connection                                      │
-│ --jump-user          <str>   Jump host SSH user [default: ubuntu]            │
-│ --help               <bool>  Show this message and exit.                     │
+│ --admin                         <bool>  Assert explicit administrative       │
+│                                         elevation for bastion shell access   │
+│ --user                  -u      <str>   Requesting user identity             │
+│                                         [default: default]                   │
+│ --direct                        <bool>  Connect directly via SSH jump-host   │
+│                                         through controller instead of        │
+│                                         controller API session               │
+│ --jump-host                     <str>   Jump host public IP/hostname for     │
+│                                         direct connection                    │
+│ --jump-user                     <str>   Jump host SSH user [default: ubuntu] │
+│ --url,--controller-url          <str>   Remote Hexaqueue controller URL (or  │
+│                                         set HEXAQUEUE_CONTROLLER_URL /       │
+│                                         HEXAQUEUE_URL).                      │
+│ --help                          <bool>  Show this message and exit.          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -914,15 +1310,25 @@ Usage: hq nodes [OPTIONS]
 
  Args:
      format_type: Output format (table, json, markdown, plain, rich).
+     user: Requesting user identity.
+     admin: Explicit administrative elevation flag.
+     url: Optional remote controller base URL.
 
  Notes/Architectural Intent:
      Surfaces real-time hardware telemetry per worker compute node.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --format  -f      <str>   Output presentation format (table, json, markdown, │
-│                           rich, plain, auto).                                │
-│                           [default: table]                                   │
-│ --help            <bool>  Show this message and exit.                        │
+│ --format                -f      <str>   Output presentation format (table,   │
+│                                         json, markdown, rich, plain, auto).  │
+│                                         [default: table]                     │
+│ --user                  -u      <str>   Requesting user identity             │
+│                                         [default: default]                   │
+│ --admin                         <bool>  Assert explicit administrative       │
+│                                         elevation                            │
+│ --url,--controller-url          <str>   Remote Hexaqueue controller URL (or  │
+│                                         set HEXAQUEUE_CONTROLLER_URL /       │
+│                                         HEXAQUEUE_URL).                      │
+│ --help                          <bool>  Show this message and exit.          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -935,16 +1341,26 @@ Usage: hq quota [OPTIONS]
 
  Args:
      format_type: Output format (table, json, markdown, plain, rich).
+     user: Requesting user identity.
+     admin: Explicit administrative elevation flag.
+     url: Optional remote controller base URL.
 
  Notes/Architectural Intent:
      Exposes fair-share tree and quota consumption under active multi-tenant
  hierarchy.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --format  -f      <str>   Output presentation format (table, json, markdown, │
-│                           rich, plain, auto).                                │
-│                           [default: table]                                   │
-│ --help            <bool>  Show this message and exit.                        │
+│ --format                -f      <str>   Output presentation format (table,   │
+│                                         json, markdown, rich, plain, auto).  │
+│                                         [default: table]                     │
+│ --user                  -u      <str>   Requesting user identity             │
+│                                         [default: default]                   │
+│ --admin                         <bool>  Assert explicit administrative       │
+│                                         elevation                            │
+│ --url,--controller-url          <str>   Remote Hexaqueue controller URL (or  │
+│                                         set HEXAQUEUE_CONTROLLER_URL /       │
+│                                         HEXAQUEUE_URL).                      │
+│ --help                          <bool>  Show this message and exit.          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -959,6 +1375,7 @@ Usage: hq release [OPTIONS] {job_id}
      job_id: Identifier of the blocked job to release.
      admin: Assert explicit administrative elevation.
      user: Requesting user identity.
+     url: Optional remote controller base URL.
 
  Notes/Architectural Intent:
      Transitions job back to PENDING and re-enqueues into the priority
@@ -970,10 +1387,14 @@ Usage: hq release [OPTIONS] {job_id}
 │                         [required]                                           │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --admin          <bool>  Assert explicit administrative elevation for        │
-│                          cross-user release                                  │
-│ --user   -u      <str>   Requesting user identity [default: default]         │
-│ --help           <bool>  Show this message and exit.                         │
+│ --admin                         <bool>  Assert explicit administrative       │
+│                                         elevation for cross-user release     │
+│ --user                  -u      <str>   Requesting user identity             │
+│                                         [default: default]                   │
+│ --url,--controller-url          <str>   Remote Hexaqueue controller URL (or  │
+│                                         set HEXAQUEUE_CONTROLLER_URL /       │
+│                                         HEXAQUEUE_URL).                      │
+│ --help                          <bool>  Show this message and exit.          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -989,6 +1410,7 @@ Usage: hq run [OPTIONS] COMMAND [ARGS]...
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
 │ submit  Submit a DAG pipeline definition file.                               │
+│ list    List pipeline runs visible to the caller.                            │
 │ cancel  Cancel an active pipeline run.                                       │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
@@ -1004,6 +1426,7 @@ Usage: hq run cancel [OPTIONS] {run_id}
      run_id: Pipeline run identifier.
      admin: Explicit administrative elevation.
      user: Requesting user identity.
+     url: Optional remote controller base URL.
 
  Notes/Architectural Intent:
      Enforces least privilege: administrative cancellation of runs submitted by
@@ -1014,10 +1437,53 @@ Usage: hq run cancel [OPTIONS] {run_id}
 │ *    run_id      <str>  Run ID to cancel [required]                          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --admin          <bool>  Assert explicit administrative elevation for        │
-│                          cross-user cancellation                             │
-│ --user   -u      <str>   Requesting user identity [default: default]         │
-│ --help           <bool>  Show this message and exit.                         │
+│ --admin                         <bool>  Assert explicit administrative       │
+│                                         elevation for cross-user             │
+│                                         cancellation                         │
+│ --user                  -u      <str>   Requesting user identity             │
+│                                         [default: default]                   │
+│ --url,--controller-url          <str>   Remote Hexaqueue controller URL (or  │
+│                                         set HEXAQUEUE_CONTROLLER_URL /       │
+│                                         HEXAQUEUE_URL).                      │
+│ --help                          <bool>  Show this message and exit.          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+#### `hq run list`
+
+```text
+Usage: hq run list [OPTIONS]
+
+ List pipeline runs visible to the caller.
+
+ Args:
+ limit: Maximum number of runs to return.
+ user: Requesting user identity.
+ admin: Administrative elevation flag.
+ format_type: Output presentation format.
+ url: Optional remote controller base URL.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --limit                 -l      <int range>            Max runs              │
+│                                 [1<=x<=1000]           [default: 100]        │
+│ --user                  -u      <str>                  Requesting user       │
+│                                                        identity              │
+│                                                        [default: default]    │
+│ --admin                         <bool>                 Assert explicit       │
+│                                                        administrative        │
+│                                                        elevation             │
+│ --format                -f      <str>                  Output presentation   │
+│                                                        format (table, json,  │
+│                                                        markdown, rich,       │
+│                                                        plain, auto).         │
+│                                                        [default: table]      │
+│ --url,--controller-url          <str>                  Remote Hexaqueue      │
+│                                                        controller URL (or    │
+│                                                        set                   │
+│                                                        HEXAQUEUE_CONTROLLER… │
+│                                                        / HEXAQUEUE_URL).     │
+│ --help                          <bool>                 Show this message and │
+│                                                        exit.                 │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1032,18 +1498,29 @@ Usage: hq run submit [OPTIONS] {spec_path}
 │ *    spec_path      <path>  Path to pipeline YAML spec [required]            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --watch      -w      <bool>       Watch run execution until completion       │
-│ --free-tier          <bool>       Enable Free-Tier Safety Mode ($0.00 spend  │
-│                                   guard and strict resource clamping)        │
-│ --notify     -n      <list[str]>  Notification targets (e.g. slack://...,    │
-│                                   pagerduty://...)                           │
-│ --notify-on          <str>        Lifecycle triggers (e.g. COMPLETED,        │
-│                                   FAILED, ERRORS, ALL)                       │
-│                                   [default: ERRORS]                          │
-│ --format     -f      <str>        Output presentation format (table, json,   │
-│                                   markdown, rich, plain, auto).              │
-│                                   [default: table]                           │
-│ --help               <bool>       Show this message and exit.                │
+│ --watch                 -w      <bool>       Watch run execution until       │
+│                                              completion                      │
+│ --free-tier                     <bool>       Enable Free-Tier Safety Mode    │
+│                                              ($0.00 spend guard and strict   │
+│                                              resource clamping)              │
+│ --notify                -n      <list[str]>  Notification targets (e.g.      │
+│                                              slack://..., pagerduty://...)   │
+│ --notify-on                     <str>        Lifecycle triggers (e.g.        │
+│                                              COMPLETED, FAILED, ERRORS, ALL) │
+│                                              [default: ERRORS]               │
+│ --format                -f      <str>        Output presentation format      │
+│                                              (table, json, markdown, rich,   │
+│                                              plain, auto).                   │
+│                                              [default: table]                │
+│ --user                  -u      <str>        Submitting user identity        │
+│                                              [default: default]              │
+│ --admin                         <bool>       Assert explicit administrative  │
+│                                              elevation                       │
+│ --url,--controller-url          <str>        Remote Hexaqueue controller URL │
+│                                              (or set                         │
+│                                              HEXAQUEUE_CONTROLLER_URL /      │
+│                                              HEXAQUEUE_URL).                 │
+│ --help                          <bool>       Show this message and exit.     │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1293,15 +1770,25 @@ Usage: hq stat [OPTIONS]
 
  Args:
      format_type: Output format (table, json, markdown, plain, rich).
+     user: Requesting user identity.
+     admin: Explicit administrative elevation flag.
+     url: Optional remote controller base URL.
 
  Notes/Architectural Intent:
      Provides rapid cluster health and queue backlog telemetry.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --format  -f      <str>   Output presentation format (table, json, markdown, │
-│                           rich, plain, auto).                                │
-│                           [default: table]                                   │
-│ --help            <bool>  Show this message and exit.                        │
+│ --format                -f      <str>   Output presentation format (table,   │
+│                                         json, markdown, rich, plain, auto).  │
+│                                         [default: table]                     │
+│ --user                  -u      <str>   Requesting user identity             │
+│                                         [default: default]                   │
+│ --admin                         <bool>  Assert explicit administrative       │
+│                                         elevation                            │
+│ --url,--controller-url          <str>   Remote Hexaqueue controller URL (or  │
+│                                         set HEXAQUEUE_CONTROLLER_URL /       │
+│                                         HEXAQUEUE_URL).                      │
+│ --help                          <bool>  Show this message and exit.          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1315,6 +1802,9 @@ Usage: hq status [OPTIONS] {target_id}
  Args:
      target_id: Identifier of the run or job to inspect.
      format_type: Chosen serialization output format.
+     user: Requesting user identity.
+     admin: Explicit administrative elevation flag.
+     url: Optional remote controller base URL.
 
  Notes/Architectural Intent:
      Attempts run status resolution first, falling back to individual job
@@ -1324,10 +1814,17 @@ Usage: hq status [OPTIONS] {target_id}
 │ *    target_id      <str>  Run ID or Job ID to inspect [required]            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --format  -f      <str>   Output presentation format (table, json, markdown, │
-│                           rich, plain, auto).                                │
-│                           [default: table]                                   │
-│ --help            <bool>  Show this message and exit.                        │
+│ --format                -f      <str>   Output presentation format (table,   │
+│                                         json, markdown, rich, plain, auto).  │
+│                                         [default: table]                     │
+│ --user                  -u      <str>   Requesting user identity             │
+│                                         [default: default]                   │
+│ --admin                         <bool>  Assert explicit administrative       │
+│                                         elevation                            │
+│ --url,--controller-url          <str>   Remote Hexaqueue controller URL (or  │
+│                                         set HEXAQUEUE_CONTROLLER_URL /       │
+│                                         HEXAQUEUE_URL).                      │
+│ --help                          <bool>  Show this message and exit.          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1344,14 +1841,19 @@ Usage: hq submit [OPTIONS] {spec_path}
 │                             [required]                                       │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --watch      -w      <bool>  Watch execution until completion                │
-│ --free-tier          <bool>  Enable Free-Tier Safety Mode                    │
-│ --admin              <bool>  Assert explicit administrative elevation        │
-│ --user       -u      <str>   Submitting user identity [default: default]     │
-│ --format     -f      <str>   Output presentation format (table, json,        │
-│                              markdown, rich, plain, auto).                   │
-│                              [default: table]                                │
-│ --help               <bool>  Show this message and exit.                     │
+│ --watch                 -w      <bool>  Watch execution until completion     │
+│ --free-tier                     <bool>  Enable Free-Tier Safety Mode         │
+│ --admin                         <bool>  Assert explicit administrative       │
+│                                         elevation                            │
+│ --user                  -u      <str>   Submitting user identity             │
+│                                         [default: default]                   │
+│ --format                -f      <str>   Output presentation format (table,   │
+│                                         json, markdown, rich, plain, auto).  │
+│                                         [default: table]                     │
+│ --url,--controller-url          <str>   Remote Hexaqueue controller URL (or  │
+│                                         set HEXAQUEUE_CONTROLLER_URL /       │
+│                                         HEXAQUEUE_URL).                      │
+│ --help                          <bool>  Show this message and exit.          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1382,6 +1884,7 @@ Usage: hq suite run [OPTIONS] {suite_file}
      user: Submitting user identity.
      admin: Administrative elevation flag.
      format_type: Chosen serialization output format.
+     url: Optional remote controller base URL.
 
  Notes/Architectural Intent:
      Flattens multi-level parameter inheritance, matrix sweeps, and DAG
@@ -1392,14 +1895,18 @@ Usage: hq suite run [OPTIONS] {suite_file}
 │                              [required]                                      │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --user    -u      <str>   User identity submitting the suite workload        │
-│                           [default: default]                                 │
-│ --admin           <bool>  Assert explicit administrative elevation for       │
-│                           privileged execution                               │
-│ --format  -f      <str>   Output presentation format (table, json, markdown, │
-│                           rich, plain, auto).                                │
-│                           [default: table]                                   │
-│ --help            <bool>  Show this message and exit.                        │
+│ --user                  -u      <str>   User identity submitting the suite   │
+│                                         workload                             │
+│                                         [default: default]                   │
+│ --admin                         <bool>  Assert explicit administrative       │
+│                                         elevation for privileged execution   │
+│ --format                -f      <str>   Output presentation format (table,   │
+│                                         json, markdown, rich, plain, auto).  │
+│                                         [default: table]                     │
+│ --url,--controller-url          <str>   Remote Hexaqueue controller URL (or  │
+│                                         set HEXAQUEUE_CONTROLLER_URL /       │
+│                                         HEXAQUEUE_URL).                      │
+│ --help                          <bool>  Show this message and exit.          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1413,15 +1920,26 @@ Usage: hq top [OPTIONS]
  Args:
      interval: Refresh period in seconds for live loop.
      once: Print static dashboard snapshot and exit immediately.
+     user: Requesting user identity.
+     admin: Explicit administrative elevation flag.
+     url: Optional remote controller base URL.
 
  Notes/Architectural Intent:
      Composes cluster summary, node telemetry, and top running/queued jobs into
  a reactive view.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --interval  -i      <float>  Refresh interval in seconds [default: 1.0]      │
-│ --once      -1      <bool>   Print dashboard once and exit                   │
-│ --help              <bool>   Show this message and exit.                     │
+│ --interval              -i      <float>  Refresh interval in seconds         │
+│                                          [default: 1.0]                      │
+│ --once                  -1      <bool>   Print dashboard once and exit       │
+│ --user                  -u      <str>    Requesting user identity            │
+│                                          [default: default]                  │
+│ --admin                         <bool>   Assert explicit administrative      │
+│                                          elevation                           │
+│ --url,--controller-url          <str>    Remote Hexaqueue controller URL (or │
+│                                          set HEXAQUEUE_CONTROLLER_URL /      │
+│                                          HEXAQUEUE_URL).                     │
+│ --help                          <bool>   Show this message and exit.         │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1436,9 +1954,14 @@ Usage: hq why [OPTIONS] {job_id}
 │ *    job_id      <str>  Job ID to explain [required]                         │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --admin          <bool>  Assert explicit administrative elevation            │
-│ --user   -u      <str>   Requesting username [default: default]              │
-│ --help           <bool>  Show this message and exit.                         │
+│ --admin                         <bool>  Assert explicit administrative       │
+│                                         elevation                            │
+│ --user                  -u      <str>   Requesting username                  │
+│                                         [default: default]                   │
+│ --url,--controller-url          <str>   Remote Hexaqueue controller URL (or  │
+│                                         set HEXAQUEUE_CONTROLLER_URL /       │
+│                                         HEXAQUEUE_URL).                      │
+│ --help                          <bool>  Show this message and exit.          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
