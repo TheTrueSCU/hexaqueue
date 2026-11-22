@@ -449,3 +449,93 @@ async def test_capacity_readiness_and_session_leased_event() -> None:
     lease = await coord.lease_slice("w-cap-1")
     assert lease is not None
     assert leased_ev.is_set() is True
+
+
+@pytest.mark.asyncio
+async def test_cancel_task_evicts_active_leases_and_prevents_reclaim() -> None:
+    """Verify cancel_task evicts both pending tasks and active leases and reconciles autoscaler."""
+    mock_autoscaler = AsyncMock()
+    mock_autoscaler.reconcile_pool = AsyncMock()
+    coord = SliceLeaseCoordinator(
+        default_lease_ttl_seconds=1,
+        autoscaler=mock_autoscaler,
+        pool_id="pool-cancel",
+    )
+
+    job1 = JobSpec(
+        id="job-active-cancel-1",
+        run_id="run-active-cancel",
+        name="active-job",
+        command="echo hello",
+    )
+    job2 = JobSpec(
+        id="job-id-cancel-2",
+        run_id="run-single-cancel",
+        name="single-job",
+        command="echo world",
+    )
+    await coord.enqueue_job(job1)
+    await coord.enqueue_job(job2)
+
+    lease1 = await coord.lease_slice("worker-1")
+    lease2 = await coord.lease_slice("worker-2")
+    assert lease1 is not None
+    assert lease2 is not None
+
+    # Expire both leases to ensure reclamation cannot resurrect cancelled jobs.
+    past = datetime.now(UTC) - timedelta(seconds=10)
+    async with coord._lock:
+        coord._active_leases[lease1.lease_id] = lease1.model_copy(
+            update={"expires_at": past}
+        )
+        coord._active_leases[lease2.lease_id] = lease2.model_copy(
+            update={"expires_at": past}
+        )
+
+    # 1. Cancel by run_id (session_id)
+    cancelled_by_run = await coord.cancel_task(job1.run_id)
+    assert cancelled_by_run is True
+
+    # 2. Cancel by individual job_id (slice_id)
+    cancelled_by_job = await coord.cancel_task(job2.id)
+    assert cancelled_by_job is True
+
+    await asyncio.sleep(0.05)
+
+    active_count = coord.active_lease_count
+    pending_count = coord.pending_count
+    assert active_count == 0
+    assert pending_count == 0
+
+    reclaimed = await coord.reclaim_expired_leases()
+    reclaimed_len = len(reclaimed)
+    assert reclaimed_len == 0
+
+    late_report = SliceReportPayload(
+        lease_id=lease1.lease_id,
+        slice_id=job1.id,
+        worker_id="worker-1",
+        exit_code=0,
+    )
+    accepted = await coord.report_slice_outcome(late_report)
+    assert accepted is False
+
+    reconcile_calls = mock_autoscaler.reconcile_pool.call_count
+    assert reconcile_calls >= 1
+
+    # Also verify cancelling a session unblocks session completion event
+    sess_event = await coord.enqueue_session_slices(
+        "sess-cancel-unblock",
+        [
+            TestSliceDispatch(
+                slice_id="sl-cancel-1",
+                slice_index=0,
+                total_slices=1,
+                test_nodeids=["tests/test_x.py::test_1"],
+            )
+        ],
+    )
+    sess_cancelled = await coord.cancel_task("sess-cancel-unblock")
+    assert sess_cancelled is True
+    sess_done = sess_event.is_set()
+    assert sess_done is True

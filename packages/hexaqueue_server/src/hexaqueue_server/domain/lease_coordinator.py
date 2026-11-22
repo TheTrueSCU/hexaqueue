@@ -443,14 +443,20 @@ class SliceLeaseCoordinator:
             asyncio.create_task(self._reconcile_autoscaler())
 
     async def cancel_task(self, task_id: str) -> bool:
-        """Remove pending tasks matching task_id/slice_id or session_id from queue.
+        """Remove queued tasks and evict active leases matching task_id or session_id.
 
         Args:
             task_id: Task, slice, or session identifier to cancel.
 
         Returns:
-            True if any task was found and removed, False otherwise.
+            True if any pending task or active lease was cancelled, False otherwise.
+
+        Notes/Architectural Intent:
+            Evicts both queued pending tasks and in-flight active leases so expired
+            leases cannot be reclaimed back into PENDING after user cancellation.
+            Triggers autoscaler reconciliation when cancellation drains all work.
         """
+        should_reconcile = False
         async with self._condition:
             retained: deque[SliceTaskDescriptor] = deque()
             removed = False
@@ -460,7 +466,31 @@ class SliceLeaseCoordinator:
                 else:
                     retained.append(t)
             self._pending_tasks = retained
-            return removed
+
+            evicted_lease_ids = [
+                l_id
+                for l_id, lse in self._active_leases.items()
+                if lse.task.slice_id == task_id or lse.task.session_id == task_id
+            ]
+            for l_id in evicted_lease_ids:
+                self._active_leases.pop(l_id, None)
+                removed = True
+
+            session_event = self._session_events.get(task_id)
+            if session_event is not None and not session_event.is_set():
+                session_event.set()
+
+            should_reconcile = (
+                removed
+                and self.has_autoscaler
+                and len(self._pending_tasks) == 0
+                and len(self._active_leases) == 0
+            )
+
+        if should_reconcile:
+            asyncio.create_task(self._reconcile_autoscaler())
+
+        return removed
 
     async def lease_slice(
         self,
