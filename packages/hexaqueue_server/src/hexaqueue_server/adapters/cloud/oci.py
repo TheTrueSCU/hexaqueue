@@ -35,6 +35,12 @@ def _resolve_oci_max_pool_size(current_size: int) -> int:
     return max(10, current_size)
 
 
+def _is_pool_stopped(pool: Any) -> bool:
+    """Return True if an OCI instance pool response has lifecycle_state STOPPED."""
+    raw_state = getattr(pool, "lifecycle_state", None)
+    return isinstance(raw_state, str) and raw_state.upper() == "STOPPED"
+
+
 class OciInstancePoolAdapter(InstancePoolGovernorPort):
     """Adapter for governing Oracle Cloud Infrastructure (OCI) Instance Pools.
 
@@ -134,6 +140,41 @@ class OciInstancePoolAdapter(InstancePoolGovernorPort):
         """
         self._local_pools[pool.pool_id] = pool
 
+    def _read_oci_pool_snapshot(self, pool_id: str) -> tuple[InstancePoolState, bool]:
+        """Fetch current InstancePoolState and whether the OCI pool is STOPPED."""
+        resp = self._client.get_instance_pool(instance_pool_id=pool_id)
+        pool = resp.data
+        eff_comp = getattr(pool, "compartment_id", None) or self._compartment_id
+        instances_resp = self._client.list_instance_pool_instances(
+            compartment_id=eff_comp,
+            instance_pool_id=pool_id,
+        )
+        instances = instances_resp.data if hasattr(instances_resp, "data") else []
+
+        def _inst_state(inst: Any) -> str:
+            state = getattr(inst, "state", None)
+            if isinstance(state, str) and state:
+                return state.lower()
+            lifecycle = getattr(inst, "lifecycle_state", None)
+            return lifecycle.lower() if isinstance(lifecycle, str) else ""
+
+        ready_count = sum(1 for inst in instances if _inst_state(inst) == "running")
+        stopped = _is_pool_stopped(pool)
+        desired = 0 if stopped else int(pool.size)
+        state = InstancePoolState(
+            pool_id=pool_id,
+            provider=CspProvider.OCI,
+            min_nodes=0,
+            max_nodes=_resolve_oci_max_pool_size(int(pool.size)),
+            desired_nodes=desired,
+            current_nodes=len(instances),
+            ready_nodes=ready_count,
+            spot_nodes=0,
+            capability_tags=frozenset(getattr(pool, "defined_tags", {}).keys()),
+            updated_at=datetime.now(UTC),
+        )
+        return state, stopped
+
     async def get_pool_state(self, pool_id: str) -> InstancePoolState:
         """Query real-time OCI instance pool capacity and health metrics.
 
@@ -148,39 +189,8 @@ class OciInstancePoolAdapter(InstancePoolGovernorPort):
         """
         if self._client is not None:
             try:
-                resp = self._client.get_instance_pool(instance_pool_id=pool_id)
-                pool = resp.data
-                eff_comp = getattr(pool, "compartment_id", None) or self._compartment_id
-                instances_resp = self._client.list_instance_pool_instances(
-                    compartment_id=eff_comp,
-                    instance_pool_id=pool_id,
-                )
-                instances = (
-                    instances_resp.data if hasattr(instances_resp, "data") else []
-                )
-
-                def _inst_state(inst: Any) -> str:
-                    state = getattr(inst, "state", None)
-                    if isinstance(state, str) and state:
-                        return state.lower()
-                    lifecycle = getattr(inst, "lifecycle_state", None)
-                    return lifecycle.lower() if isinstance(lifecycle, str) else ""
-
-                ready_count = sum(
-                    1 for inst in instances if _inst_state(inst) == "running"
-                )
-                return InstancePoolState(
-                    pool_id=pool_id,
-                    provider=CspProvider.OCI,
-                    min_nodes=0,
-                    max_nodes=_resolve_oci_max_pool_size(int(pool.size)),
-                    desired_nodes=pool.size,
-                    current_nodes=len(instances),
-                    ready_nodes=ready_count,
-                    spot_nodes=0,
-                    capability_tags=frozenset(getattr(pool, "defined_tags", {}).keys()),
-                    updated_at=datetime.now(UTC),
-                )
+                state, _stopped = self._read_oci_pool_snapshot(pool_id)
+                return state
             except Exception as err:
                 msg = f"Failed to get OCI instance pool '{pool_id}': {err}"
                 raise HexaqueueError(msg) from err
@@ -207,15 +217,17 @@ class OciInstancePoolAdapter(InstancePoolGovernorPort):
                 pools = resp.data if hasattr(resp, "data") else []
                 results: list[InstancePoolState] = []
                 for p in pools:
+                    stopped = _is_pool_stopped(p)
+                    active_nodes = 0 if stopped else int(p.size)
                     results.append(
                         InstancePoolState(
                             pool_id=p.id,
                             provider=CspProvider.OCI,
                             min_nodes=0,
                             max_nodes=_resolve_oci_max_pool_size(int(p.size)),
-                            desired_nodes=p.size,
-                            current_nodes=p.size,
-                            ready_nodes=p.size,
+                            desired_nodes=active_nodes,
+                            current_nodes=active_nodes,
+                            ready_nodes=active_nodes,
                             capability_tags=frozenset(
                                 getattr(p, "defined_tags", {}).keys()
                             ),
@@ -244,7 +256,9 @@ class OciInstancePoolAdapter(InstancePoolGovernorPort):
         prev_nodes = 0
         if self._client is not None:
             try:
-                current_state = await self.get_pool_state(request.pool_id)
+                current_state, pool_stopped = self._read_oci_pool_snapshot(
+                    request.pool_id
+                )
                 prev_nodes = current_state.current_nodes
                 oci_mod = optional_dependency("oci")
                 details = (
@@ -258,12 +272,21 @@ class OciInstancePoolAdapter(InstancePoolGovernorPort):
                     instance_pool_id=request.pool_id,
                     update_instance_pool_details=details,
                 )
+                started = False
+                if (
+                    request.target_nodes > 0
+                    and pool_stopped
+                    and hasattr(self._client, "start_instance_pool")
+                ):
+                    self._client.start_instance_pool(instance_pool_id=request.pool_id)
+                    started = True
+                action_label = "started and resized" if started else "resized"
                 return PoolScaleResult(
                     pool_id=request.pool_id,
                     previous_nodes=prev_nodes,
                     target_nodes=request.target_nodes,
                     success=True,
-                    message=f"OCI instance pool resized to {request.target_nodes} instances",
+                    message=f"OCI instance pool {action_label} to {request.target_nodes} instances",
                 )
             except Exception as err:
                 msg = f"Failed to scale OCI instance pool '{request.pool_id}': {err}"
