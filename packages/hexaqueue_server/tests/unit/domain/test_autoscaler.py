@@ -235,9 +235,11 @@ async def test_reconcile_pool_circuit_breaker_on_stall_and_capacity_error() -> N
     gov.pool = gov.pool.model_copy(
         update={"desired_nodes": 1, "current_nodes": 1, "ready_nodes": 1}
     )
-    _dec4 = await autoscaler.reconcile_pool(
+    dec4 = await autoscaler.reconcile_pool(
         pool_id="pool-a1", pending_jobs=0, running_jobs=1, now=1200.0
     )
+    dec4_action = dec4.action
+    assert dec4_action == "NOOP"
     status4 = autoscaler.get_pool_circuit_status("pool-a1", now=1200.0)
     assert status4["state"] == "CLOSED"
 

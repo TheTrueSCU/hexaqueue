@@ -429,14 +429,13 @@ def create_budget_router() -> APIRouter:
     @router.get(
         "/budget/strategy",
         response_model=BudgetStrategyStatusResponse,
+        dependencies=[Depends(get_auth_context)],
         summary="Retrieve active burst-pool budget strategy and pacing telemetry",
     )
     def get_budget_strategy(
         request: Request,
-        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> BudgetStrategyStatusResponse:
-        _ = auth
-        autoscaler, _coordinator = _resolve_autoscaler_and_coordinator(request)
+        autoscaler, _ = _resolve_autoscaler_and_coordinator(request)
         return _build_strategy_status(autoscaler.credit_pacing)
 
     # 8. Active Burst-Pool Budget Strategy (Update at Runtime)
@@ -450,7 +449,7 @@ def create_budget_router() -> APIRouter:
         cmd: BudgetStrategyUpdateRequest,
         auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
     ) -> BudgetStrategyStatusResponse:
-        _user_id, is_elevated = auth
+        _, is_elevated = auth
         if not is_elevated:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
