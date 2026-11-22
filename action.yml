@@ -96,18 +96,7 @@ runs:
         DISCOVERY=$(hq cluster discover --format json || echo "[]")
         echo "Discovered fleet topology: $DISCOVERY"
 
-        SELECTED_HOST=$(echo "$DISCOVERY" | python3 -c "
-        import sys, json, re
-        try:
-            raw = sys.stdin.read()
-            clean = re.sub(r'\x1b\[[0-9;]*m', '', raw).strip()
-            candidates = json.loads(clean, strict=False)
-            ready = [c for c in candidates if c.get('status') in ('ONLINE', 'SSH_AVAILABLE')]
-            if ready:
-                print(ready[0]['host'])
-        except Exception as exc:
-            print(f'JSON parse error: {exc}', file=sys.stderr)
-        ")
+        SELECTED_HOST=$(echo "$DISCOVERY" | python3 "${{ github.action_path }}/.github/scripts/probe_cluster_readiness.py" --select-host)
 
         CLUSTER_READY="false"
         if [ "$AUTO_TUNNEL" = "true" ] && [ -n "$SELECTED_HOST" ]; then
@@ -118,11 +107,17 @@ runs:
           fi
           if hq cluster tunnel --host "$SELECTED_HOST" $KEY_ARG; then
             echo "Tunnel successfully established to Hexaqueue controller ($SELECTED_HOST)."
-            CLUSTER_READY="true"
-            echo "cluster_ready=true" >> "$GITHUB_OUTPUT"
-            echo "cluster_host=$SELECTED_HOST" >> "$GITHUB_OUTPUT"
+            READY_OK=$(python3 "${{ github.action_path }}/.github/scripts/probe_cluster_readiness.py" --check-ready || echo "false")
+            if [ "$READY_OK" = "true" ]; then
+              CLUSTER_READY="true"
+              echo "cluster_ready=true" >> "$GITHUB_OUTPUT"
+              echo "cluster_host=$SELECTED_HOST" >> "$GITHUB_OUTPUT"
+            else
+              echo "Controller at $SELECTED_HOST reported DEGRADED capacity on /health/ready; falling back to local execution."
+              hq cluster tunnel --stop || true
+            fi
 
-            if [ "$PROBE_ONLY" = "true" ]; then
+            if [ "$PROBE_ONLY" = "true" ] && [ "$CLUSTER_READY" = "true" ]; then
               echo "Probe-only mode enabled: tearing down probe tunnel..."
               hq cluster tunnel --stop || true
             fi

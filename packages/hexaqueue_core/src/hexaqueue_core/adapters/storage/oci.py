@@ -451,6 +451,43 @@ class OciPresignedStorageAdapter(PresignedStoragePort):
 
         return self._simulated_objects[clean_key]
 
+    async def list_objects(self, prefix: str = "") -> list[dict[str, Any]]:
+        """List object keys and sizes matching a prefix in OCI Object Storage.
+
+        Args:
+            prefix: Optional key prefix filter (e.g. ``"collateral/"``).
+
+        Returns:
+            List of dictionaries with ``key`` and ``size_bytes`` entries.
+        """
+        clean_prefix = prefix.lstrip("/")
+        if self._client is not None:
+            try:
+                resp = await asyncio.to_thread(
+                    self._client.list_objects,
+                    namespace_name=self._namespace,
+                    bucket_name=self._bucket_name,
+                    prefix=clean_prefix,
+                    fields="name,size",
+                )
+                objects = getattr(getattr(resp, "data", None), "objects", None) or []
+                return [
+                    {
+                        "key": str(getattr(obj, "name", "")),
+                        "size_bytes": int(getattr(obj, "size", 0) or 0),
+                    }
+                    for obj in objects
+                    if getattr(obj, "name", None)
+                ]
+            except Exception:
+                return []
+
+        return [
+            {"key": k, "size_bytes": len(v)}
+            for k, v in sorted(self._simulated_objects.items())
+            if k.startswith(clean_prefix)
+        ]
+
 
 __all__ = [
     "OciPresignedStorageAdapter",

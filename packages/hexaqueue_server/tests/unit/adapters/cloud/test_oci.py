@@ -80,6 +80,10 @@ async def test_oci_instance_pool_with_client() -> None:
     ready = state.ready_nodes
     assert ready == 2
 
+    with patch.dict("os.environ", {"HEXAQUEUE_OCI_MAX_POOL_SIZE": "0"}, clear=False):
+        capped_state = await adapter.get_pool_state("ocid1.instancepool.oc1..pool1")
+        assert capped_state.max_nodes == 0
+
     # Scaling
     scale_res = await adapter.scale_pool(
         PoolScaleRequest(
@@ -155,3 +159,56 @@ def test_oci_from_credentials_factory() -> None:
         client_present = adapter_conf._client is not None
         assert client_present is True
         mock_oci.core.ComputeManagementClient.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_oci_instance_pool_starts_stopped_pool_on_scale_up() -> None:
+    """Verify STOPPED OCI pool reports desired_nodes=0 and calls start_instance_pool on scale-up."""
+    mock_client = MagicMock()
+    mock_pool = MagicMock()
+    mock_pool.size = 10
+    mock_pool.lifecycle_state = "STOPPED"
+    mock_pool.compartment_id = "ocid1.compartment.oc1..test"
+    mock_pool.defined_tags = {}
+    mock_client.get_instance_pool.return_value = MagicMock(data=mock_pool)
+    mock_client.list_instance_pool_instances.return_value = MagicMock(data=[])
+
+    adapter = OciInstancePoolAdapter(
+        compute_management_client=mock_client,
+        compartment_id="ocid1.compartment.oc1..test",
+    )
+
+    state = await adapter.get_pool_state("ocid1.instancepool.oc1..stopped")
+    desired = state.desired_nodes
+    current = state.current_nodes
+    ready = state.ready_nodes
+    assert desired == 0
+    assert current == 0
+    assert ready == 0
+
+    # Scaling to 0 updates pool size without calling start_instance_pool
+    zero_res = await adapter.scale_pool(
+        PoolScaleRequest(
+            pool_id="ocid1.instancepool.oc1..stopped",
+            target_nodes=0,
+        )
+    )
+    zero_ok = zero_res.success
+    assert zero_ok is True
+    mock_client.update_instance_pool.assert_called_once()
+    mock_client.start_instance_pool.assert_not_called()
+
+    # Scaling > 0 calls update_instance_pool AND start_instance_pool
+    up_res = await adapter.scale_pool(
+        PoolScaleRequest(
+            pool_id="ocid1.instancepool.oc1..stopped",
+            target_nodes=3,
+        )
+    )
+    up_ok = up_res.success
+    up_msg = up_res.message
+    assert up_ok is True
+    assert "started and resized" in up_msg
+    mock_client.start_instance_pool.assert_called_once_with(
+        instance_pool_id="ocid1.instancepool.oc1..stopped"
+    )

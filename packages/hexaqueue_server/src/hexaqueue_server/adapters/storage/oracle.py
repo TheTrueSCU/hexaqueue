@@ -37,6 +37,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from hexaqueue_core.domain.collateral import CollateralBundle
 from hexaqueue_core.domain.exceptions import HexaqueueError
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.node import ComputeNodeProfile
@@ -52,6 +53,7 @@ except ImportError:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "HexaqueueCollateralModel",
     "HexaqueueJobModel",
     "HexaqueueNodeModel",
     "HexaqueueRunModel",
@@ -155,6 +157,24 @@ class HexaqueueTelemetryPulseModel(Base):
     payload: Mapped[dict[str, Any]] = mapped_column(JsonPayloadType)
 
 
+class HexaqueueCollateralModel(Base):
+    """SQLAlchemy model for staged, approved, and quarantined collateral bundles."""
+
+    __tablename__ = "hexaqueue_collateral"
+
+    collateral_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    sha256_checksum: Mapped[str] = mapped_column(String(128), index=True)
+    filename: Mapped[str] = mapped_column(String(256))
+    owner: Mapped[str] = mapped_column(String(128), index=True)
+    kind: Mapped[str] = mapped_column(String(64))
+    tier: Mapped[str] = mapped_column(String(64))
+    state: Mapped[str] = mapped_column(String(64), index=True)
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    payload: Mapped[dict[str, Any]] = mapped_column(JsonPayloadType)
+
+
 class OciAutonomousDatabaseStorageAdapter(SchedulerStoragePort):
     """Oracle Autonomous Database storage adapter with write-behind outbox.
 
@@ -197,6 +217,7 @@ class OciAutonomousDatabaseStorageAdapter(SchedulerStoragePort):
         self._hot_jobs: dict[str, JobSpec] = {}
         self._hot_nodes: dict[str, ComputeNodeProfile] = {}
         self._hot_telemetry: list[NodeTelemetryPulse] = []
+        self._hot_collateral: dict[str, CollateralBundle] = {}
 
         self._queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue(
             maxsize=max_buffer_size
@@ -479,6 +500,29 @@ class OciAutonomousDatabaseStorageAdapter(SchedulerStoragePort):
                 )
                 session.add(pmodel)
 
+            case "collateral":
+                cbundle: CollateralBundle = payload
+                cmodel = session.get(HexaqueueCollateralModel, cbundle.id)
+                if cmodel is None:
+                    cmodel = HexaqueueCollateralModel(collateral_id=cbundle.id)
+                    session.add(cmodel)
+                cmodel.sha256_checksum = cbundle.sha256_checksum
+                cmodel.filename = cbundle.filename
+                cmodel.owner = cbundle.owner
+                cmodel.kind = str(cbundle.kind)
+                cmodel.tier = str(cbundle.tier)
+                cmodel.state = str(cbundle.state)
+                cmodel.size_bytes = cbundle.size_bytes
+                cmodel.created_at = cbundle.created_at
+                cmodel.updated_at = cbundle.updated_at
+                cmodel.payload = cbundle.model_dump(mode="json")
+
+            case "delete_collateral":
+                target_id = str(payload)
+                existing_cmodel = session.get(HexaqueueCollateralModel, target_id)
+                if existing_cmodel is not None:
+                    session.delete(existing_cmodel)
+
     async def record_run(self, run: RunStatusReport) -> None:
         """Persist or update a pipeline run status record."""
         run_key = run.id or run.run_id
@@ -667,6 +711,67 @@ class OciAutonomousDatabaseStorageAdapter(SchedulerStoragePort):
                 ]
 
         return await asyncio.to_thread(_query)
+
+    async def record_collateral(self, bundle: CollateralBundle) -> None:
+        """Persist or update a collateral bundle record."""
+        self._hot_collateral[bundle.id] = bundle
+        self._ensure_worker()
+        try:
+            self._queue.put_nowait(("collateral", bundle))
+        except asyncio.QueueFull:
+            await self._drain_batch()
+            await self._queue.put(("collateral", bundle))
+
+    async def get_collateral(self, collateral_id: str) -> CollateralBundle | None:
+        """Retrieve a collateral bundle record by identifier."""
+        if collateral_id in self._hot_collateral:
+            return self._hot_collateral[collateral_id]
+
+        await self._ensure_schema()
+
+        def _query() -> CollateralBundle | None:
+            with self._sessionmaker() as session:
+                model = session.get(HexaqueueCollateralModel, collateral_id)
+                if model is not None:
+                    return CollateralBundle.model_validate(model.payload)
+            return None
+
+        bundle = await asyncio.to_thread(_query)
+        if bundle is not None:
+            self._hot_collateral[collateral_id] = bundle
+        return bundle
+
+    async def list_collateral(
+        self, limit: int = 1000, offset: int = 0
+    ) -> Sequence[CollateralBundle]:
+        """List persisted collateral bundle records ordered by creation time descending."""
+        await self.flush()
+        await self._ensure_schema()
+
+        def _query() -> list[CollateralBundle]:
+            with self._sessionmaker() as session:
+                stmt = (
+                    select(HexaqueueCollateralModel)
+                    .order_by(HexaqueueCollateralModel.created_at.desc())
+                    .offset(offset)
+                    .limit(limit)
+                )
+                result = session.execute(stmt)
+                return [
+                    CollateralBundle.model_validate(m.payload) for m in result.scalars()
+                ]
+
+        return await asyncio.to_thread(_query)
+
+    async def delete_collateral(self, collateral_id: str) -> None:
+        """Delete a collateral bundle record from durable storage."""
+        self._hot_collateral.pop(collateral_id, None)
+        self._ensure_worker()
+        try:
+            self._queue.put_nowait(("delete_collateral", collateral_id))
+        except asyncio.QueueFull:
+            await self._drain_batch()
+            await self._queue.put(("delete_collateral", collateral_id))
 
     async def flush(self) -> None:
         """Flush any pending buffered write-behind records to durable storage."""

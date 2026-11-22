@@ -3,6 +3,7 @@
 import hashlib
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -699,3 +700,64 @@ async def test_local_collateral_list_promote_and_delete():
         assert deleted_id == desc.bundle.id
         remaining = await service.list_bundles()
         assert remaining == []
+
+
+@pytest.mark.asyncio
+async def test_local_collateral_metadata_store_and_cas_hydration(
+    tmp_path: Path,
+    fake_metadata_store: Any,
+) -> None:
+    """Verify collateral persistence across restarts via metadata_store, disk CAS, and object storage."""
+    from hexaqueue_core.adapters.storage.oci import OciPresignedStorageAdapter
+
+    storage = OciPresignedStorageAdapter()
+
+    # 1. Stage and promote a bundle in service instance #1
+    svc1 = LocalCollateralServiceAdapter(
+        base_dir=tmp_path,
+        security_port=BenignScanner(),
+        storage_port=storage,
+        metadata_store=fake_metadata_store,
+    )
+    payload = b"persisted collateral payload"
+    sha_persisted = hashlib.sha256(payload).hexdigest()
+    desc = await svc1.register(
+        IngestionRequest(
+            job_id="job-persisted",
+            owner="rjdw",
+            filename="persisted.tar.gz",
+            size_bytes=len(payload),
+            sha256_checksum=sha_persisted,
+            tier=CollateralTier.PERMANENT,
+        )
+    )
+    await svc1.stage_file(desc.bundle.id, payload)
+    await svc1.process_quarantine(desc.bundle.id)
+    assert desc.bundle.id in fake_metadata_store.records
+
+    # 2. Pre-populate an on-disk CAS directory (not in metadata_store) and a remote object in storage
+    disk_bytes = b"pre-existing on-disk cas payload"
+    sha_disk = hashlib.sha256(disk_bytes).hexdigest()
+    disk_dir = tmp_path / "active" / sha_disk
+    disk_dir.mkdir(parents=True, exist_ok=True)
+    (disk_dir / "disk_bundle.tar.gz").write_bytes(disk_bytes)
+
+    remote_bytes = b"pre-existing remote bucket payload"
+    sha_remote = hashlib.sha256(remote_bytes).hexdigest()
+    await storage.put_object(
+        f"collateral/{sha_remote}/remote_bundle.tar.gz", remote_bytes
+    )
+
+    # 3. Create fresh service instance #2 (simulating controller restart) and list bundles
+    svc2 = LocalCollateralServiceAdapter(
+        base_dir=tmp_path,
+        security_port=BenignScanner(),
+        storage_port=storage,
+        metadata_store=fake_metadata_store,
+    )
+    bundles = await svc2.list_bundles()
+    by_id = {b.id: b for b in bundles}
+    assert desc.bundle.id in by_id
+    assert by_id[desc.bundle.id].tier == CollateralTier.PERMANENT
+    assert f"cas-{sha_disk[:12]}" in by_id
+    assert f"cas-{sha_remote[:12]}" in by_id

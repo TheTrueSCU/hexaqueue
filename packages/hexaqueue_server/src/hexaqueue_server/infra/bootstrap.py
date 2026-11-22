@@ -81,11 +81,16 @@ def _resolve_coordinator(
     if coordinator is not None:
         return coordinator
 
-    autoscaler: BudgetAwareInstancePoolAutoscaler | None = None
-    if pool_id and provider == "OCI":
+    autoscaler = (
+        di.resolve(BudgetAwareInstancePoolAutoscaler)
+        if BudgetAwareInstancePoolAutoscaler in di
+        else None
+    )
+    if autoscaler is None and pool_id and provider == "OCI":
         creds = OciCredentialsConfig(use_instance_principals=True)
         gov = OciInstancePoolAdapter.from_credentials(credentials=creds)
         autoscaler = BudgetAwareInstancePoolAutoscaler(governors={pool_id: gov})
+        di.add_instance(autoscaler, declared_class=BudgetAwareInstancePoolAutoscaler)
 
     logger = (
         di.resolve(LoggingPort)
@@ -201,6 +206,7 @@ def bootstrap_server_container(
         collateral_service = LocalCollateralServiceAdapter(
             security_port=NoOpSecurityQuarantineAdapter(),
             storage_port=storage_port,
+            metadata_store=scheduler_storage,
         )
         di.add_instance(collateral_service, declared_class=CollateralServicePort)
 

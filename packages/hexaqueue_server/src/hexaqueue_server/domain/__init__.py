@@ -1,6 +1,10 @@
 """Hexaqueue Server domain models."""
 
-from hexaqueue_server.domain.autoscaler import BudgetAwareInstancePoolAutoscaler
+from hexaqueue_server.domain.autoscaler import (
+    BudgetAwareInstancePoolAutoscaler,
+    BudgetStrategyMode,
+    CreditPacingPolicy,
+)
 from hexaqueue_server.domain.config import (
     McpConfig,
     McpToolConfig,
@@ -26,6 +30,8 @@ from hexaqueue_server.domain.placement import (
 
 __all__ = [
     "BudgetAwareInstancePoolAutoscaler",
+    "BudgetStrategyMode",
+    "CreditPacingPolicy",
     "DagRewindReport",
     "DagRewindRequest",
     "DagRunMemento",

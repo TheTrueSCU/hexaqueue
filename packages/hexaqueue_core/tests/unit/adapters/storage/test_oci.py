@@ -210,6 +210,22 @@ async def test_oci_storage_with_injected_mock_client(
     await adapter.delete_object("collateral/target.tar.gz")
     assert mock_client.delete_object.call_count == 1
 
+    # 8. List objects via client and error fallback
+    mock_obj = MagicMock()
+    mock_obj.name = "collateral/abc/bundle.tar.gz"
+    mock_obj.size = 2048
+    mock_client.list_objects.return_value = MagicMock(
+        data=MagicMock(objects=[mock_obj])
+    )
+    listed_objs = await adapter.list_objects(prefix="collateral/")
+    assert len(listed_objs) == 1
+    assert listed_objs[0]["key"] == "collateral/abc/bundle.tar.gz"
+    assert listed_objs[0]["size_bytes"] == 2048
+
+    mock_client.list_objects.side_effect = RuntimeError("bucket err")
+    empty_objs = await adapter.list_objects(prefix="collateral/")
+    assert empty_objs == []
+
 
 @pytest.mark.asyncio
 async def test_oci_storage_client_error_handling(
