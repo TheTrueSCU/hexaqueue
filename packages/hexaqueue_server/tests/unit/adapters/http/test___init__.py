@@ -1,10 +1,6 @@
 """Unit tests for hexaqueue_server.adapters.http package exports."""
 
-import hexaqueue_server.adapters.http as http_pkg
-from hexaqueue_server.adapters.http import (
-    HttpCollateralServiceAdapter,
-    HttpSchedulerControllerAdapter,
-)
+from hexaqueue_server.adapters import http as http_pkg
 
 
 def test_http_adapter_exports() -> None:
@@ -14,5 +10,11 @@ def test_http_adapter_exports() -> None:
         "HttpCollateralServiceAdapter",
         "HttpSchedulerControllerAdapter",
     ]
-    assert http_pkg.HttpCollateralServiceAdapter is HttpCollateralServiceAdapter
-    assert http_pkg.HttpSchedulerControllerAdapter is HttpSchedulerControllerAdapter
+    has_collateral = hasattr(http_pkg, "HttpCollateralServiceAdapter")
+    has_controller = hasattr(http_pkg, "HttpSchedulerControllerAdapter")
+    collateral_name = http_pkg.HttpCollateralServiceAdapter.__name__
+    controller_name = http_pkg.HttpSchedulerControllerAdapter.__name__
+    assert has_collateral is True
+    assert has_controller is True
+    assert collateral_name == "HttpCollateralServiceAdapter"
+    assert controller_name == "HttpSchedulerControllerAdapter"
