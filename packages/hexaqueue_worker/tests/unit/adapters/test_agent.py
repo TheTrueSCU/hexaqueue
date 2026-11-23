@@ -624,3 +624,26 @@ async def test_worker_agent_run_step_reports_unexpected_execute_slice_error() ->
     reported_payload = mock_report.call_args[0][1]
     assert reported_payload.exit_code == 1
     assert "unexpected crash" in (reported_payload.error_message or "")
+
+
+@pytest.mark.asyncio
+async def test_worker_agent_heartbeat_reregisters_on_404() -> None:
+    """Verify heartbeat self-heals by re-registering and retrying after HTTP 404."""
+    agent = WorkerAgent(WorkerAgentConfig(worker_id="w-reheal"))
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    mock_client.post.side_effect = [
+        MagicMock(status_code=404),
+        MagicMock(status_code=201),
+        MagicMock(status_code=200),
+    ]
+
+    hb_ok = await agent.heartbeat(mock_client)
+    assert hb_ok is True
+
+    call_count = mock_client.post.call_count
+    assert call_count == 3
+
+    second_url = mock_client.post.call_args_list[1].args[0]
+    third_url = mock_client.post.call_args_list[2].args[0]
+    assert second_url.endswith("/worker/register")
+    assert third_url.endswith("/worker/w-reheal/heartbeat")

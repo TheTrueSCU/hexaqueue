@@ -8,7 +8,7 @@ Notes/Architectural Intent:
 
 import asyncio
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -539,3 +539,56 @@ async def test_cancel_task_evicts_active_leases_and_prevents_reclaim() -> None:
     assert sess_cancelled is True
     sess_done = sess_event.is_set()
     assert sess_done is True
+
+
+@pytest.mark.asyncio
+async def test_lease_slice_refreshes_collateral_download_url() -> None:
+    """Verify lease_slice refreshes collateral PAR download URL right before handoff."""
+    mock_collateral = MagicMock()
+    mock_collateral.get_download_url = AsyncMock(
+        side_effect=["https://par-stale", "https://par-fresh"]
+    )
+    coord = SliceLeaseCoordinator(collateral_service=mock_collateral)
+    job = JobSpec(
+        id="job-par-refresh",
+        run_id="run-par-refresh",
+        name="par-job",
+        command="pytest",
+        collateral_ids=["col-123"],
+    )
+    await coord.enqueue_job(job)
+
+    lease = await coord.lease_slice("worker-par-1")
+    assert lease is not None
+
+    leased_url = lease.task.collateral_download_url
+    assert leased_url == "https://par-fresh"
+
+    stored_url = coord._active_leases[lease.lease_id].task.collateral_download_url
+    assert stored_url == "https://par-fresh"
+
+
+@pytest.mark.asyncio
+async def test_lease_slice_falls_back_to_initial_collateral_url_on_refresh_error() -> (
+    None
+):
+    """Verify transient refresh errors preserve the enqueue-time collateral PAR URL."""
+    mock_collateral = MagicMock()
+    mock_collateral.get_download_url = AsyncMock(
+        side_effect=["https://par-initial", RuntimeError("oci transient")]
+    )
+    coord = SliceLeaseCoordinator(collateral_service=mock_collateral)
+    job = JobSpec(
+        id="job-par-fallback",
+        run_id="run-par-fallback",
+        name="par-fallback-job",
+        command="pytest",
+        collateral_ids=["col-456"],
+    )
+    await coord.enqueue_job(job)
+
+    lease = await coord.lease_slice("worker-par-2")
+    assert lease is not None
+
+    leased_url = lease.task.collateral_download_url
+    assert leased_url == "https://par-initial"

@@ -342,6 +342,11 @@ class WorkerAgent:
 
         Returns:
             True if heartbeat was acknowledged, False otherwise.
+
+        Notes/Architectural Intent:
+            Self-heals after controller restarts (which reset in-memory worker
+            registrations) by re-registering automatically on HTTP 404 and
+            retrying the heartbeat once.
         """
         url = f"{self.config.controller_url}/worker/{self.config.worker_id}/heartbeat"
         payload: dict[str, Any] = {
@@ -350,6 +355,8 @@ class WorkerAgent:
         }
         try:
             resp = await client.post(url, json=payload, headers=self._headers())
+            if resp.status_code == 404 and await self.register(client):
+                resp = await client.post(url, json=payload, headers=self._headers())
             return resp.status_code == 200
         except Exception:
             return False

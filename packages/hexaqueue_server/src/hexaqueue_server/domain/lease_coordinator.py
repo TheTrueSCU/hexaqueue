@@ -309,6 +309,30 @@ class SliceLeaseCoordinator:
                             self._active_leases[l_id] = lease.renew(self._default_ttl)
             return True
 
+    async def _resolve_collateral_url(self, collateral_id: str | None) -> str | None:
+        """Mint a fresh collateral download URL from the attached collateral service.
+
+        Args:
+            collateral_id: Optional CAS collateral bundle identifier.
+
+        Returns:
+            Download URL string if available, otherwise ``None``.
+
+        Notes/Architectural Intent:
+            Shared by enqueue and lease-grant paths so tasks waiting in queue
+            beyond a PAR's TTL receive a fresh presigned URL upon worker lease.
+        """
+        if not collateral_id or self._collateral_service is None:
+            return None
+        get_url_fn = getattr(self._collateral_service, "get_download_url", None)
+        if not callable(get_url_fn):
+            return None
+        try:
+            url = await get_url_fn(collateral_id)
+            return str(url) if url else None
+        except Exception:
+            return None
+
     async def enqueue_session_slices(
         self,
         session_id: str,
@@ -332,14 +356,7 @@ class SliceLeaseCoordinator:
             An asyncio.Event that triggers when all slices in this session complete.
         """
         # Resolve collateral download PAR once if available
-        collateral_url = None
-        if collateral_id and self._collateral_service is not None:
-            get_url_fn = getattr(self._collateral_service, "get_download_url", None)
-            if callable(get_url_fn):
-                try:
-                    collateral_url = await get_url_fn(collateral_id)
-                except Exception:
-                    collateral_url = None
+        collateral_url = await self._resolve_collateral_url(collateral_id)
 
         tasks: list[SliceTaskDescriptor] = []
         total = len(slices)
@@ -405,15 +422,8 @@ class SliceLeaseCoordinator:
             Converts a DAG job specification into a pull-leasable task descriptor,
             vending presigned CAS collateral download links if available.
         """
-        collateral_url = None
         cid = collateral_id or (job.collateral_ids[0] if job.collateral_ids else None)
-        if cid and self._collateral_service is not None:
-            get_url_fn = getattr(self._collateral_service, "get_download_url", None)
-            if callable(get_url_fn):
-                try:
-                    collateral_url = await get_url_fn(cid)
-                except Exception:
-                    collateral_url = None
+        collateral_url = await self._resolve_collateral_url(cid)
 
         cwd = None
         if "HEXAQUEUE_CWD" in job.env:
@@ -538,6 +548,15 @@ class SliceLeaseCoordinator:
             leased_ev = self._session_leased_events.get(task.session_id)
             if leased_ev is not None and not leased_ev.is_set():
                 leased_ev.set()
+
+        if task.collateral_id and self._collateral_service is not None:
+            fresh_url = await self._resolve_collateral_url(task.collateral_id)
+            if fresh_url:
+                task = task.model_copy(update={"collateral_download_url": fresh_url})
+                lease = lease.model_copy(update={"task": task})
+                async with self._condition:
+                    if lease.lease_id in self._active_leases:
+                        self._active_leases[lease.lease_id] = lease
 
         if (
             task.task_type == "job"
