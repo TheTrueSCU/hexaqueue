@@ -11,6 +11,7 @@ Notes/Architectural Intent:
 import asyncio
 import contextlib
 import os
+import time
 from collections import deque
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
@@ -128,6 +129,7 @@ class SliceLeaseCoordinator:
         # Queue tracking
         self._pending_tasks: deque[SliceTaskDescriptor] = deque()
         self._active_leases: dict[str, SliceLease] = {}
+        self._cancelled_lease_ids: dict[str, float] = {}
 
         # Session completion tracking
         self._session_total_slices: dict[str, int] = {}
@@ -646,6 +648,15 @@ class SliceLeaseCoordinator:
                     retained.append(t)
             self._pending_tasks = retained
 
+            now_mono = time.monotonic()
+            expired_cancelled = [
+                lid
+                for lid, recorded_at in self._cancelled_lease_ids.items()
+                if now_mono - recorded_at > 3600.0
+            ]
+            for lid in expired_cancelled:
+                self._cancelled_lease_ids.pop(lid, None)
+
             evicted_lease_ids = [
                 l_id
                 for l_id, lse in self._active_leases.items()
@@ -653,6 +664,7 @@ class SliceLeaseCoordinator:
             ]
             for l_id in evicted_lease_ids:
                 self._active_leases.pop(l_id, None)
+                self._cancelled_lease_ids[l_id] = now_mono
                 removed = True
 
             session_event = self._session_events.get(task_id)
@@ -670,6 +682,30 @@ class SliceLeaseCoordinator:
             asyncio.create_task(self._reconcile_autoscaler())
 
         return removed
+
+    def get_cancelled_lease_ids(self, active_lease_ids: list[str] | None) -> list[str]:
+        """Return active worker lease IDs that have been cancelled by coordinator.
+
+        Args:
+            active_lease_ids: Optional list of lease IDs reported by a worker heartbeat.
+
+        Returns:
+            Subset of ``active_lease_ids`` present in the cancelled-lease tombstone map.
+
+        Notes/Architectural Intent:
+            Allows ``/worker/{worker_id}/heartbeat`` responses to push active lease
+            cancellation signals to worker agents so orphaned subprocesses terminate
+            promptly instead of running to completion after timeout or user cancel.
+        """
+        if not active_lease_ids:
+            return []
+        now_mono = time.monotonic()
+        return [
+            lid
+            for lid in active_lease_ids
+            if (recorded_at := self._cancelled_lease_ids.get(lid)) is not None
+            and now_mono - recorded_at <= 3600.0
+        ]
 
     async def lease_slice(
         self,

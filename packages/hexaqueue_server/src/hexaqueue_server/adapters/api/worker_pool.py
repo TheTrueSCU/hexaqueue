@@ -167,7 +167,12 @@ def create_worker_pool_router(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Worker '{worker_id}' is not registered",
             )
-        return {"status": "ok", "worker_id": worker_id}
+        cancelled_ids = coord.get_cancelled_lease_ids(active_ids)
+        return {
+            "status": "ok",
+            "worker_id": worker_id,
+            "cancelled_lease_ids": cancelled_ids,
+        }
 
     # 3. Pull/Lease Slice
     @router.post(

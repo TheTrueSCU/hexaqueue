@@ -161,6 +161,50 @@ class HexaqueueTestDispatchClient(HexaqueueTestDispatchPort):
             msg = f"Hexaqueue cluster at '{self.server_url}' is unreachable: {exc}"
             raise ConnectionError(msg) from exc
 
+    async def cancel_run(self, session_id: str) -> bool:
+        """Request server-side cancellation of a remote distributed test session.
+
+        Args:
+            session_id: Unique TestRunSession identifier to cancel.
+
+        Returns:
+            True if the controller accepted cancellation (200/202/204), False otherwise.
+
+        Notes/Architectural Intent:
+            Called when local execution times out, catches SIGINT/SIGTERM, or aborts
+            before fallback so remote workers immediately evict orphaned leases.
+        """
+        try:
+            async with httpx.AsyncClient(
+                timeout=min(5.0, self.timeout_seconds), headers=self._headers()
+            ) as client:
+                resp = await client.post(
+                    f"{self.server_url}/api/v1/test/runs/{session_id}/cancel"
+                )
+                return resp.status_code in (200, 202, 204)
+        except (httpx.HTTPError, OSError):
+            return False
+
+    def cancel_run_sync(self, session_id: str) -> bool:
+        """Synchronously request cancellation from a signal handler context.
+
+        Args:
+            session_id: Unique TestRunSession identifier to cancel.
+
+        Returns:
+            True if cancellation was accepted, False otherwise.
+        """
+        try:
+            with httpx.Client(
+                timeout=min(5.0, self.timeout_seconds), headers=self._headers()
+            ) as client:
+                resp = client.post(
+                    f"{self.server_url}/api/v1/test/runs/{session_id}/cancel"
+                )
+                return resp.status_code in (200, 202, 204)
+        except (httpx.HTTPError, OSError):
+            return False
+
 
 class InMemoryTestDispatchClient(HexaqueueTestDispatchPort):
     """In-memory simulation and test oracle for hermetic pytest execution.
@@ -182,7 +226,13 @@ class InMemoryTestDispatchClient(HexaqueueTestDispatchPort):
         self.fail_nodeids = fail_nodeids or set()
         self.is_healthy = is_healthy
         self.dispatched_sessions: list[TestRunSession] = []
+        self.cancelled_sessions: list[str] = []
         self._collateral_store: dict[str, str] = {}
+
+    async def cancel_run(self, session_id: str) -> bool:
+        """Record session cancellation against the in-memory test oracle."""
+        self.cancelled_sessions.append(session_id)
+        return True
 
     async def health_check(self) -> bool:
         """Return configured simulated health status."""

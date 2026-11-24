@@ -1013,3 +1013,91 @@ def test_plugin_module_reload_coverage() -> None:
     mod = sys.modules[pytest_addoption.__module__]
     importlib.reload(mod)
     assert hasattr(mod, "pytest_addoption")
+
+
+def test_dispatch_remote_with_cancellation_session_id_file_and_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify HEXAQUEUE_SESSION_ID_FILE tracking and cancellation across success/error/interrupt."""
+    from pytest_hexaqueue.domain.slice import TestRunSession
+    from pytest_hexaqueue.infra.plugin import _dispatch_remote_with_cancellation
+
+    sid_file = tmp_path / "nested" / "active-session.id"
+    monkeypatch.setenv("HEXAQUEUE_SESSION_ID_FILE", str(sid_file))
+
+    def _make_session(sid: str) -> TestRunSession:
+        return TestRunSession(
+            session_id=sid,
+            total_items=1,
+            total_slices=1,
+            slices=[
+                TestSliceSpec(
+                    slice_id="s0",
+                    slice_index=0,
+                    total_slices=1,
+                    test_nodeids=["t.py::x"],
+                )
+            ],
+        )
+
+    # 1. Normal completion clears file after recording session ID
+    seen_ids: list[str] = []
+    client_ok = InMemoryTestDispatchClient()
+    orig_dispatch = client_ok.dispatch_run
+
+    async def _recording_dispatch(
+        sess: TestRunSession, bundle: Any = None
+    ) -> list[SliceOutcomeReport]:
+        if sid_file.exists():
+            seen_ids.append(sid_file.read_text(encoding="utf-8").strip())
+        return await orig_dispatch(sess, bundle)
+
+    monkeypatch.setattr(client_ok, "dispatch_run", _recording_dispatch)
+    reports = asyncio.run(
+        _dispatch_remote_with_cancellation(client_ok, _make_session("sess-ok"))
+    )
+    assert len(reports) == 1
+    assert seen_ids == ["sess-ok"]
+    exists_after_ok = sid_file.exists()
+    assert exists_after_ok is False
+
+    # 2. ConnectionError clears file when remote cancel succeeds
+    mock_client_conn = MagicMock()
+    mock_client_conn.dispatch_run = AsyncMock(side_effect=ConnectionError("dropped"))
+    mock_client_conn.cancel_run = AsyncMock(return_value=True)
+    with pytest.raises(ConnectionError):
+        asyncio.run(
+            _dispatch_remote_with_cancellation(
+                mock_client_conn, _make_session("sess-conn-ok")
+            )
+        )
+    mock_client_conn.cancel_run.assert_awaited_once_with("sess-conn-ok")
+    exists_after_conn_ok = sid_file.exists()
+    assert exists_after_conn_ok is False
+
+    # 3. ConnectionError retains file when remote cancel fails
+    mock_client_fail = MagicMock()
+    mock_client_fail.dispatch_run = AsyncMock(side_effect=ConnectionError("down"))
+    mock_client_fail.cancel_run = AsyncMock(return_value=False)
+    with pytest.raises(ConnectionError):
+        asyncio.run(
+            _dispatch_remote_with_cancellation(
+                mock_client_fail, _make_session("sess-conn-fail")
+            )
+        )
+    retained_sid = sid_file.read_text(encoding="utf-8").strip()
+    assert retained_sid == "sess-conn-fail"
+
+    # 4. KeyboardInterrupt invokes cancel_run and clears file on accepted cancel
+    mock_client_int = MagicMock()
+    mock_client_int.dispatch_run = AsyncMock(side_effect=KeyboardInterrupt())
+    mock_client_int.cancel_run = AsyncMock(return_value=True)
+    with pytest.raises(KeyboardInterrupt):
+        asyncio.run(
+            _dispatch_remote_with_cancellation(
+                mock_client_int, _make_session("sess-int")
+            )
+        )
+    mock_client_int.cancel_run.assert_awaited_once_with("sess-int")
+    exists_after_int = sid_file.exists()
+    assert exists_after_int is False

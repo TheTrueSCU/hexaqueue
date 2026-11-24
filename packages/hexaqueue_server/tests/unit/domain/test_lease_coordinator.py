@@ -595,6 +595,99 @@ async def test_lease_slice_falls_back_to_initial_collateral_url_on_refresh_error
 
 
 @pytest.mark.asyncio
+async def test_cancel_task_records_only_cancelled_lease_ids() -> None:
+    """Verify cancel_task records evicted active leases without flagging completed ones."""
+    coord = SliceLeaseCoordinator()
+    await coord.register_worker(
+        WorkerRegistration(
+            worker_id="worker-cancel-track",
+            hostname="hq-cancel",
+            ip_address="10.0.0.50",
+            ocpus=2,
+            memory_mb=4096,
+        )
+    )
+    job_normal = JobSpec(
+        id="job-normal",
+        run_id="run-normal",
+        name="normal-job",
+        command="pytest",
+    )
+    job_cancelled = JobSpec(
+        id="job-cancelled",
+        run_id="run-cancelled",
+        name="cancelled-job",
+        command="pytest",
+    )
+    await coord.enqueue_job(job_normal)
+    await coord.enqueue_job(job_cancelled)
+
+    lease_normal = await coord.lease_slice("worker-cancel-track")
+    lease_cancelled = await coord.lease_slice("worker-cancel-track")
+    assert lease_normal is not None
+    assert lease_cancelled is not None
+
+    reported = await coord.report_slice_outcome(
+        SliceReportPayload(
+            lease_id=lease_normal.lease_id,
+            slice_id=job_normal.id,
+            worker_id="worker-cancel-track",
+            exit_code=0,
+            duration_seconds=0.1,
+        )
+    )
+    assert reported is True
+
+    was_cancelled = await coord.cancel_task("run-cancelled")
+    assert was_cancelled is True
+
+    cancelled_ids = coord.get_cancelled_lease_ids(
+        [lease_normal.lease_id, lease_cancelled.lease_id]
+    )
+    assert cancelled_ids == [lease_cancelled.lease_id]
+    is_recorded = lease_cancelled.lease_id in coord._cancelled_lease_ids
+    assert is_recorded is True
+
+
+@pytest.mark.asyncio
+async def test_get_cancelled_lease_ids_handles_low_monotonic_uptime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify low monotonic uptime (< 3600s) does not flag non-cancelled leases."""
+    monkeypatch.setattr(
+        "hexaqueue_server.domain.lease_coordinator.time.monotonic",
+        lambda: 100.0,
+    )
+    coord = SliceLeaseCoordinator()
+    job_a = JobSpec(id="job-low-a", run_id="run-low-a", name="a", command="pytest")
+    job_b = JobSpec(id="job-low-b", run_id="run-low-b", name="b", command="pytest")
+    await coord.enqueue_job(job_a)
+    await coord.enqueue_job(job_b)
+
+    lease_a = await coord.lease_slice("worker-low-1")
+    lease_b = await coord.lease_slice("worker-low-1")
+    assert lease_a is not None
+    assert lease_b is not None
+
+    cancelled = await coord.cancel_task("run-low-a")
+    assert cancelled is True
+
+    active_cancelled = coord.get_cancelled_lease_ids(
+        [lease_a.lease_id, lease_b.lease_id]
+    )
+    assert active_cancelled == [lease_a.lease_id]
+
+    monkeypatch.setattr(
+        "hexaqueue_server.domain.lease_coordinator.time.monotonic",
+        lambda: 3701.0,
+    )
+    expired_cancelled = coord.get_cancelled_lease_ids(
+        [lease_a.lease_id, lease_b.lease_id]
+    )
+    assert expired_cancelled == []
+
+
+@pytest.mark.asyncio
 async def test_periodic_reconciler_recovers_half_open_without_new_enqueue() -> None:
     """Verify background reconciler retries scale-up once OPEN cooldown expires (#219)."""
     from hexaqueue_core.domain.config import CspProvider
