@@ -578,12 +578,74 @@ async def _execute_slice(
         )
 
 
+async def _wait_for_completion_or_disconnect(
+    completion_ev: asyncio.Event,
+    request: Request | None,
+    *,
+    timeout: float,
+    poll_interval: float = 0.5,
+) -> tuple[bool, bool]:
+    """Wait for session completion event, overall timeout, or client disconnect.
+
+    Args:
+        completion_ev: Session completion asyncio.Event signaled when all slices report.
+        request: Optional FastAPI Request for polling client disconnect state.
+        timeout: Maximum wall-clock wait duration in seconds.
+        poll_interval: Disconnect polling cadence in seconds.
+
+    Returns:
+        Tuple of ``(timed_out, client_disconnected)``.
+
+    Notes/Architectural Intent:
+        Prevents orphaned slices from lingering in ``SliceLeaseCoordinator`` when an
+        HTTP client disconnects mid-request (e.g. GitHub Actions cancellation).
+    """
+    if request is None:
+        try:
+            await asyncio.wait_for(completion_ev.wait(), timeout=timeout)
+        except TimeoutError:
+            return True, False
+        return False, False
+
+    async def _watch_disconnect() -> None:
+        while not await request.is_disconnected():
+            await asyncio.sleep(poll_interval)
+
+    wait_task = asyncio.create_task(completion_ev.wait())
+    disconnect_task = asyncio.create_task(_watch_disconnect())
+    try:
+        done, pending = await asyncio.wait(
+            {wait_task, disconnect_task},
+            timeout=timeout,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for pending_task in pending:
+            pending_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await pending_task
+        if wait_task in done:
+            await wait_task
+            return False, False
+        if disconnect_task in done:
+            with suppress(asyncio.CancelledError):
+                await disconnect_task
+            return False, True
+        return True, False
+    finally:
+        for task in (wait_task, disconnect_task):
+            if not task.done():
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+
+
 async def _dispatch_remote_slices(
     req: TestRunDispatchRequest,
     coord: Any,
     collateral_svc: Any,
     is_container: bool,
-) -> list[SliceOutcomeResponse]:
+    request: Request | None = None,
+) -> tuple[list[SliceOutcomeResponse], bool]:
     """Dispatch slices to remote worker pool via SliceLeaseCoordinator.
 
     Args:
@@ -591,9 +653,15 @@ async def _dispatch_remote_slices(
         coord: SliceLeaseCoordinator instance.
         collateral_svc: Optional collateral service instance.
         is_container: Whether container execution is requested.
+        request: Optional FastAPI Request used to detect client disconnect.
 
     Returns:
-        List of completed SliceOutcomeResponse objects.
+        Tuple of ``(reports, client_disconnected)``.
+
+    Notes/Architectural Intent:
+        Cancels remaining queued tasks and active worker leases immediately if
+        lease pickup times out, wait timeout expires, request disconnects, or
+        the handler task is cancelled.
     """
     if getattr(coord, "_collateral_service", None) is None:
         coord._collateral_service = collateral_svc
@@ -615,22 +683,34 @@ async def _dispatch_remote_slices(
         if hasattr(coord, "get_session_leased_event")
         else None
     )
-    if (
-        leased_ev is not None
-        and coord.active_worker_count == 0
-        and 0.0 < pickup_timeout < timeout
-    ):
-        try:
-            await asyncio.wait_for(leased_ev.wait(), timeout=pickup_timeout)
-        except TimeoutError:
-            cancel_fn = getattr(coord, "cancel_task", None)
-            if callable(cancel_fn):
-                await cancel_fn(req.session_id)
-            return []
+    cancel_fn = getattr(coord, "cancel_task", None)
 
-    with suppress(TimeoutError):
-        await asyncio.wait_for(completion_ev.wait(), timeout=timeout)
-    return await coord.get_session_reports(req.session_id)
+    try:
+        if (
+            leased_ev is not None
+            and coord.active_worker_count == 0
+            and 0.0 < pickup_timeout < timeout
+        ):
+            timed_out, disconnected = await _wait_for_completion_or_disconnect(
+                leased_ev, request, timeout=pickup_timeout
+            )
+            if timed_out or disconnected:
+                if callable(cancel_fn):
+                    await cancel_fn(req.session_id)
+                return [], disconnected
+
+        timed_out, disconnected = await _wait_for_completion_or_disconnect(
+            completion_ev, request, timeout=timeout
+        )
+        if (timed_out or disconnected) and callable(cancel_fn):
+            await cancel_fn(req.session_id)
+        reports = await coord.get_session_reports(req.session_id)
+        return reports, disconnected
+    except asyncio.CancelledError:
+        if callable(cancel_fn):
+            with suppress(Exception):
+                await cancel_fn(req.session_id)
+        raise
 
 
 async def _dispatch_local_slices(
@@ -711,6 +791,7 @@ def create_test_runs_router() -> APIRouter:
     )
     async def dispatch_test_run(
         req: TestRunDispatchRequest,
+        request: Request,
         auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
         semaphore: Annotated[asyncio.Semaphore, Depends(get_worker_semaphore)],
         pipeline: Annotated[ExecutionPipeline, Depends(get_pipeline)],
@@ -727,13 +808,16 @@ def create_test_runs_router() -> APIRouter:
 
         # 1. Dispatch through cluster worker pool if workers are active or autoscaler configured
         if coord.active_worker_count > 0 or coord.has_autoscaler:
-            pool_reports = await _dispatch_remote_slices(
+            pool_reports, client_disconnected = await _dispatch_remote_slices(
                 req=req,
                 coord=coord,
                 collateral_svc=collateral_svc,
                 is_container=is_container,
+                request=request,
             )
             reports.extend(pool_reports)
+            if client_disconnected:
+                return TestRunDispatchResponse(reports=reports)
             completed_ids = {r.slice_id for r in pool_reports}
             remaining_slices = [
                 s for s in req.slices if s.slice_id not in completed_ids
@@ -759,6 +843,20 @@ def create_test_runs_router() -> APIRouter:
         order = {s.slice_id: idx for idx, s in enumerate(req.slices)}
         reports.sort(key=lambda r: order.get(r.slice_id, 0))
         return TestRunDispatchResponse(reports=reports)
+
+    @router.post(
+        "/test/runs/{session_id}/cancel",
+        summary="Cancel queued slices and active leases for a distributed test session",
+    )
+    async def cancel_test_run(
+        session_id: str,
+        auth: Annotated[tuple[str, bool], Depends(get_auth_context)],
+        coord: Annotated[SliceLeaseCoordinator, Depends(get_lease_coordinator)],
+    ) -> dict[str, Any]:
+        """Cancel a distributed test run session and evict active worker leases."""
+        _ = auth
+        cancelled = await coord.cancel_task(session_id)
+        return {"session_id": session_id, "cancelled": cancelled}
 
     return router
 

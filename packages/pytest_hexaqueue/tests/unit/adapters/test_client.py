@@ -284,3 +284,74 @@ async def test_http_dispatch_client_collateral_staging_and_cache(
     # 3. Failed staging raises ConnectionError
     with pytest.raises(ConnectionError, match="Failed to stage collateral"):
         await client.upload_collateral_bundle(b"fail-upload", "failing-sha")
+
+
+@pytest.mark.asyncio
+async def test_client_cancel_run_async_sync_and_in_memory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify cancel_run, cancel_run_sync, and InMemoryTestDispatchClient.cancel_run."""
+    import httpx
+
+    calls: list[tuple[str, str]] = []
+
+    class MockCancelAsyncClient:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        async def __aenter__(self) -> "MockCancelAsyncClient":
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            pass
+
+        async def post(self, url: str, **kwargs: object) -> httpx.Response:
+            calls.append(("ASYNC_POST", url))
+            if "fail-sid" in url:
+                raise httpx.ConnectError("network down")
+            return httpx.Response(202, json={"cancelled": True})
+
+    class MockCancelSyncClient:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def __enter__(self) -> "MockCancelSyncClient":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            pass
+
+        def post(self, url: str, **kwargs: object) -> httpx.Response:
+            calls.append(("SYNC_POST", url))
+            if "fail-sync" in url:
+                raise httpx.ConnectError("sync down")
+            return httpx.Response(200, json={"cancelled": True})
+
+    monkeypatch.setattr(httpx, "AsyncClient", MockCancelAsyncClient)
+    monkeypatch.setattr(httpx, "Client", MockCancelSyncClient)
+
+    client = HexaqueueTestDispatchClient(
+        server_url="http://mocked-hexaqueue:8000", api_token="tok-1"
+    )
+    ok_async = await client.cancel_run("sess-123")
+    fail_async = await client.cancel_run("fail-sid")
+    ok_sync = client.cancel_run_sync("sess-456")
+    fail_sync = client.cancel_run_sync("fail-sync")
+
+    assert ok_async is True
+    assert fail_async is False
+    assert ok_sync is True
+    assert fail_sync is False
+    assert (
+        "ASYNC_POST",
+        "http://mocked-hexaqueue:8000/api/v1/test/runs/sess-123/cancel",
+    ) in calls
+    assert (
+        "SYNC_POST",
+        "http://mocked-hexaqueue:8000/api/v1/test/runs/sess-456/cancel",
+    ) in calls
+
+    mem = InMemoryTestDispatchClient()
+    mem_ok = await mem.cancel_run("mem-sess-1")
+    assert mem_ok is True
+    assert mem.cancelled_sessions == ["mem-sess-1"]

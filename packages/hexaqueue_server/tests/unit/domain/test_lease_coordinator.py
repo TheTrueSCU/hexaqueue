@@ -592,3 +592,58 @@ async def test_lease_slice_falls_back_to_initial_collateral_url_on_refresh_error
 
     leased_url = lease.task.collateral_download_url
     assert leased_url == "https://par-initial"
+
+
+@pytest.mark.asyncio
+async def test_cancel_task_records_only_cancelled_lease_ids() -> None:
+    """Verify cancel_task records evicted active leases without flagging completed ones."""
+    coord = SliceLeaseCoordinator()
+    await coord.register_worker(
+        WorkerRegistration(
+            worker_id="worker-cancel-track",
+            hostname="hq-cancel",
+            ip_address="10.0.0.50",
+            ocpus=2,
+            memory_mb=4096,
+        )
+    )
+    job_normal = JobSpec(
+        id="job-normal",
+        run_id="run-normal",
+        name="normal-job",
+        command="pytest",
+    )
+    job_cancelled = JobSpec(
+        id="job-cancelled",
+        run_id="run-cancelled",
+        name="cancelled-job",
+        command="pytest",
+    )
+    await coord.enqueue_job(job_normal)
+    await coord.enqueue_job(job_cancelled)
+
+    lease_normal = await coord.lease_slice("worker-cancel-track")
+    lease_cancelled = await coord.lease_slice("worker-cancel-track")
+    assert lease_normal is not None
+    assert lease_cancelled is not None
+
+    reported = await coord.report_slice_outcome(
+        SliceReportPayload(
+            lease_id=lease_normal.lease_id,
+            slice_id=job_normal.id,
+            worker_id="worker-cancel-track",
+            exit_code=0,
+            duration_seconds=0.1,
+        )
+    )
+    assert reported is True
+
+    was_cancelled = await coord.cancel_task("run-cancelled")
+    assert was_cancelled is True
+
+    cancelled_ids = coord.get_cancelled_lease_ids(
+        [lease_normal.lease_id, lease_cancelled.lease_id]
+    )
+    assert cancelled_ids == [lease_cancelled.lease_id]
+    is_recorded = lease_cancelled.lease_id in coord._cancelled_lease_ids
+    assert is_recorded is True

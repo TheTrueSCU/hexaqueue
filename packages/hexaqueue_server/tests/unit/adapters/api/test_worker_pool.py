@@ -305,3 +305,46 @@ async def test_join_token_security_enforcement() -> None:
             )
             code_ok = resp_ok.status_code
             assert code_ok == 200
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_returns_cancelled_lease_ids() -> None:
+    """Verify worker heartbeat response includes coordinator-cancelled lease IDs."""
+    coord = SliceLeaseCoordinator()
+    await coord.register_worker(
+        WorkerRegistration(
+            worker_id="worker-hb-cancel",
+            hostname="hb-cancel",
+            ip_address="10.0.0.51",
+            ocpus=2,
+            memory_mb=4096,
+        )
+    )
+    await coord.enqueue_session_slices(
+        session_id="sess-hb-cancel",
+        slices=[
+            TestSliceDispatch(
+                slice_id="slice-hb-1",
+                slice_index=0,
+                total_slices=1,
+                test_nodeids=["tests/test_a.py::test_1"],
+            )
+        ],
+    )
+    lease = await coord.lease_slice("worker-hb-cancel")
+    assert lease is not None
+
+    was_cancelled = await coord.cancel_task("sess-hb-cancel")
+    assert was_cancelled is True
+
+    app = _create_test_app(coord)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/worker/worker-hb-cancel/heartbeat",
+            json={"active_lease_ids": [lease.lease_id]},
+        )
+        code = resp.status_code
+        payload = resp.json()
+    assert code == 200
+    assert payload["cancelled_lease_ids"] == [lease.lease_id]

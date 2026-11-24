@@ -10,8 +10,10 @@ import asyncio
 import base64
 import contextlib
 import os
+import signal
 import sqlite3
 import subprocess
+import threading
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
@@ -890,6 +892,83 @@ async def _managed_ssh_tunnel(
                 await asyncio.wait_for(proc.wait(), timeout=2.0)
 
 
+def _get_session_id_file() -> Path | None:
+    """Resolve optional ``HEXAQUEUE_SESSION_ID_FILE`` path for CI cleanup."""
+    raw = os.environ.get("HEXAQUEUE_SESSION_ID_FILE", "").strip()
+    return Path(raw) if raw else None
+
+
+def _write_active_session_id(session_id: str) -> None:
+    """Persist the active distributed test session ID for external cleanup."""
+    sid_file = _get_session_id_file()
+    if sid_file is None:
+        return
+    with contextlib.suppress(OSError):
+        sid_file.parent.mkdir(parents=True, exist_ok=True)
+        sid_file.write_text(f"{session_id}\n", encoding="utf-8")
+
+
+def _clear_active_session_id(session_id: str) -> None:
+    """Delete ``HEXAQUEUE_SESSION_ID_FILE`` if it holds ``session_id`` or is empty."""
+    sid_file = _get_session_id_file()
+    if sid_file is None or not sid_file.exists():
+        return
+    with contextlib.suppress(OSError):
+        current = sid_file.read_text(encoding="utf-8").strip()
+        if not current or current == session_id:
+            sid_file.unlink()
+
+
+async def _dispatch_remote_with_cancellation(
+    client: "HexaqueueTestDispatchPort",
+    session: "TestRunSession",
+) -> list["SliceOutcomeReport"]:
+    """Dispatch a remote test session with signal/error cancellation and ID tracking."""
+    _write_active_session_id(session.session_id)
+    cancel_state = {"done": False}
+    dispatch_ok = False
+    prev_handlers: dict[int, Any] = {}
+
+    if threading.current_thread() is threading.main_thread():
+
+        def _on_signal(_signum: int, _frame: Any) -> None:
+            sync_cancel = getattr(client, "cancel_run_sync", None)
+            if callable(sync_cancel):
+                with contextlib.suppress(Exception):
+                    cancel_state["done"] = bool(sync_cancel(session.session_id))
+            raise KeyboardInterrupt
+
+        signals_to_trap = [signal.SIGINT, signal.SIGTERM]
+        if hasattr(signal, "SIGHUP"):
+            signals_to_trap.append(signal.SIGHUP)
+        prev_handlers = {sig: signal.signal(sig, _on_signal) for sig in signals_to_trap}
+
+    try:
+        try:
+            reports = await client.dispatch_run(session)
+            dispatch_ok = True
+            return reports
+        except (ConnectionError, TimeoutError):
+            if not cancel_state["done"]:
+                with contextlib.suppress(Exception):
+                    cancel_state["done"] = bool(
+                        await client.cancel_run(session.session_id)
+                    )
+            raise
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            if not cancel_state["done"]:
+                with contextlib.suppress(Exception):
+                    cancel_state["done"] = bool(
+                        await client.cancel_run(session.session_id)
+                    )
+            raise
+    finally:
+        for sig, handler in prev_handlers.items():
+            signal.signal(sig, handler)
+        if dispatch_ok or cancel_state["done"]:
+            _clear_active_session_id(session.session_id)
+
+
 async def _dispatch_slices_loop(
     slices: list["TestSliceSpec"],
     local_count: int,
@@ -938,7 +1017,9 @@ async def _dispatch_slices_loop(
 
         # Case 2: Pure remote execution
         if local_count == 0:
-            return await client.dispatch_run(effective_run_session)
+            return await _dispatch_remote_with_cancellation(
+                client, effective_run_session
+            )
 
         # Case 3: Hybrid execution (concurrent local + remote)
         remote_run_session = TestRunSession(
@@ -959,7 +1040,7 @@ async def _dispatch_slices_loop(
         local_task = asyncio.gather(
             *[local_runner.execute_slice(s, cov_sources) for s in local_slices]
         )
-        remote_task = client.dispatch_run(remote_run_session)
+        remote_task = _dispatch_remote_with_cancellation(client, remote_run_session)
 
         local_results, remote_results = await asyncio.gather(local_task, remote_task)
         combined = list(local_results) + list(remote_results)
