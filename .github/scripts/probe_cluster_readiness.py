@@ -63,7 +63,16 @@ def check_capacity_ready(url: str = "http://127.0.0.1:8000/health/ready") -> boo
         with urllib.request.urlopen(req, timeout=3.0) as resp:  # noqa: S310
             data = json.loads(resp.read().decode("utf-8"))
             state = str(data.get("capacity_state", "READY")).upper()
-            return resp.status == 200 and state != "DEGRADED"
+            if resp.status != 200 or state == "DEGRADED":
+                return False
+            active_workers = int(data.get("active_workers", 0) or 0)
+            circuit = data.get("pool_circuit")
+            circuit_state = (
+                str(circuit.get("state", "CLOSED")).upper()
+                if isinstance(circuit, dict)
+                else "CLOSED"
+            )
+            return not (active_workers <= 1 and circuit_state == "OPEN")
     except urllib.error.HTTPError as err:
         return err.code == 404
     except Exception:  # noqa: BLE001

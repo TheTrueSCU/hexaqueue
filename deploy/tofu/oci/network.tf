@@ -79,8 +79,8 @@ resource "oci_core_network_security_group_security_rule" "controller_ingress_wor
 
   tcp_options {
     destination_port_range {
-      min = 8001
-      max = 8001
+      min = var.controller_port
+      max = var.controller_port
     }
   }
 }
@@ -103,8 +103,25 @@ resource "oci_core_network_security_group_security_rule" "worker_egress_controll
 
   tcp_options {
     destination_port_range {
-      min = 8001
-      max = 8001
+      min = var.controller_port
+      max = var.controller_port
+    }
+  }
+}
+
+# Ingress rule: allow controller host private SSH jump into burst workers for diagnostics
+resource "oci_core_network_security_group_security_rule" "worker_ingress_ssh_from_controller" {
+  network_security_group_id = oci_core_network_security_group.worker_nsg.id
+  direction                 = "INGRESS"
+  protocol                  = "6" # TCP
+  source                    = oci_core_network_security_group.controller_nsg.id
+  source_type               = "NETWORK_SECURITY_GROUP"
+  description               = "Allow private SSH diagnostics from controller host to burst workers"
+
+  tcp_options {
+    destination_port_range {
+      min = 22
+      max = 22
     }
   }
 }

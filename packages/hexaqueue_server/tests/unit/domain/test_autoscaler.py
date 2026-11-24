@@ -493,3 +493,122 @@ def test_autoscaler_runtime_strategy_switching(
     dec_none = autoscaler.evaluate_scaling(idle_pool, pending_jobs=4)
     assert dec_none.action == "SCALE_UP"
     assert dec_none.target_nodes == 4
+
+
+class _MultiPoolMockGovernor(InstancePoolGovernorPort):
+    """In-memory multi-pool governor supporting capacity availability toggles."""
+
+    def __init__(
+        self,
+        pools: dict[str, InstancePoolState],
+        available_map: dict[str, bool],
+    ) -> None:
+        self.pools = pools
+        self.available_map = available_map
+        self.scale_calls: list[PoolScaleRequest] = []
+
+    async def get_pool_state(self, pool_id: str) -> InstancePoolState:
+        return self.pools[pool_id]
+
+    async def list_pools(self) -> list[InstancePoolState]:
+        return list(self.pools.values())
+
+    async def scale_pool(self, request: PoolScaleRequest) -> PoolScaleResult:
+        self.scale_calls.append(request)
+        prev = self.pools[request.pool_id].current_nodes
+        self.pools[request.pool_id] = self.pools[request.pool_id].model_copy(
+            update={
+                "desired_nodes": request.target_nodes,
+                "current_nodes": request.target_nodes,
+                "ready_nodes": request.target_nodes,
+            }
+        )
+        return PoolScaleResult(
+            pool_id=request.pool_id,
+            previous_nodes=prev,
+            target_nodes=request.target_nodes,
+            success=True,
+            message="ok",
+        )
+
+    async def check_pool_capacity(self, pool_id: str) -> bool:
+        return self.available_map.get(pool_id, True)
+
+
+def _pool_state(
+    pool_id: str, max_nodes: int, current_nodes: int = 0
+) -> InstancePoolState:
+    return InstancePoolState(
+        pool_id=pool_id,
+        provider=CspProvider.OCI,
+        min_nodes=0,
+        max_nodes=max_nodes,
+        desired_nodes=current_nodes,
+        current_nodes=current_nodes,
+        ready_nodes=current_nodes,
+    )
+
+
+@pytest.mark.asyncio
+async def test_reconcile_priority_pools_falls_back_when_ampere_unavailable() -> None:
+    """Verify priority reconciler skips exhausted Ampere pools and scales E5 fallback."""
+    gov = _MultiPoolMockGovernor(
+        pools={
+            "pool-a1": _pool_state("pool-a1", max_nodes=4),
+            "pool-a4": _pool_state("pool-a4", max_nodes=2),
+            "pool-e5": _pool_state("pool-e5", max_nodes=4),
+        },
+        available_map={"pool-a1": False, "pool-a4": False, "pool-e5": True},
+    )
+    autoscaler = BudgetAwareInstancePoolAutoscaler(
+        governors={"pool-a1": gov, "pool-a4": gov, "pool-e5": gov}
+    )
+    decisions = await autoscaler.reconcile_priority_pools(
+        pool_ids=["pool-a1", "pool-a4", "pool-e5"],
+        pending_jobs=3,
+    )
+    actions = [(d.pool_id, d.action, d.target_nodes) for d in decisions]
+    assert actions == [
+        ("pool-a1", "NOOP", 0),
+        ("pool-a4", "NOOP", 0),
+        ("pool-e5", "SCALE_UP", 3),
+    ]
+    scaled_ids = [c.pool_id for c in gov.scale_calls]
+    assert scaled_ids == ["pool-e5"]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_priority_pools_splits_capacity_and_scales_down_when_idle() -> (
+    None
+):
+    """Verify priority reconciler spills overflow across pools and scales all down at idle."""
+    gov = _MultiPoolMockGovernor(
+        pools={
+            "pool-a1": _pool_state("pool-a1", max_nodes=2),
+            "pool-e5": _pool_state("pool-e5", max_nodes=4),
+        },
+        available_map={"pool-a1": True, "pool-e5": True},
+    )
+    autoscaler = BudgetAwareInstancePoolAutoscaler(
+        governors={"pool-a1": gov, "pool-e5": gov}
+    )
+    up_decisions = await autoscaler.reconcile_priority_pools(
+        pool_ids=["pool-a1", "pool-e5"],
+        pending_jobs=3,
+    )
+    up_actions = [(d.pool_id, d.action, d.target_nodes) for d in up_decisions]
+    assert up_actions == [
+        ("pool-a1", "SCALE_UP", 2),
+        ("pool-e5", "SCALE_UP", 1),
+    ]
+
+    down_decisions = await autoscaler.reconcile_priority_pools(
+        pool_ids=["pool-a1", "pool-e5"],
+        pending_jobs=0,
+        running_jobs=0,
+    )
+    down_actions = [(d.pool_id, d.action, d.target_nodes) for d in down_decisions]
+    assert down_actions == [
+        ("pool-a1", "SCALE_DOWN", 0),
+        ("pool-e5", "SCALE_DOWN", 0),
+    ]
