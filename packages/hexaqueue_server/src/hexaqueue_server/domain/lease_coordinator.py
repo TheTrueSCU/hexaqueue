@@ -530,11 +530,12 @@ class SliceLeaseCoordinator:
         """
         if not active_lease_ids:
             return []
-        cutoff = time.monotonic() - 3600.0
+        now_mono = time.monotonic()
         return [
             lid
             for lid in active_lease_ids
-            if self._cancelled_lease_ids.get(lid, -1.0) >= cutoff
+            if (recorded_at := self._cancelled_lease_ids.get(lid)) is not None
+            and now_mono - recorded_at <= 3600.0
         ]
 
     async def lease_slice(

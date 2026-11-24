@@ -647,3 +647,41 @@ async def test_cancel_task_records_only_cancelled_lease_ids() -> None:
     assert cancelled_ids == [lease_cancelled.lease_id]
     is_recorded = lease_cancelled.lease_id in coord._cancelled_lease_ids
     assert is_recorded is True
+
+
+@pytest.mark.asyncio
+async def test_get_cancelled_lease_ids_handles_low_monotonic_uptime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify low monotonic uptime (< 3600s) does not flag non-cancelled leases."""
+    monkeypatch.setattr(
+        "hexaqueue_server.domain.lease_coordinator.time.monotonic",
+        lambda: 100.0,
+    )
+    coord = SliceLeaseCoordinator()
+    job_a = JobSpec(id="job-low-a", run_id="run-low-a", name="a", command="pytest")
+    job_b = JobSpec(id="job-low-b", run_id="run-low-b", name="b", command="pytest")
+    await coord.enqueue_job(job_a)
+    await coord.enqueue_job(job_b)
+
+    lease_a = await coord.lease_slice("worker-low-1")
+    lease_b = await coord.lease_slice("worker-low-1")
+    assert lease_a is not None
+    assert lease_b is not None
+
+    cancelled = await coord.cancel_task("run-low-a")
+    assert cancelled is True
+
+    active_cancelled = coord.get_cancelled_lease_ids(
+        [lease_a.lease_id, lease_b.lease_id]
+    )
+    assert active_cancelled == [lease_a.lease_id]
+
+    monkeypatch.setattr(
+        "hexaqueue_server.domain.lease_coordinator.time.monotonic",
+        lambda: 3701.0,
+    )
+    expired_cancelled = coord.get_cancelled_lease_ids(
+        [lease_a.lease_id, lease_b.lease_id]
+    )
+    assert expired_cancelled == []
