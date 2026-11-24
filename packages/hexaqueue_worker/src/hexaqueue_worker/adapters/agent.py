@@ -18,6 +18,7 @@ import io
 import os
 import shlex
 import shutil
+import signal
 import sys
 import tarfile
 import tempfile
@@ -164,6 +165,49 @@ def _resolve_command_invocation(
     return False, [executable, *resolved_args]
 
 
+async def _terminate_process_group(
+    proc: asyncio.subprocess.Process,
+    grace_seconds: float = 5.0,
+) -> None:
+    """Terminate an active worker subprocess and its entire process group cleanly.
+
+    Args:
+        proc: Subprocess handle spawned by the worker agent.
+        grace_seconds: Grace period in seconds between SIGTERM and SIGKILL.
+
+    Notes/Architectural Intent:
+        Terminates detached POSIX process groups (``start_new_session=True``) so
+        hung child ``pytest`` or ``pytest-xdist`` workers cannot survive lease
+        cancellation or slice wall-clock timeouts as orphaned background processes.
+    """
+    if getattr(proc, "returncode", None) is not None:
+        return
+    pid = getattr(proc, "pid", None)
+    use_pg = (
+        os.name != "nt"
+        and isinstance(pid, int)
+        and pid > 0
+        and hasattr(os, "killpg")
+        and hasattr(os, "getpgid")
+    )
+    with contextlib.suppress(ProcessLookupError, OSError):
+        if use_pg and pid is not None:
+            os.killpg(os.getpgid(pid), signal.SIGTERM)
+        else:
+            proc.terminate()
+    with contextlib.suppress(TimeoutError, ProcessLookupError, OSError):
+        await asyncio.wait_for(proc.wait(), timeout=max(0.05, grace_seconds))
+    if getattr(proc, "returncode", None) is not None:
+        return
+    with contextlib.suppress(ProcessLookupError, OSError):
+        if use_pg and pid is not None:
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
+        else:
+            proc.kill()
+    with contextlib.suppress(TimeoutError, ProcessLookupError, OSError):
+        await asyncio.wait_for(proc.wait(), timeout=2.0)
+
+
 @dataclass
 class WorkerAgentConfig:
     """Configuration settings for the compute worker daemon agent.
@@ -179,6 +223,8 @@ class WorkerAgentConfig:
         heartbeat_interval_seconds: Cadence for active lease heartbeat renewal.
         poll_timeout_seconds: Long-poll duration when requesting pending slices.
         idle_timeout_seconds: Inactivity period before worker initiates scale-to-zero shutdown.
+        slice_timeout_seconds: Maximum wall-clock runtime per leased slice in seconds
+            (``<= 0`` disables local enforcement).
         scratch_dir: Base directory for unpacking session collateral and workspaces.
     """
 
@@ -192,6 +238,7 @@ class WorkerAgentConfig:
     heartbeat_interval_seconds: float = 15.0
     poll_timeout_seconds: float = 10.0
     idle_timeout_seconds: float = 180.0
+    slice_timeout_seconds: float = 2400.0
     scratch_dir: Path | None = None
 
     @classmethod
@@ -224,6 +271,12 @@ class WorkerAgentConfig:
         raw_idle = os.environ.get("HEXAQUEUE_AGENT_IDLE_TIMEOUT")
         idle_timeout = float(raw_idle) if raw_idle else 180.0
 
+        raw_slice_timeout = os.environ.get("HEXAQUEUE_SLICE_TIMEOUT_SECONDS")
+        slice_timeout = 2400.0
+        if raw_slice_timeout:
+            with contextlib.suppress(ValueError):
+                slice_timeout = float(raw_slice_timeout)
+
         raw_scratch = os.environ.get("HEXAQUEUE_AGENT_SCRATCH_DIR")
         scratch_dir = Path(raw_scratch) if raw_scratch else None
 
@@ -236,6 +289,7 @@ class WorkerAgentConfig:
             ocpus=max(1, ocpus),
             memory_mb=max(512, memory_mb),
             idle_timeout_seconds=idle_timeout,
+            slice_timeout_seconds=slice_timeout,
             scratch_dir=scratch_dir,
         )
 
@@ -261,6 +315,8 @@ class WorkerAgent:
         self.config = config or WorkerAgentConfig.from_env()
         self._custom_client = client
         self._active_leases: set[str] = set()
+        self._active_procs: dict[str, asyncio.subprocess.Process] = {}
+        self._cancelled_leases: set[str] = set()
         self._stop_event = asyncio.Event()
 
     def _headers(self) -> dict[str, str]:
@@ -357,9 +413,29 @@ class WorkerAgent:
             resp = await client.post(url, json=payload, headers=self._headers())
             if resp.status_code == 404 and await self.register(client):
                 resp = await client.post(url, json=payload, headers=self._headers())
-            return resp.status_code == 200
+            if resp.status_code != 200:
+                return False
+            await self._handle_heartbeat_cancellations(resp)
+            return True
         except Exception:
             return False
+
+    async def _handle_heartbeat_cancellations(self, resp: httpx.Response) -> None:
+        """Terminate any active subprocess whose lease was cancelled on coordinator."""
+        payload_data: Any = None
+        with contextlib.suppress(Exception):
+            payload_data = resp.json()
+        if not isinstance(payload_data, dict):
+            return
+        cancelled_ids = payload_data.get("cancelled_lease_ids")
+        if not isinstance(cancelled_ids, list):
+            return
+        for raw_lid in cancelled_ids:
+            lid = str(raw_lid)
+            self._cancelled_leases.add(lid)
+            proc = self._active_procs.get(lid)
+            if proc is not None:
+                await _terminate_process_group(proc)
 
     async def lease_slice(self, client: httpx.AsyncClient) -> SliceLease | None:
         """Long-poll the coordinator to lease the next pending test slice.
@@ -527,6 +603,37 @@ class WorkerAgent:
         await _flush_if_needed(force=True)
         return exit_code or 0, "".join(stdout_parts), "".join(stderr_parts)
 
+    async def _stream_with_lease_guard(
+        self,
+        proc: asyncio.subprocess.Process,
+        *,
+        lease_id: str | None = None,
+        job_id: str | None = None,
+        client: httpx.AsyncClient | None = None,
+    ) -> tuple[int, str, str]:
+        """Run ``_stream_process_output`` with active lease tracking and wall-clock timeout."""
+        if lease_id is not None:
+            self._active_procs[lease_id] = proc
+            if lease_id in self._cancelled_leases:
+                await _terminate_process_group(proc)
+        timeout_val = (
+            self.config.slice_timeout_seconds
+            if self.config.slice_timeout_seconds > 0.0
+            else None
+        )
+        try:
+            coro = self._stream_process_output(proc, job_id=job_id, client=client)
+            if timeout_val is None:
+                return await coro
+            return await asyncio.wait_for(coro, timeout=timeout_val)
+        except TimeoutError:
+            await _terminate_process_group(proc)
+            msg = f"Slice {job_id or lease_id or 'task'} exceeded worker timeout ({timeout_val:.1f}s)."
+            return 124, "", msg
+        finally:
+            if lease_id is not None:
+                self._active_procs.pop(lease_id, None)
+
     async def _run_pytest_slice(
         self,
         nodeids: list[str],
@@ -535,6 +642,7 @@ class WorkerAgent:
         start_time: float,
         job_id: str | None = None,
         client: httpx.AsyncClient | None = None,
+        lease_id: str | None = None,
     ) -> tuple[int, list[dict[str, Any]], str, str]:
         """Execute pytest command on specified test nodeids.
 
@@ -545,6 +653,7 @@ class WorkerAgent:
             start_time: Monotonic start timestamp.
             job_id: Optional job/slice identifier for live log streaming.
             client: Optional async HTTP client for streaming incremental log chunks.
+            lease_id: Optional active lease identifier for cancellation tracking.
 
         Returns:
             Tuple of (exit_code, outcomes, stdout, stderr).
@@ -591,9 +700,10 @@ class WorkerAgent:
             env=env,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            start_new_session=(os.name != "nt"),
         )
-        exit_code, stdout_text, stderr_text = await self._stream_process_output(
-            proc, job_id=job_id, client=client
+        exit_code, stdout_text, stderr_text = await self._stream_with_lease_guard(
+            proc, lease_id=lease_id, job_id=job_id, client=client
         )
 
         item_outcome = "passed" if exit_code == 0 else "failed"
@@ -623,6 +733,7 @@ class WorkerAgent:
         start_time: float,
         job_id: str | None = None,
         client: httpx.AsyncClient | None = None,
+        lease_id: str | None = None,
     ) -> tuple[int, list[dict[str, Any]], str, str]:
         """Execute arbitrary command or batch task in workspace.
 
@@ -635,6 +746,7 @@ class WorkerAgent:
             start_time: Monotonic start timestamp.
             job_id: Optional job/slice identifier for live log streaming.
             client: Optional async HTTP client for streaming incremental log chunks.
+            lease_id: Optional active lease identifier for cancellation tracking.
 
         Returns:
             Tuple of (exit_code, outcomes, stdout, stderr).
@@ -653,6 +765,7 @@ class WorkerAgent:
                 env=env,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                start_new_session=(os.name != "nt"),
             )
         else:
             cmd_list = (
@@ -664,9 +777,10 @@ class WorkerAgent:
                 env=env,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                start_new_session=(os.name != "nt"),
             )
-        exit_code, stdout_text, stderr_text = await self._stream_process_output(
-            proc, job_id=job_id, client=client
+        exit_code, stdout_text, stderr_text = await self._stream_with_lease_guard(
+            proc, lease_id=lease_id, job_id=job_id, client=client
         )
 
         item_outcome = "passed" if exit_code == 0 else "failed"
@@ -746,7 +860,7 @@ class WorkerAgent:
                     error_msg = f"Failed to download or extract collateral from {task.collateral_download_url}"
                     exit_code = 1
 
-            if exit_code == 0:
+            if exit_code == 0 and lease.lease_id not in self._cancelled_leases:
                 if task.command:
                     (
                         exit_code,
@@ -762,6 +876,7 @@ class WorkerAgent:
                         start_time,
                         job_id=task.slice_id,
                         client=client,
+                        lease_id=lease.lease_id,
                     )
                 elif task.test_nodeids:
                     (
@@ -776,7 +891,12 @@ class WorkerAgent:
                         start_time,
                         job_id=task.slice_id,
                         client=client,
+                        lease_id=lease.lease_id,
                     )
+
+            if lease.lease_id in self._cancelled_leases:
+                exit_code = 130
+                error_msg = f"Lease {lease.lease_id} cancelled by coordinator"
 
             cov_key = await self._handle_coverage_upload(task, workspace)
             cov_path = workspace / ".coverage"
@@ -790,6 +910,8 @@ class WorkerAgent:
         except Exception as exc:
             exit_code = 1
             error_msg = str(exc)
+        finally:
+            self._cancelled_leases.discard(lease.lease_id)
 
         duration = max(0.001, round(time.monotonic() - start_time, 3))
         return SliceReportPayload(
@@ -920,6 +1042,11 @@ class WorkerAgent:
                 ):
                     break
         finally:
+            for active_proc in list(self._active_procs.values()):
+                with contextlib.suppress(Exception):
+                    await _terminate_process_group(active_proc)
+            self._active_procs.clear()
+
             if heartbeat_task is not None:
                 heartbeat_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):

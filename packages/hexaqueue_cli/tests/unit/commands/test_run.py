@@ -9,7 +9,11 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
-from hexaqueue_cli.domain.session import LocalCliSession, set_default_session
+from hexaqueue_cli.domain.session import (
+    LocalCliSession,
+    get_default_session,
+    set_default_session,
+)
 from hexaqueue_cli.main import app
 from hexaqueue_core.domain.lifecycle import RunState
 from hexaqueue_server.domain.models import RunStatusReport
@@ -265,3 +269,40 @@ def test_cli_run_submit_remote_does_not_start_local_worker(tmp_path: Path) -> No
     assert "detached mode" not in res.stdout
     mock_session_fn.assert_not_called()
     mock_cls.assert_called_once_with(controller_url="http://remote-ctrl:8000")
+
+
+def test_cli_run_submit_detached_does_not_start_worker_and_watch_stops_worker(
+    tmp_path: Path,
+) -> None:
+    """Verify detached submit skips starting local worker and --watch cleanly stops it."""
+    detached_yaml = tmp_path / "detached.yaml"
+    detached_yaml.write_text(
+        yaml.safe_dump(
+            {
+                "run": {"id": "run-detached-lifecycle"},
+                "jobs": [{"id": "j-det-1", "command": "sleep 10"}],
+            }
+        )
+    )
+    session = get_default_session()
+    detached_res = runner.invoke(app, ["run", "submit", str(detached_yaml)])
+    detached_code = detached_res.exit_code
+    worker_running_after_detached = session.worker._running
+    assert detached_code == 0
+    assert worker_running_after_detached is False
+
+    watched_yaml = tmp_path / "watched.yaml"
+    watched_yaml.write_text(
+        yaml.safe_dump(
+            {
+                "run": {"id": "run-watched-lifecycle"},
+                "jobs": [{"id": "j-watch-1", "command": "echo ok"}],
+            }
+        )
+    )
+    watched_res = runner.invoke(app, ["run", "submit", str(watched_yaml), "--watch"])
+    watched_code = watched_res.exit_code
+    worker_running_after_watch = session.worker._running
+    assert watched_code == 0
+    assert "Run completed" in watched_res.stdout
+    assert worker_running_after_watch is False

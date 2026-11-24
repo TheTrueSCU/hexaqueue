@@ -57,3 +57,19 @@ class InstancePoolGovernorPort(ABC):
         Raises:
             HexaqueueError: If the resizing call encounters a fatal provider error.
         """
+
+    async def check_pool_capacity(self, pool_id: str) -> bool:
+        """Probe whether the backing cloud provider currently reports host capacity.
+
+        Args:
+            pool_id: Unique pool identifier to probe.
+
+        Returns:
+            True if host capacity is available (or probing is unsupported),
+            False when the provider explicitly reports capacity exhaustion.
+
+        Notes/Architectural Intent:
+            Non-abstract default preserves backward compatibility for adapters
+            that rely solely on scale-up attempts and circuit breakers.
+        """
+        return True

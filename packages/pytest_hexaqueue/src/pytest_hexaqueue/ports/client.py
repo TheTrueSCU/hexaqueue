@@ -74,6 +74,23 @@ class HexaqueueTestDispatchPort(ABC):
             True if cluster is reachable and accepting jobs, False otherwise.
         """
 
+    async def cancel_run(self, session_id: str) -> bool:
+        """Best-effort cancellation of a previously dispatched test session.
+
+        Args:
+            session_id: Unique TestRunSession identifier to cancel.
+
+        Returns:
+            True if cancellation was accepted by the controller, False otherwise.
+
+        Notes/Architectural Intent:
+            Non-abstract default allows existing mock or read-only implementations to
+            preserve interface compatibility while enabling remote cleanup on signals
+            or timeouts.
+        """
+        _ = session_id
+        return False
+
 
 __all__ = [
     "HexaqueueTestDispatchPort",

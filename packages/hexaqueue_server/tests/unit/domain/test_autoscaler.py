@@ -1,6 +1,7 @@
 """Unit tests for BudgetAwareInstancePoolAutoscaler."""
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -493,3 +494,119 @@ def test_autoscaler_runtime_strategy_switching(
     dec_none = autoscaler.evaluate_scaling(idle_pool, pending_jobs=4)
     assert dec_none.action == "SCALE_UP"
     assert dec_none.target_nodes == 4
+
+
+def _pool_state(
+    pool_id: str, max_nodes: int, current_nodes: int = 0
+) -> InstancePoolState:
+    return InstancePoolState(
+        pool_id=pool_id,
+        provider=CspProvider.OCI,
+        min_nodes=0,
+        max_nodes=max_nodes,
+        desired_nodes=current_nodes,
+        current_nodes=current_nodes,
+        ready_nodes=current_nodes,
+    )
+
+
+@pytest.mark.asyncio
+async def test_reconcile_priority_pools_falls_back_when_ampere_unavailable(
+    multi_pool_governor_factory: Any,
+) -> None:
+    """Verify priority reconciler skips exhausted Ampere pools and scales E5 fallback."""
+    gov = multi_pool_governor_factory(
+        pools={
+            "pool-a1": _pool_state("pool-a1", max_nodes=4),
+            "pool-a4": _pool_state("pool-a4", max_nodes=2),
+            "pool-e5": _pool_state("pool-e5", max_nodes=4),
+        },
+        available_map={"pool-a1": False, "pool-a4": False, "pool-e5": True},
+    )
+    autoscaler = BudgetAwareInstancePoolAutoscaler(
+        governors={"pool-a1": gov, "pool-a4": gov, "pool-e5": gov}
+    )
+    decisions = await autoscaler.reconcile_priority_pools(
+        pool_ids=["pool-a1", "pool-a4", "pool-e5"],
+        pending_jobs=3,
+    )
+    actions = [(d.pool_id, d.action, d.target_nodes) for d in decisions]
+    assert actions == [
+        ("pool-a1", "NOOP", 0),
+        ("pool-a4", "NOOP", 0),
+        ("pool-e5", "SCALE_UP", 3),
+    ]
+    scaled_ids = [c.pool_id for c in gov.scale_calls]
+    assert scaled_ids == ["pool-e5"]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_priority_pools_splits_capacity_and_scales_down_when_idle(
+    multi_pool_governor_factory: Any,
+) -> None:
+    """Verify priority reconciler spills overflow across pools and scales all down at idle."""
+    gov = multi_pool_governor_factory(
+        pools={
+            "pool-a1": _pool_state("pool-a1", max_nodes=2),
+            "pool-e5": _pool_state("pool-e5", max_nodes=4),
+        },
+        available_map={"pool-a1": True, "pool-e5": True},
+    )
+    autoscaler = BudgetAwareInstancePoolAutoscaler(
+        governors={"pool-a1": gov, "pool-e5": gov}
+    )
+    up_decisions = await autoscaler.reconcile_priority_pools(
+        pool_ids=["pool-a1", "pool-e5"],
+        pending_jobs=3,
+    )
+    up_actions = [(d.pool_id, d.action, d.target_nodes) for d in up_decisions]
+    assert up_actions == [
+        ("pool-a1", "SCALE_UP", 2),
+        ("pool-e5", "SCALE_UP", 1),
+    ]
+
+    down_decisions = await autoscaler.reconcile_priority_pools(
+        pool_ids=["pool-a1", "pool-e5"],
+        pending_jobs=0,
+        running_jobs=0,
+    )
+    down_actions = [(d.pool_id, d.action, d.target_nodes) for d in down_decisions]
+    assert down_actions == [
+        ("pool-a1", "SCALE_DOWN", 0),
+        ("pool-e5", "SCALE_DOWN", 0),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_priority_pools_isolates_errors_skips_open_and_dedups_get_state(
+    multi_pool_governor_factory: Any,
+) -> None:
+    """Verify priority reconciler isolates CSP errors, skips OPEN pools without querying state, and calls get_pool_state once per pool."""
+    gov = multi_pool_governor_factory(
+        pools={
+            "pool-a1": _pool_state("pool-a1", max_nodes=4),
+            "pool-a4": _pool_state("pool-a4", max_nodes=2),
+            "pool-e5": _pool_state("pool-e5", max_nodes=4),
+        },
+        available_map={"pool-a1": True, "pool-a4": True, "pool-e5": True},
+        fail_pools={"pool-a4": RuntimeError("429 TooManyRequests")},
+    )
+    autoscaler = BudgetAwareInstancePoolAutoscaler(
+        governors={"pool-a1": gov, "pool-a4": gov, "pool-e5": gov}
+    )
+    autoscaler.trip_circuit("pool-a1", "Out of host capacity")
+
+    decisions = await autoscaler.reconcile_priority_pools(
+        pool_ids=["pool-a1", "pool-a4", "pool-e5"],
+        pending_jobs=2,
+    )
+    actions = [(d.pool_id, d.action, d.target_nodes) for d in decisions]
+    assert actions == [
+        ("pool-a1", "NOOP", 0),
+        ("pool-a4", "NOOP", 0),
+        ("pool-e5", "SCALE_UP", 2),
+    ]
+    a1_calls = gov.state_calls.get("pool-a1", 0)
+    e5_calls = gov.state_calls.get("pool-e5", 0)
+    assert a1_calls == 0
+    assert e5_calls == 1

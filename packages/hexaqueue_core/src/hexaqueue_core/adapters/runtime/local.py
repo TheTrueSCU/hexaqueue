@@ -5,6 +5,7 @@ import contextlib
 import os
 import shlex
 from datetime import UTC, datetime
+from typing import Any
 
 from hexaqueue_core.domain.job import JobSpec
 from hexaqueue_core.domain.lifecycle import TerminalOutcome
@@ -62,6 +63,25 @@ class LocalSubprocessExecutionRuntimeAdapter(ExecutionRuntimePort):
         except asyncio.CancelledError:
             # Stream processor cancelled during job termination; exit loop cleanly.
             return
+
+    async def _cleanup_interrupted_process(
+        self,
+        proc: asyncio.subprocess.Process,
+        gather_task: asyncio.Future[Any],
+        pipe_tasks: list[asyncio.Task[None]],
+    ) -> None:
+        """Cancel streaming tasks and reap a timed-out or cancelled child process."""
+        gather_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            _ = await gather_task
+        for t in pipe_tasks:
+            t.cancel()
+        await asyncio.gather(*pipe_tasks, return_exceptions=True)
+        if proc.returncode is None:
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+            with contextlib.suppress(Exception):
+                await proc.wait()
 
     async def execute(
         self,
@@ -133,14 +153,7 @@ class LocalSubprocessExecutionRuntimeAdapter(ExecutionRuntimePort):
             )
 
         except TimeoutError:
-            gather_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                _ = await gather_task
-            for t in pipe_tasks:
-                t.cancel()
-            await asyncio.gather(*pipe_tasks, return_exceptions=True)
-            proc.kill()
-            await proc.wait()
+            await self._cleanup_interrupted_process(proc, gather_task, pipe_tasks)
             elapsed = (datetime.now(UTC) - start_time).total_seconds()
             return ProcessExecutionResult(
                 exit_code=-1,
@@ -148,6 +161,9 @@ class LocalSubprocessExecutionRuntimeAdapter(ExecutionRuntimePort):
                 error_message=f"Job exceeded walltime limit of {job.resources.walltime_seconds}s",
                 walltime_seconds=elapsed,
             )
+        except asyncio.CancelledError:
+            await self._cleanup_interrupted_process(proc, gather_task, pipe_tasks)
+            raise
         finally:
             if self._log_port:
                 await self._log_port.close_stream(job.id)

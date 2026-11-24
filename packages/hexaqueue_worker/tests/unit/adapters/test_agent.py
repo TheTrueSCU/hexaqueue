@@ -647,3 +647,95 @@ async def test_worker_agent_heartbeat_reregisters_on_404() -> None:
     third_url = mock_client.post.call_args_list[2].args[0]
     assert second_url.endswith("/worker/register")
     assert third_url.endswith("/worker/w-reheal/heartbeat")
+
+
+def test_worker_agent_from_env_parses_slice_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify WorkerAgentConfig.from_env parses HEXAQUEUE_SLICE_TIMEOUT_SECONDS."""
+    monkeypatch.setenv("HEXAQUEUE_SLICE_TIMEOUT_SECONDS", "123.5")
+    cfg = WorkerAgentConfig.from_env()
+    assert cfg.slice_timeout_seconds == 123.5
+
+
+@pytest.mark.asyncio
+async def test_worker_agent_heartbeat_terminates_cancelled_lease_subprocess(
+    tmp_path: Path,
+) -> None:
+    """Verify heartbeat cancelled_lease_ids terminates active child process group."""
+    import asyncio
+
+    cfg = WorkerAgentConfig(worker_id="w-cancel-proc", scratch_dir=tmp_path)
+    agent = WorkerAgent(cfg)
+    now = datetime.now(UTC)
+    task = SliceTaskDescriptor(
+        session_id="run-cancel-proc",
+        slice_id="job-cancel-proc",
+        command=sys.executable,
+        args=["-c", "import time; time.sleep(30)"],
+        task_type="job",
+    )
+    lease = SliceLease(
+        task=task,
+        worker_id="w-cancel-proc",
+        state=SliceLeaseState.LEASED,
+        leased_at=now,
+        expires_at=now + timedelta(seconds=60),
+    )
+
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    hb_resp = MagicMock(status_code=200)
+    hb_resp.json.return_value = {
+        "status": "ok",
+        "cancelled_lease_ids": [lease.lease_id],
+    }
+    mock_client.post.return_value = hb_resp
+
+    async def _trigger_cancel_hb() -> None:
+        for _ in range(50):
+            if lease.lease_id in agent._active_procs:
+                hb_ok = await agent.heartbeat(mock_client)
+                assert hb_ok is True
+                return
+            await asyncio.sleep(0.05)
+
+    hb_task = asyncio.create_task(_trigger_cancel_hb())
+    report = await agent.execute_slice(lease)
+    await hb_task
+
+    exit_code = report.exit_code
+    err_msg = (report.error_message or "").lower()
+    assert exit_code == 130
+    assert "cancelled" in err_msg
+
+
+@pytest.mark.asyncio
+async def test_worker_agent_enforces_slice_timeout_seconds(tmp_path: Path) -> None:
+    """Verify slice_timeout_seconds terminates hung subprocess with exit code 124."""
+    cfg = WorkerAgentConfig(
+        worker_id="w-slice-to",
+        scratch_dir=tmp_path,
+        slice_timeout_seconds=0.25,
+    )
+    agent = WorkerAgent(cfg)
+    now = datetime.now(UTC)
+    task = SliceTaskDescriptor(
+        session_id="run-slice-to",
+        slice_id="job-slice-to",
+        command=sys.executable,
+        args=["-c", "import time; time.sleep(30)"],
+        task_type="job",
+    )
+    lease = SliceLease(
+        task=task,
+        worker_id="w-slice-to",
+        state=SliceLeaseState.LEASED,
+        leased_at=now,
+        expires_at=now + timedelta(seconds=60),
+    )
+
+    report = await agent.execute_slice(lease)
+    exit_code = report.exit_code
+    stderr_text = (report.stderr or "").lower()
+    assert exit_code == 124
+    assert "exceeded worker timeout" in stderr_text

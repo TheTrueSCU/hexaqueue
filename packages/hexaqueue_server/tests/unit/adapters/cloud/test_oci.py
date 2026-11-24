@@ -1,5 +1,6 @@
 """Unit tests for OciInstancePoolAdapter."""
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -212,3 +213,170 @@ async def test_oci_instance_pool_starts_stopped_pool_on_scale_up() -> None:
     mock_client.start_instance_pool.assert_called_once_with(
         instance_pool_id="ocid1.instancepool.oc1..stopped"
     )
+
+
+def _make_capacity_probe_adapter(
+    ad_statuses: dict[str, str | Exception],
+) -> tuple[OciInstancePoolAdapter, MagicMock]:
+    """Construct an OciInstancePoolAdapter with mock management & compute clients."""
+    mgmt_client = MagicMock()
+    mgmt_client.get_instance_pool.return_value = SimpleNamespace(
+        data=SimpleNamespace(
+            compartment_id="ocid1.compartment.oc1..test",
+            instance_configuration_id="ocid1.instanceconfiguration.oc1..cfg",
+            placement_configurations=[
+                SimpleNamespace(availability_domain=ad) for ad in ad_statuses
+            ],
+        )
+    )
+    mgmt_client.get_instance_configuration.return_value = SimpleNamespace(
+        data=SimpleNamespace(
+            instance_details=SimpleNamespace(
+                launch_details=SimpleNamespace(
+                    shape="VM.Standard.E5.Flex",
+                    shape_config=SimpleNamespace(ocpus=4.0, memory_in_gbs=16.0),
+                )
+            )
+        )
+    )
+
+    compute_client = MagicMock()
+
+    def _fake_report(details: object) -> SimpleNamespace:
+        ad = (
+            details["availability_domain"]
+            if isinstance(details, dict)
+            else getattr(details, "availability_domain", "")
+        )
+        verdict = ad_statuses[ad]
+        if isinstance(verdict, Exception):
+            raise verdict
+        return SimpleNamespace(
+            data=SimpleNamespace(
+                shape_availabilities=[SimpleNamespace(availability_status=verdict)]
+            )
+        )
+
+    compute_client.create_compute_capacity_report.side_effect = _fake_report
+    adapter = OciInstancePoolAdapter(
+        compute_management_client=mgmt_client,
+        compartment_id="ocid1.compartment.oc1..test",
+        compute_client=compute_client,
+    )
+    return adapter, compute_client
+
+
+@pytest.mark.asyncio
+async def test_oci_check_pool_capacity_available() -> None:
+    """Verify check_pool_capacity returns True when any placement AD is AVAILABLE."""
+    adapter, compute_client = _make_capacity_probe_adapter(
+        {
+            "uPhp:PHX-AD-1": "OUT_OF_HOST_CAPACITY",
+            "uPhp:PHX-AD-2": "AVAILABLE",
+            "uPhp:PHX-AD-3": "OUT_OF_HOST_CAPACITY",
+        }
+    )
+    with patch(
+        "hexaqueue_server.adapters.cloud.oci.optional_dependency", return_value=None
+    ):
+        has_cap = await adapter.check_pool_capacity("ocid1.instancepool.oc1..e5")
+    assert has_cap is True
+    call_count = compute_client.create_compute_capacity_report.call_count
+    assert call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_oci_check_pool_capacity_exhausted() -> None:
+    """Verify check_pool_capacity returns False when all placement ADs are exhausted."""
+    adapter, compute_client = _make_capacity_probe_adapter(
+        {
+            "uPhp:PHX-AD-1": "OUT_OF_HOST_CAPACITY",
+            "uPhp:PHX-AD-2": "OUT_OF_HOST_CAPACITY",
+        }
+    )
+    with patch(
+        "hexaqueue_server.adapters.cloud.oci.optional_dependency", return_value=None
+    ):
+        has_cap = await adapter.check_pool_capacity("ocid1.instancepool.oc1..a1")
+    assert has_cap is False
+    call_count = compute_client.create_compute_capacity_report.call_count
+    assert call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_oci_check_pool_capacity_fails_open_on_error() -> None:
+    """Verify check_pool_capacity fails open (returns True) on API permission errors."""
+    adapter, _ = _make_capacity_probe_adapter(
+        {"uPhp:PHX-AD-1": RuntimeError("404 NotAuthorizedOrNotFound")}
+    )
+    with patch(
+        "hexaqueue_server.adapters.cloud.oci.optional_dependency", return_value=None
+    ):
+        has_cap = await adapter.check_pool_capacity("ocid1.instancepool.oc1..a1")
+    assert has_cap is True
+
+
+@pytest.mark.asyncio
+async def test_oci_check_pool_capacity_uses_correct_sdk_model_class(
+    strict_oci_capacity_sdk: SimpleNamespace,
+) -> None:
+    """Verify check_pool_capacity uses CreateCapacityReportShapeAvailabilityDetails."""
+    adapter, compute_client = _make_capacity_probe_adapter(
+        {
+            "uPhp:PHX-AD-1": "OUT_OF_HOST_CAPACITY",
+            "uPhp:PHX-AD-2": "AVAILABLE",
+        }
+    )
+    with patch(
+        "hexaqueue_server.adapters.cloud.oci.optional_dependency",
+        return_value=strict_oci_capacity_sdk,
+    ):
+        has_cap = await adapter.check_pool_capacity("ocid1.instancepool.oc1..e5")
+    assert has_cap is True
+    call_count = compute_client.create_compute_capacity_report.call_count
+    assert call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_oci_check_pool_capacity_caches_verdicts_within_ttl() -> None:
+    """Verify check_pool_capacity caches exhausted/available verdicts within TTL."""
+    adapter, compute_client = _make_capacity_probe_adapter(
+        {"uPhp:PHX-AD-1": "OUT_OF_HOST_CAPACITY"}
+    )
+    adapter._capacity_cache_ttl_seconds = 60.0
+    with patch(
+        "hexaqueue_server.adapters.cloud.oci.optional_dependency", return_value=None
+    ):
+        first = await adapter.check_pool_capacity("ocid1.instancepool.oc1..a1")
+        second = await adapter.check_pool_capacity("ocid1.instancepool.oc1..a1")
+    assert first is False
+    assert second is False
+    call_count = compute_client.create_compute_capacity_report.call_count
+    assert call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_oci_get_pool_state_ignores_terminated_instances() -> None:
+    """Verify Terminated/Terminating pool instances do not count toward current_nodes."""
+    mock_client = MagicMock()
+    mock_pool = MagicMock()
+    mock_pool.size = 0
+    mock_pool.lifecycle_state = "RUNNING"
+    mock_pool.defined_tags = {}
+    mock_client.get_instance_pool.return_value = MagicMock(data=mock_pool)
+    mock_client.list_instance_pool_instances.return_value = MagicMock(
+        data=[
+            SimpleNamespace(state="Terminated"),
+            SimpleNamespace(state="Terminating"),
+            SimpleNamespace(state="Running"),
+        ]
+    )
+    adapter = OciInstancePoolAdapter(
+        compute_management_client=mock_client,
+        compartment_id="ocid1.compartment.oc1..test",
+    )
+    state = await adapter.get_pool_state("ocid1.instancepool.oc1..e5")
+    current = state.current_nodes
+    ready = state.ready_nodes
+    assert current == 1
+    assert ready == 1

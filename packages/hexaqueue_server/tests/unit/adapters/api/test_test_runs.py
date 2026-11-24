@@ -534,3 +534,166 @@ async def test_extract_collateral_workspace_failure(tmp_path: Path) -> None:
         "col-fail", collateral_svc, target_dir
     )
     assert success is False
+
+
+@pytest.mark.asyncio
+async def test_cancel_test_run_endpoint_evicts_queued_and_active_slices() -> None:
+    """Verify POST /api/v1/test/runs/{session_id}/cancel evicts pending and leased slices."""
+    coord = SliceLeaseCoordinator()
+    await coord.register_worker(
+        WorkerRegistration(
+            worker_id="w-cancel-api",
+            hostname="w-cancel-api",
+            ip_address="10.0.0.60",
+            ocpus=2,
+            memory_mb=4096,
+        )
+    )
+    await coord.enqueue_session_slices(
+        session_id="sess-api-cancel",
+        slices=[
+            TestSliceDispatch(
+                slice_id="s-api-0",
+                slice_index=0,
+                total_slices=2,
+                test_nodeids=["t.py::a"],
+            ),
+            TestSliceDispatch(
+                slice_id="s-api-1",
+                slice_index=1,
+                total_slices=2,
+                test_nodeids=["t.py::b"],
+            ),
+        ],
+    )
+    lease = await coord.lease_slice("w-cancel-api")
+    assert lease is not None
+
+    container = create_container()
+    container.add_instance(coord, declared_class=SliceLeaseCoordinator)
+    app = create_server_app(container=container)
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/v1/test/runs/sess-api-cancel/cancel")
+        code = resp.status_code
+        body = resp.json()
+
+    assert code == 200
+    assert body["session_id"] == "sess-api-cancel"
+    assert body["cancelled"] is True
+    pending_after = coord.pending_count
+    leases_after = coord.active_lease_count
+    cancelled_ids = coord.get_cancelled_lease_ids([lease.lease_id])
+    assert pending_after == 0
+    assert leases_after == 0
+    assert cancelled_ids == [lease.lease_id]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_remote_timeout_and_disconnect_cancel_without_local_fallback() -> (
+    None
+):
+    """Verify timeout cancels remote session and client disconnect skips local fallback."""
+    from fastapi import Request
+
+    from hexaqueue_server.adapters.api.test_runs import (
+        TestRunDispatchRequest,
+        _dispatch_remote_slices,
+        _wait_for_completion_or_disconnect,
+    )
+
+    coord = SliceLeaseCoordinator()
+    await coord.register_worker(
+        WorkerRegistration(
+            worker_id="w-to-disc",
+            hostname="w-to-disc",
+            ip_address="10.0.0.61",
+            ocpus=2,
+            memory_mb=4096,
+        )
+    )
+    req_model = TestRunDispatchRequest(
+        session_id="sess-to-1",
+        slices=[
+            TestSliceDispatch(
+                slice_id="s-to-0",
+                slice_index=0,
+                total_slices=1,
+                test_nodeids=["t.py::slow"],
+            )
+        ],
+    )
+    with patch(
+        "hexaqueue_server.adapters.api.test_runs._wait_for_completion_or_disconnect",
+        new_callable=AsyncMock,
+        return_value=(True, False),
+    ):
+        reports_to, disc_to = await _dispatch_remote_slices(
+            req=req_model,
+            coord=coord,
+            collateral_svc=None,
+            is_container=False,
+        )
+    assert reports_to == []
+    assert disc_to is False
+    pending_after_to = coord.pending_count
+    assert pending_after_to == 0
+
+    # Verify _wait_for_completion_or_disconnect detects disconnected client cleanly
+    ev = asyncio.Event()
+    mock_request = MagicMock(spec=Request)
+    mock_request.is_disconnected = AsyncMock(side_effect=[False, True])
+    timed_out, client_disc = await _wait_for_completion_or_disconnect(
+        ev, mock_request, timeout=5.0, poll_interval=0.01
+    )
+    assert timed_out is False
+    assert client_disc is True
+
+    # Verify dispatch_test_run does not fall back to local execution on client disconnect
+    coord2 = SliceLeaseCoordinator()
+    await coord2.register_worker(
+        WorkerRegistration(
+            worker_id="w-disc-route",
+            hostname="w-disc-route",
+            ip_address="10.0.0.62",
+            ocpus=2,
+            memory_mb=4096,
+        )
+    )
+    container = create_container()
+    container.add_instance(coord2, declared_class=SliceLeaseCoordinator)
+    app = create_server_app(container=container)
+    transport = ASGITransport(app=app)
+    payload = {
+        "session_id": "sess-disc-2",
+        "free_tier": True,
+        "slices": [
+            {
+                "slice_id": "s-disc-0",
+                "slice_index": 0,
+                "total_slices": 1,
+                "test_nodeids": ["t.py::x"],
+            }
+        ],
+    }
+    with (
+        patch(
+            "hexaqueue_server.adapters.api.test_runs._wait_for_completion_or_disconnect",
+            new_callable=AsyncMock,
+            return_value=(False, True),
+        ),
+        patch(
+            "hexaqueue_server.adapters.api.test_runs._dispatch_local_slices",
+            new_callable=AsyncMock,
+        ) as mock_local,
+    ):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post("/api/v1/test/runs", json=payload)
+            status_code = resp.status_code
+            data = resp.json()
+    assert status_code == 200
+    assert data["reports"] == []
+    mock_local.assert_not_called()
+    pending_disc = coord2.pending_count
+    assert pending_disc == 0

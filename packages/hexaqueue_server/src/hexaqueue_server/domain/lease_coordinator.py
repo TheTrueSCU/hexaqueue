@@ -10,7 +10,10 @@ Notes/Architectural Intent:
 
 import asyncio
 import contextlib
+import os
+import time
 from collections import deque
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -34,6 +37,47 @@ from hexaqueue_core.domain.lease import (
 from hexaqueue_core.domain.lifecycle import TerminalOutcome
 from hexaqueue_core.ports.logging import LogChunk
 from hexaqueue_core.ports.storage import PresignedStoragePort
+
+_CIRCUIT_RANK: dict[str, int] = {
+    "CLOSED": 0,
+    "HALF_OPEN": 1,
+    "OPEN": 2,
+}
+
+
+def _merge_priority_circuits(
+    pool_circuits: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Return the healthiest circuit breaker summary across ordered fallback pools."""
+    if not pool_circuits:
+        return {
+            "state": "CLOSED",
+            "reason": None,
+            "retry_after_seconds": 0.0,
+            "trip_count": 0,
+        }
+    return min(
+        pool_circuits.values(),
+        key=lambda c: (
+            _CIRCUIT_RANK.get(str(c.get("state", "CLOSED")).upper(), 0),
+            float(c.get("retry_after_seconds", 0.0)),
+        ),
+    )
+
+
+def _normalize_pool_ids(
+    pool_id: str | None,
+    pool_ids: Sequence[str] | None,
+) -> list[str]:
+    """Deduplicate ordered pool IDs while preserving explicit single-pool compatibility."""
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for candidate in [*(pool_ids or ()), *([pool_id] if pool_id else ())]:
+        cleaned = str(candidate).strip()
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            ordered.append(cleaned)
+    return ordered
 
 
 class SliceLeaseCoordinator:
@@ -60,15 +104,21 @@ class SliceLeaseCoordinator:
         controller: Any = None,
         logger: LoggingPort | None = None,
         log_store: dict[str, list[LogChunk]] | None = None,
+        pool_ids: Sequence[str] | None = None,
     ) -> None:
         self._storage_port = storage_port
         self._collateral_service = collateral_service
         self._default_ttl = default_lease_ttl_seconds
         self._autoscaler = autoscaler
-        self._pool_id = pool_id
+        self._pool_ids: list[str] = _normalize_pool_ids(pool_id, pool_ids)
+        self._pool_id: str | None = self._pool_ids[0] if self._pool_ids else None
         self._controller = controller
         self._logger = logger
         self._log_store = log_store
+        self._reconciler_task: asyncio.Task[None] | None = None
+        self._reconciler_stop = False
+        self._reconcile_in_progress = False
+        self._reconcile_pending = False
 
         self._lock = CrossLoopAsyncLock()
         self._condition = CrossLoopAsyncCondition(lock=self._lock)
@@ -81,6 +131,7 @@ class SliceLeaseCoordinator:
         # Queue tracking
         self._pending_tasks: deque[SliceTaskDescriptor] = deque()
         self._active_leases: dict[str, SliceLease] = {}
+        self._cancelled_lease_ids: dict[str, float] = {}
 
         # Session completion tracking
         self._session_total_slices: dict[str, int] = {}
@@ -145,10 +196,18 @@ class SliceLeaseCoordinator:
         """Return the attached instance pool autoscaler, if configured."""
         return self._autoscaler
 
+    def _effective_pool_ids(self) -> list[str]:
+        """Return ordered active pool IDs, honoring direct ``_pool_id`` overrides."""
+        if self._pool_ids:
+            if self._pool_id and self._pool_id not in self._pool_ids:
+                return [self._pool_id, *self._pool_ids]
+            return list(self._pool_ids)
+        return [self._pool_id] if self._pool_id else []
+
     @property
     def has_autoscaler(self) -> bool:
         """Return whether an instance pool autoscaler is registered."""
-        return self._autoscaler is not None and self._pool_id is not None
+        return self._autoscaler is not None and bool(self._effective_pool_ids())
 
     def get_capacity_readiness(self) -> dict[str, Any]:
         """Evaluate current worker and burst-pool capacity readiness.
@@ -156,24 +215,28 @@ class SliceLeaseCoordinator:
         Returns:
             Dictionary containing ``capacity_state`` (``"READY"``, ``"SCALING"``,
             or ``"DEGRADED"``), ``ready`` boolean, ``active_workers``,
-            ``pending_slices``, ``active_leases``, ``pool_id``, ``pool_circuit``,
-            and ``budget_strategy``.
+            ``pending_slices``, ``active_leases``, ``pool_id``, ``pool_ids``,
+            ``pool_circuit``, ``pool_circuits``, and ``budget_strategy``.
         """
         active_workers = self.active_worker_count
         pending = self.pending_count
         active = self.active_lease_count
-        circuit_info: dict[str, Any] = {
-            "state": "CLOSED",
-            "reason": None,
-            "retry_after_seconds": 0.0,
-            "trip_count": 0,
-        }
-        if (
-            self._autoscaler is not None
-            and self._pool_id is not None
-            and hasattr(self._autoscaler, "get_pool_circuit_status")
+        pool_ids = self._effective_pool_ids()
+        pool_circuits: dict[str, dict[str, Any]] = {}
+        if self._autoscaler is not None and hasattr(
+            self._autoscaler, "get_pool_circuit_status"
         ):
-            circuit_info = self._autoscaler.get_pool_circuit_status(self._pool_id)
+            for pid in pool_ids:
+                pool_circuits[pid] = self._autoscaler.get_pool_circuit_status(pid)
+
+        if (
+            self._pool_id is not None
+            and len(pool_circuits) == 1
+            and self._pool_id in pool_circuits
+        ):
+            circuit_info = pool_circuits[self._pool_id]
+        else:
+            circuit_info = _merge_priority_circuits(pool_circuits)
 
         pacing = (
             getattr(self._autoscaler, "credit_pacing", None)
@@ -202,9 +265,121 @@ class SliceLeaseCoordinator:
             "pending_slices": pending,
             "active_leases": active,
             "pool_id": self._pool_id,
+            "pool_ids": pool_ids,
             "pool_circuit": circuit_info,
+            "pool_circuits": pool_circuits,
             "budget_strategy": budget_strategy,
         }
+
+    def _log_autoscaler_decision(
+        self,
+        decision: Any,
+        pending: int,
+        active: int,
+    ) -> None:
+        """Emit structured info log when an autoscaler decision takes an action."""
+        if (
+            self._logger is not None
+            and decision is not None
+            and getattr(decision, "action", "NOOP") != "NOOP"
+        ):
+            pid = getattr(decision, "pool_id", self._pool_id)
+            self._logger.info(
+                f"Autoscaler decision for pool {pid}",
+                extra={
+                    "pool_id": pid,
+                    "action": decision.action,
+                    "current_nodes": decision.current_nodes,
+                    "target_nodes": decision.target_nodes,
+                    "pending_jobs": pending,
+                    "running_jobs": active,
+                    "reason": decision.reason,
+                },
+            )
+
+    def _any_pool_half_open(self) -> bool:
+        """Return True if any configured burst pool circuit is in HALF_OPEN state."""
+        if self._autoscaler is None or not hasattr(
+            self._autoscaler, "get_pool_circuit_status"
+        ):
+            return False
+        pool_ids = self._effective_pool_ids()
+        return any(
+            str(
+                self._autoscaler.get_pool_circuit_status(pid).get("state", "CLOSED")
+            ).upper()
+            == "HALF_OPEN"
+            for pid in pool_ids
+        )
+
+    def _needs_periodic_reconcile(self) -> bool:
+        """Return True when pending backlog, active scale-up, or non-CLOSED circuits need checks."""
+        if len(self._pending_tasks) > 0:
+            return True
+        if self._autoscaler is None:
+            return False
+        pool_ids = self._effective_pool_ids()
+        has_work = getattr(self._autoscaler, "has_active_reconciliation_work", None)
+        if callable(has_work):
+            return bool(has_work(pool_ids))
+        started_map = getattr(self._autoscaler, "_scale_up_started_at", {})
+        if isinstance(started_map, dict) and any(
+            pid in started_map for pid in pool_ids
+        ):
+            return True
+        if hasattr(self._autoscaler, "get_pool_circuit_status"):
+            return any(
+                self._autoscaler.get_pool_circuit_status(pid).get("state") != "CLOSED"
+                for pid in pool_ids
+            )
+        return False
+
+    def start_reconciler(self, interval_seconds: float | None = None) -> None:
+        """Start the background autoscaler reconciliation loop if not already running.
+
+        Args:
+            interval_seconds: Optional poll interval override in seconds (useful in tests).
+
+        Notes/Architectural Intent:
+            Periodically reconciles ``OPEN -> HALF_OPEN`` circuit recovery and stalled
+            ``SCALING`` instance pools even when no new slices or webhooks arrive (#219).
+        """
+        if self._reconciler_task is not None and not self._reconciler_task.done():
+            return
+        if interval_seconds is not None:
+            interval = max(0.01, float(interval_seconds))
+        else:
+            raw = os.environ.get(
+                "HEXAQUEUE_AUTOSCALER_RECONCILE_INTERVAL_SECONDS", "30.0"
+            ).strip()
+            try:
+                interval = max(1.0, float(raw))
+            except ValueError:
+                interval = 30.0
+        self._reconciler_stop = False
+
+        async def _reconcile_loop() -> None:
+            while not self._reconciler_stop:
+                try:
+                    await asyncio.sleep(interval)
+                except asyncio.CancelledError:
+                    break
+                if self._reconciler_stop:
+                    break
+                if self.has_autoscaler and self._needs_periodic_reconcile():
+                    await self._reconcile_autoscaler()
+
+        self._reconciler_task = asyncio.create_task(_reconcile_loop())
+
+    async def stop_reconciler(self) -> None:
+        """Stop the background autoscaler reconciliation loop cleanly."""
+        self._reconciler_stop = True
+        task = self._reconciler_task
+        self._reconciler_task = None
+        if task is not None and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
     async def reconcile_capacity(self) -> None:
         """Trigger immediate autoscaler pool reconciliation for current backlog.
@@ -220,40 +395,137 @@ class SliceLeaseCoordinator:
         """Return the event that triggers when the first slice of a session is leased."""
         return self._session_leased_events.get(session_id)
 
+    def has_tracked_task(self, task_id: str) -> bool:
+        """Return True if task_id matches any pending task or active lease.
+
+        Args:
+            task_id: Job, slice, or session identifier to check.
+
+        Returns:
+            True when the task is actively queued or leased in coordinator memory.
+
+        Notes/Architectural Intent:
+            Allows durable storage hydration to distinguish orphaned non-terminal
+            records left behind by an ungraceful restart from live work in memory.
+        """
+        if any(
+            t.slice_id == task_id or t.session_id == task_id
+            for t in self._pending_tasks
+        ):
+            return True
+        return any(
+            lse.task.slice_id == task_id or lse.task.session_id == task_id
+            for lse in self._active_leases.values()
+        )
+
+    async def shutdown(self, reason: str = "Controller shutting down") -> int:
+        """Stop background reconcilers, evict queued/active slices, and flush cancellations.
+
+        Args:
+            reason: Human-readable cancellation reason persisted on drained jobs.
+
+        Returns:
+            Total count of pending tasks and active leases drained during shutdown.
+
+        Notes/Architectural Intent:
+            Stops the periodic reconciler loop, records evicted leases in the cancelled
+            tombstone map so workers terminate child subprocesses on next heartbeat,
+            unblocks waiting session callers, and flushes CANCELLED job outcomes to
+            durable storage before closing database connections.
+        """
+        await self.stop_reconciler()
+        pending_job_ids: list[str] = []
+        active_job_ids: list[str] = []
+        now_mono = time.monotonic()
+
+        async with self._condition:
+            pending_cnt = len(self._pending_tasks)
+            for t in self._pending_tasks:
+                if t.task_type == "job":
+                    pending_job_ids.append(t.slice_id)
+            self._pending_tasks.clear()
+
+            active_cnt = len(self._active_leases)
+            for l_id, lse in list(self._active_leases.items()):
+                self._cancelled_lease_ids[l_id] = now_mono
+                if lse.task.task_type == "job":
+                    active_job_ids.append(lse.task.slice_id)
+            self._active_leases.clear()
+
+            for event in self._session_events.values():
+                if not event.is_set():
+                    event.set()
+            for leased_event in self._session_leased_events.values():
+                if not leased_event.is_set():
+                    leased_event.set()
+
+        if self._controller is not None:
+            for jid in pending_job_ids:
+                with contextlib.suppress(Exception):
+                    await self._controller.update_job_outcome(
+                        job_id=jid,
+                        outcome=TerminalOutcome.CANCELLED,
+                        reason=reason,
+                        walltime_seconds=0.0,
+                    )
+            for jid in active_job_ids:
+                with contextlib.suppress(Exception):
+                    await self._controller.update_job_outcome(
+                        job_id=jid,
+                        outcome=TerminalOutcome.CANCELLED,
+                        reason=reason,
+                        walltime_seconds=1.0,
+                    )
+
+        return pending_cnt + active_cnt
+
     async def _reconcile_autoscaler(self) -> None:
-        """Evaluate pending slices and running leases, dispatching autoscaler decisions."""
-        if self._autoscaler is None or self._pool_id is None:
+        """Coalesce concurrent autoscaler reconciliation triggers into single-flight runs."""
+        if self._reconcile_in_progress:
+            self._reconcile_pending = True
+            return
+        self._reconcile_in_progress = True
+        try:
+            while True:
+                self._reconcile_pending = False
+                await self._run_reconcile_once()
+                if not self._reconcile_pending:
+                    break
+        finally:
+            self._reconcile_in_progress = False
+
+    async def _run_reconcile_once(self) -> None:
+        """Execute a single autoscaler reconciliation pass for pending slices and leases."""
+        pool_ids = self._effective_pool_ids()
+        if self._autoscaler is None or not pool_ids:
             return
         try:
             pending = len(self._pending_tasks)
             active = len(self._active_leases)
+            if len(pool_ids) > 1 and hasattr(
+                self._autoscaler, "reconcile_priority_pools"
+            ):
+                decisions = await self._autoscaler.reconcile_priority_pools(
+                    pool_ids=pool_ids,
+                    pending_jobs=pending,
+                    running_jobs=active,
+                )
+                for decision in decisions:
+                    self._log_autoscaler_decision(decision, pending, active)
+                return
+
+            primary_id = pool_ids[0]
             decision = await self._autoscaler.reconcile_pool(
-                pool_id=self._pool_id,
+                pool_id=primary_id,
                 pending_jobs=pending,
                 running_jobs=active,
             )
-            if (
-                self._logger is not None
-                and decision is not None
-                and decision.action != "NOOP"
-            ):
-                self._logger.info(
-                    f"Autoscaler decision for pool {self._pool_id}",
-                    extra={
-                        "pool_id": self._pool_id,
-                        "action": decision.action,
-                        "current_nodes": decision.current_nodes,
-                        "target_nodes": decision.target_nodes,
-                        "pending_jobs": pending,
-                        "running_jobs": active,
-                        "reason": decision.reason,
-                    },
-                )
+            self._log_autoscaler_decision(decision, pending, active)
         except Exception as err:
             if self._logger is not None:
                 self._logger.error(
                     f"Autoscaler reconciliation failed for pool {self._pool_id}",
-                    extra={"pool_id": self._pool_id},
+                    extra={"pool_id": self._pool_id, "pool_ids": pool_ids},
                     exc=err,
                 )
 
@@ -477,6 +749,15 @@ class SliceLeaseCoordinator:
                     retained.append(t)
             self._pending_tasks = retained
 
+            now_mono = time.monotonic()
+            expired_cancelled = [
+                lid
+                for lid, recorded_at in self._cancelled_lease_ids.items()
+                if now_mono - recorded_at > 3600.0
+            ]
+            for lid in expired_cancelled:
+                self._cancelled_lease_ids.pop(lid, None)
+
             evicted_lease_ids = [
                 l_id
                 for l_id, lse in self._active_leases.items()
@@ -484,6 +765,7 @@ class SliceLeaseCoordinator:
             ]
             for l_id in evicted_lease_ids:
                 self._active_leases.pop(l_id, None)
+                self._cancelled_lease_ids[l_id] = now_mono
                 removed = True
 
             session_event = self._session_events.get(task_id)
@@ -501,6 +783,30 @@ class SliceLeaseCoordinator:
             asyncio.create_task(self._reconcile_autoscaler())
 
         return removed
+
+    def get_cancelled_lease_ids(self, active_lease_ids: list[str] | None) -> list[str]:
+        """Return active worker lease IDs that have been cancelled by coordinator.
+
+        Args:
+            active_lease_ids: Optional list of lease IDs reported by a worker heartbeat.
+
+        Returns:
+            Subset of ``active_lease_ids`` present in the cancelled-lease tombstone map.
+
+        Notes/Architectural Intent:
+            Allows ``/worker/{worker_id}/heartbeat`` responses to push active lease
+            cancellation signals to worker agents so orphaned subprocesses terminate
+            promptly instead of running to completion after timeout or user cancel.
+        """
+        if not active_lease_ids:
+            return []
+        now_mono = time.monotonic()
+        return [
+            lid
+            for lid in active_lease_ids
+            if (recorded_at := self._cancelled_lease_ids.get(lid)) is not None
+            and now_mono - recorded_at <= 3600.0
+        ]
 
     async def lease_slice(
         self,
@@ -709,10 +1015,9 @@ class SliceLeaseCoordinator:
                 event = self._session_events.get(session_id)
                 if event is not None and not event.is_set():
                     event.set()
-                if (
-                    self.has_autoscaler
-                    and len(self._pending_tasks) == 0
-                    and len(self._active_leases) == 0
+                if self.has_autoscaler and (
+                    (len(self._pending_tasks) == 0 and len(self._active_leases) == 0)
+                    or (len(self._pending_tasks) > 0 and self._any_pool_half_open())
                 ):
                     asyncio.create_task(self._reconcile_autoscaler())
 

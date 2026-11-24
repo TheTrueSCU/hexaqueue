@@ -20,13 +20,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           enable-cache: true
 
       - name: Plan LPT-Ordered Package Matrix
         id: plan
-        uses: TheTrueSCU/hexaqual/.github/actions/mutate-plan@99397d2d3e652c8461fe024d45ddfb5b5b25ebc8 # v0.12.0
+        uses: TheTrueSCU/hexaqual/.github/actions/mutate-plan@6117ce25b1d39768f22396a55d13103abee88926 # v0.12.1
         with:
           mode: all
 
@@ -51,7 +51,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           enable-cache: true
 
@@ -73,7 +73,12 @@ jobs:
       - name: Execute Package Mutation Sweep
         env:
           HEXAQUEUE_TIMEOUT: "6900"
+          HEXAQUEUE_RUN_ID_FILE: ${{ runner.temp }}/hexaqueue-active-run.id
         run: uv run hexaqual mutate run -p "${{ matrix.package }}" -e gremlins -w auto --batch-size 10 -n auto --cluster hexaqueue
+
+      - name: Cancel Orphaned Hexaqueue Mutation Run (On Failure/Cancel)
+        if: cancelled() || failure()
+        run: python3 .github/scripts/cancel_orphaned_workload.py --kind run --id-file "${{ runner.temp }}/hexaqueue-active-run.id"
 
       - name: Disconnect Hexaqueue Cluster Tunnel
         if: always()

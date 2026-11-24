@@ -208,7 +208,95 @@ class LocalSchedulerControllerAdapter(SchedulerControllerPort):
                 if node.node_id not in self._nodes:
                     self._nodes[node.node_id] = node
 
+            await self._reconcile_orphaned_jobs_unlocked()
             self._hydrated = True
+
+    async def _cancel_orphaned_job_unlocked(self, job: JobSpec, reason: str) -> None:
+        """Transition a single orphaned job to DONE/CANCELLED and release its holds."""
+        with contextlib.suppress(Exception):
+            await self._queue.remove(job.id)
+        cancelled_job = job.model_copy(
+            update={
+                "status": JobStatus(
+                    state=JobState.DONE,
+                    outcome=TerminalOutcome.CANCELLED,
+                    reason=reason,
+                )
+            }
+        )
+        self._jobs[job.id] = cancelled_job
+        for cid in job.collateral_ids:
+            if self._collateral_service is not None:
+                with contextlib.suppress(Exception):
+                    await self._collateral_service.unpin_bundle(cid)
+        await self._settle_or_release_job_budget(
+            job_id=job.id,
+            outcome=TerminalOutcome.CANCELLED,
+            walltime_seconds=0.0,
+        )
+
+    async def _persist_affected_orphan_runs_unlocked(
+        self, affected_runs: set[str]
+    ) -> None:
+        """Flush reconciled job and run status updates back to durable storage."""
+        for run_id in affected_runs:
+            if run_id in self._runs:
+                await self._persist_run_unlocked(run_id)
+                continue
+            if self._storage is None:
+                continue
+            for job in self._jobs.values():
+                if job.run_id == run_id:
+                    await self._storage.record_job(job)
+
+    async def _reconcile_persisted_runs_unlocked(self) -> int:
+        """Transition stranded non-terminal persisted run summaries to CANCELLED."""
+        reconciled = 0
+        for run_id, report in list(self._persisted_runs.items()):
+            if report.state == RunState.DONE:
+                continue
+            reconciled_report = report.model_copy(
+                update={
+                    "state": RunState.DONE,
+                    "outcome": RunOutcome.CANCELLED,
+                    "status": RunOutcome.CANCELLED.value,
+                    "pending_jobs": 0,
+                    "running_jobs": 0,
+                    "updated_at": datetime.now(UTC),
+                }
+            )
+            self._persisted_runs[run_id] = reconciled_report
+            if self._storage is not None:
+                await self._storage.record_run(reconciled_report)
+            reconciled += 1
+        return reconciled
+
+    async def _reconcile_orphaned_jobs_unlocked(self) -> int:
+        """Transition stranded non-terminal jobs/runs to CANCELLED after restart.
+
+        Notes/Architectural Intent:
+            Called with ``self._lock`` held during ``hydrate_from_storage()``. Any
+            non-terminal persisted job lacking an active slice or lease in the in-memory
+            ``SliceLeaseCoordinator`` was stranded by an ungraceful exit or restart and
+            must be reconciled to ``DONE/CANCELLED`` so ghost backlog entries do not linger.
+        """
+        reconciled_count = 0
+        affected_runs: set[str] = set()
+        reason = "Orphaned by controller restart"
+        has_tracked_fn = getattr(self._lease_coordinator, "has_tracked_task", None)
+
+        for job in list(self._jobs.values()):
+            if job.state == JobState.DONE:
+                continue
+            if callable(has_tracked_fn) and has_tracked_fn(job.id):
+                continue
+            await self._cancel_orphaned_job_unlocked(job, reason)
+            affected_runs.add(job.run_id)
+            reconciled_count += 1
+
+        await self._persist_affected_orphan_runs_unlocked(affected_runs)
+        reconciled_count += await self._reconcile_persisted_runs_unlocked()
+        return reconciled_count
 
     async def _ensure_hydrated(self) -> None:
         """Lazily hydrate state from storage on first async controller operation."""

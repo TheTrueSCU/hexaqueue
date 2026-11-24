@@ -15,7 +15,11 @@ from rich.console import Console
 from hexaqueue_cli.adapters.local import LocalClientAdapter
 from hexaqueue_cli.adapters.presenter import CliPresenter
 from hexaqueue_cli.domain.parser import parse_run_spec_from_file
-from hexaqueue_cli.domain.session import get_default_session, resolve_controller_url
+from hexaqueue_cli.domain.session import (
+    LocalCliSession,
+    get_default_session,
+    resolve_controller_url,
+)
 from hexaqueue_cli.infra.options import format_option, resolve_format, url_option
 from hexaqueue_core.domain.config import ExecutionMode
 from hexaqueue_core.domain.lifecycle import RunState
@@ -71,6 +75,8 @@ async def _execute_submit_and_watch(
 ) -> None:
     """Execute submission and optional status polling."""
     resolved_url = resolve_controller_url(controller_url)
+    session: LocalCliSession | None = None
+    started_session = False
     if resolved_url is not None:
         client = LocalClientAdapter(controller_url=resolved_url)
     else:
@@ -79,40 +85,46 @@ async def _execute_submit_and_watch(
         session = get_default_session(
             mode=session_mode, notification_dispatcher=dispatcher
         )
-        await session.start()
         client = LocalClientAdapter(session=session)
+        if watch:
+            await session.start()
+            started_session = True
 
-    report = await client.submit_run(submission, user_id=user_id, elevate=elevate)
-    if resolved_fmt in ("table", "rich"):
-        console.print(
-            f"[bold green]✓[/] Run '[bold cyan]{report.run_id}[/]' submitted ({report.total_jobs} jobs)"
-        )
-    else:
-        presenter.render_run_status(report, resolved_fmt)
-
-    if not watch:
-        if resolved_url is None and resolved_fmt in ("table", "rich"):
+    try:
+        report = await client.submit_run(submission, user_id=user_id, elevate=elevate)
+        if resolved_fmt in ("table", "rich"):
             console.print(
-                "[bold yellow]Notice:[/] Local session submitted in detached mode. "
-                "In-process execution will terminate when the process exits. Use --watch to await completion."
+                f"[bold green]✓[/] Run '[bold cyan]{report.run_id}[/]' submitted ({report.total_jobs} jobs)"
             )
-        return
+        else:
+            presenter.render_run_status(report, resolved_fmt)
 
-    with console.status(f"[bold blue]Executing run {report.run_id}...[/]"):
-        while report.state not in (RunState.DONE, RunState.BLOCKED):
-            await asyncio.sleep(0.1)
-            report = await client.get_run_status(
-                report.run_id, user_id=user_id, elevate=elevate
+        if not watch:
+            if resolved_url is None and resolved_fmt in ("table", "rich"):
+                console.print(
+                    "[bold yellow]Notice:[/] Local session submitted in detached mode. "
+                    "In-process execution will terminate when the process exits. Use --watch to await completion."
+                )
+            return
+
+        with console.status(f"[bold blue]Executing run {report.run_id}...[/]"):
+            while report.state not in (RunState.DONE, RunState.BLOCKED):
+                await asyncio.sleep(0.1)
+                report = await client.get_run_status(
+                    report.run_id, user_id=user_id, elevate=elevate
+                )
+
+        if resolved_fmt in ("table", "rich"):
+            outcome_str = (
+                f"[bold green]{report.outcome}[/]"
+                if str(report.outcome) in ("COMPLETED", "SUCCEEDED")
+                else f"[bold red]{report.outcome}[/]"
             )
-
-    if resolved_fmt in ("table", "rich"):
-        outcome_str = (
-            f"[bold green]{report.outcome}[/]"
-            if str(report.outcome) in ("COMPLETED", "SUCCEEDED")
-            else f"[bold red]{report.outcome}[/]"
-        )
-        console.print(f"Run completed with status: {outcome_str}")
-    presenter.render_run_status(report, resolved_fmt)
+            console.print(f"Run completed with status: {outcome_str}")
+        presenter.render_run_status(report, resolved_fmt)
+    finally:
+        if started_session and session is not None:
+            await session.stop()
 
 
 @app.command("submit")

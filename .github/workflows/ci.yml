@@ -26,7 +26,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
 
       - name: Visualize Pipeline DAG & Critical Path via Hexaflow
         if: always()
@@ -37,7 +37,7 @@ jobs:
         run: cargo install jscpd --locked
 
       - name: Run Quality Gate via Hexaqual
-        uses: TheTrueSCU/hexaqual@99397d2d3e652c8461fe024d45ddfb5b5b25ebc8 # v0.12.0
+        uses: TheTrueSCU/hexaqual@6117ce25b1d39768f22396a55d13103abee88926 # v0.12.1
         with:
           sync-args: "--all-packages --all-extras --all-groups"
 
@@ -61,7 +61,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
 
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -95,7 +95,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           enable-cache: true
 
@@ -117,10 +117,14 @@ jobs:
 
       - name: Run Tests via Hexaqueue Cloud (Push to Main / Manual Dispatch)
         if: needs.cluster-probe.outputs.cluster_ready == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        env:
+          HEXAQUEUE_SESSION_ID_FILE: ${{ runner.temp }}/hexaqueue-active-session.id
         run: uv run hexaqual test run -U --cov=packages --cov-fail-under=0 --profile ci --cov-report=xml --junitxml=junit.xml -o junit_family=legacy
 
       - name: Run Affected Tests via Hexaqueue Cloud (Pull Request)
         if: needs.cluster-probe.outputs.cluster_ready == 'true' && github.event_name == 'pull_request'
+        env:
+          HEXAQUEUE_SESSION_ID_FILE: ${{ runner.temp }}/hexaqueue-active-session.id
         run: uv run hexaqual test run -A -U --cov=packages --cov-fail-under=0 --profile ci --cov-report=xml --junitxml=junit.xml -o junit_family=legacy
 
       - name: Run Tests Locally via xdist (Push to Main / Manual Dispatch - Local Fallback)
@@ -155,6 +159,10 @@ jobs:
           PYTHON_VERSION: ${{ matrix.python-version }}
         run: python3 .github/scripts/emit_test_summary.py
 
+      - name: Cancel Orphaned Hexaqueue Test Session (On Failure/Cancel)
+        if: (cancelled() || failure()) && needs.cluster-probe.outputs.cluster_ready == 'true'
+        run: python3 .github/scripts/cancel_orphaned_workload.py --kind test-session --id-file "${{ runner.temp }}/hexaqueue-active-session.id"
+
       - name: Disconnect Hexaqueue Cluster Tunnel
         if: always() && needs.cluster-probe.outputs.cluster_ready == 'true'
         run: uv run hq cluster tunnel --stop || true
@@ -168,7 +176,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           enable-cache: true
 
@@ -214,7 +222,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           enable-cache: true
 
@@ -264,13 +272,13 @@ jobs:
           fetch-depth: 0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           enable-cache: true
 
       - name: Plan AST-Weighted Changed Mutation Slices
         id: plan
-        uses: TheTrueSCU/hexaqual/.github/actions/mutate-plan@99397d2d3e652c8461fe024d45ddfb5b5b25ebc8 # v0.12.0
+        uses: TheTrueSCU/hexaqual/.github/actions/mutate-plan@6117ce25b1d39768f22396a55d13103abee88926 # v0.12.1
         with:
           mode: changed-slices
           base-ref: ${{ github.base_ref }}
@@ -292,7 +300,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           enable-cache: true
 
@@ -315,12 +323,17 @@ jobs:
       - name: Run Package Mutation Testing via Hexaqueue Cloud
         if: needs.cluster-probe.outputs.cluster_ready == 'true'
         env:
-          HEXAQUEUE_TIMEOUT: "3600"
+          HEXAQUEUE_TIMEOUT: "3300"
+          HEXAQUEUE_RUN_ID_FILE: ${{ runner.temp }}/hexaqueue-active-run.id
         run: uv run hexaqual mutate run -p "${{ matrix.package }}" --targets "${{ matrix.targets }}" -e gremlins -w auto --batch-size 10 -n auto --cluster hexaqueue
 
       - name: Run Package Mutation Testing Locally (Fallback)
         if: needs.cluster-probe.outputs.cluster_ready != 'true'
         run: uv run hexaqual mutate run -p "${{ matrix.package }}" --targets "${{ matrix.targets }}" -e gremlins -w auto --batch-size 10 -n auto
+
+      - name: Cancel Orphaned Hexaqueue Mutation Run (On Failure/Cancel)
+        if: (cancelled() || failure()) && needs.cluster-probe.outputs.cluster_ready == 'true'
+        run: python3 .github/scripts/cancel_orphaned_workload.py --kind run --id-file "${{ runner.temp }}/hexaqueue-active-run.id"
 
       - name: Disconnect Hexaqueue Cluster Tunnel
         if: always() && needs.cluster-probe.outputs.cluster_ready == 'true'
@@ -340,7 +353,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           enable-cache: true
 
@@ -393,7 +406,7 @@ jobs:
         if: always()
 
       - name: Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         if: always()
         with:
           enable-cache: true
