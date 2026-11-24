@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+export HOME=/root
+
 echo "==> Bootstrapping Hexaqueue Worker node..."
 
 # Ensure non-interactive apt
@@ -15,6 +17,9 @@ if ! command -v uv &>/dev/null; then
   echo "==> Installing uv..."
   curl -LsSf https://astral.sh/uv/install.sh | sh
   cp /root/.local/bin/uv /usr/local/bin/uv
+  if [ -f /root/.local/bin/uvx ]; then
+    cp /root/.local/bin/uvx /usr/local/bin/uvx
+  fi
 fi
 
 # Clone hexaqueue repository to /opt/hexaqueue
@@ -26,19 +31,29 @@ else
   cd /opt/hexaqueue && git fetch origin main && git reset --hard origin/main
 fi
 
-# Pre-sync worker dependencies
+# Pre-sync worker dependencies (including extras and dev groups for mutation/test execution)
 echo "==> Syncing worker environment via uv..."
 cd /opt/hexaqueue
-/usr/local/bin/uv sync --all-packages
+/usr/local/bin/uv sync --all-packages --all-extras --all-groups
 
 # Configure worker agent environment
 mkdir -p /etc/hexaqueue
 PRIVATE_IP=$(curl -s -H "Authorization: Bearer Oracle" http://169.254.169.254/opc/v2/vnics/ | jq -r '.[0].privateIp // empty')
+WORKER_HOSTNAME=$(hostname)
+IP_SUFFIX="$${PRIVATE_IP//./-}"
+if [ -n "$IP_SUFFIX" ]; then
+  WORKER_ID="$WORKER_HOSTNAME-$IP_SUFFIX"
+else
+  WORKER_ID="$WORKER_HOSTNAME-$(date +%s)"
+fi
 cat <<EOF > /etc/hexaqueue/worker.env
 HEXAQUEUE_CONTROLLER_URL=http://${controller_ip}:${controller_port}
+HEXAQUEUE_WORKER_ID=$WORKER_ID
 HEXAQUEUE_WORKER_IP=$PRIVATE_IP
 HEXAQUEUE_WORKER_OCPUS=${worker_ocpus}
+HEXAQUEUE_WORKER_MEMORY_MB=${worker_memory_mb}
 HEXAQUEUE_AGENT_IDLE_TIMEOUT=900.0
+HEXAQUEUE_SLICE_TIMEOUT_SECONDS=2400.0
 EOF
 
 # Create and enable systemd service for worker agent
@@ -53,7 +68,7 @@ Type=simple
 User=root
 WorkingDirectory=/opt/hexaqueue
 EnvironmentFile=/etc/hexaqueue/worker.env
-ExecStart=/usr/local/bin/uv run python3 -m hexaqueue_worker.adapters.agent
+ExecStart=/usr/local/bin/uv run python -m hexaqueue_worker.adapters.agent
 Restart=always
 RestartSec=5
 

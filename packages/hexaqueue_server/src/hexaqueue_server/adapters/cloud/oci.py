@@ -41,6 +41,77 @@ def _is_pool_stopped(pool: Any) -> bool:
     return isinstance(raw_state, str) and raw_state.upper() == "STOPPED"
 
 
+def _extract_pool_shape_spec(
+    instance_config: Any,
+) -> tuple[str | None, float | None, float | None]:
+    """Extract compute shape name, OCPUs, and memory GB from an OCI instance config."""
+    inst_details = getattr(instance_config, "instance_details", None)
+    launch = getattr(inst_details, "launch_details", None)
+    if launch is None:
+        return None, None, None
+    shape = getattr(launch, "shape", None)
+    shape_cfg = getattr(launch, "shape_config", None)
+    raw_ocpus = getattr(shape_cfg, "ocpus", None) if shape_cfg is not None else None
+    raw_mem = (
+        getattr(shape_cfg, "memory_in_gbs", None) if shape_cfg is not None else None
+    )
+    ocpus = float(raw_ocpus) if raw_ocpus is not None else None
+    memory_gbs = float(raw_mem) if raw_mem is not None else None
+    return (str(shape) if shape else None), ocpus, memory_gbs
+
+
+def _ad_reports_available(
+    compute_client: Any,
+    compartment_id: str,
+    availability_domain: str,
+    shape: str,
+    ocpus: float | None,
+    memory_gbs: float | None,
+    oci_mod: Any,
+) -> bool | None:
+    """Probe one OCI AD via CreateComputeCapacityReport; returns None on API error."""
+    try:
+        if oci_mod is not None and hasattr(oci_mod, "core"):
+            models = oci_mod.core.models
+            shape_cfg = (
+                models.CapacityReportInstanceShapeConfig(
+                    ocpus=ocpus, memory_in_gbs=memory_gbs
+                )
+                if ocpus is not None and memory_gbs is not None
+                else None
+            )
+            avail_req = models.CreateComputeCapacityReportShapeAvailabilityDetails(
+                instance_shape=shape,
+                instance_shape_config=shape_cfg,
+            )
+            details = models.CreateComputeCapacityReportDetails(
+                compartment_id=compartment_id,
+                availability_domain=availability_domain,
+                shape_availabilities=[avail_req],
+            )
+        else:
+            details = {
+                "compartment_id": compartment_id,
+                "availability_domain": availability_domain,
+                "shape_availabilities": [
+                    {
+                        "instance_shape": shape,
+                        "ocpus": ocpus,
+                        "memory_in_gbs": memory_gbs,
+                    }
+                ],
+            }
+        resp = compute_client.create_compute_capacity_report(details)
+        rep = getattr(resp, "data", resp)
+        avail_list = getattr(rep, "shape_availabilities", None) or []
+        return any(
+            str(getattr(item, "availability_status", "")).upper() == "AVAILABLE"
+            for item in avail_list
+        )
+    except Exception:
+        return None
+
+
 class OciInstancePoolAdapter(InstancePoolGovernorPort):
     """Adapter for governing Oracle Cloud Infrastructure (OCI) Instance Pools.
 
@@ -48,6 +119,7 @@ class OciInstancePoolAdapter(InstancePoolGovernorPort):
         compute_management_client: Injected OCI ComputeManagementClient or mock.
         compartment_id: Target OCI compartment OCID.
         credentials: Optional OciCredentialsConfig for SDK configuration.
+        compute_client: Optional OCI ComputeClient used for pre-flight capacity reports.
 
     Notes/Architectural Intent:
         Hermetically testable through client injection and in-memory mock pools
@@ -59,8 +131,10 @@ class OciInstancePoolAdapter(InstancePoolGovernorPort):
         compute_management_client: Any = None,
         compartment_id: str = "ocid1.compartment.oc1..default",
         credentials: OciCredentialsConfig | None = None,
+        compute_client: Any = None,
     ) -> None:
         self._client = compute_management_client
+        self._compute_client = compute_client
         self._compartment_id = compartment_id
         self._credentials = credentials
         self._local_pools: dict[str, InstancePoolState] = {}
@@ -81,11 +155,12 @@ class OciInstancePoolAdapter(InstancePoolGovernorPort):
             Configured OciInstancePoolAdapter instance.
 
         Notes/Architectural Intent:
-            Attempts to configure live OCI SDK ComputeManagementClient if the oci
-            package is installed and credentials are configured; otherwise
+            Attempts to configure live OCI SDK ComputeManagementClient and ComputeClient
+            if the oci package is installed and credentials are configured; otherwise
             falls back gracefully to hermetic simulation mode.
         """
         client = None
+        compute_client = None
         oci_mod = optional_dependency("oci")
 
         if (
@@ -99,6 +174,9 @@ class OciInstancePoolAdapter(InstancePoolGovernorPort):
                         oci_mod.auth.signers.InstancePrincipalsSecurityTokenSigner()
                     )
                     client = oci_mod.core.ComputeManagementClient(
+                        config={}, signer=signer
+                    )
+                    compute_client = oci_mod.core.ComputeClient(
                         config={}, signer=signer
                     )
                 elif (
@@ -118,8 +196,10 @@ class OciInstancePoolAdapter(InstancePoolGovernorPort):
                     elif credentials.key_file is not None:
                         config["key_file"] = credentials.key_file
                     client = oci_mod.core.ComputeManagementClient(config)
+                    compute_client = oci_mod.core.ComputeClient(config)
             except Exception:
                 client = None
+                compute_client = None
 
         target_compartment = (
             compartment_id
@@ -130,7 +210,61 @@ class OciInstancePoolAdapter(InstancePoolGovernorPort):
             compute_management_client=client,
             compartment_id=target_compartment,
             credentials=credentials,
+            compute_client=compute_client,
         )
+
+    async def check_pool_capacity(self, pool_id: str) -> bool:
+        """Probe OCI compute capacity across every AD configured on the instance pool.
+
+        Args:
+            pool_id: OCID of the OCI Instance Pool to evaluate.
+
+        Returns:
+            True when at least one placement AD reports ``AVAILABLE`` (or on API errors
+            to fail open); False when probed ADs report capacity exhaustion.
+        """
+        if self._client is None or self._compute_client is None:
+            return True
+        try:
+            pool_resp = self._client.get_instance_pool(instance_pool_id=pool_id)
+            pool = getattr(pool_resp, "data", pool_resp)
+            eff_comp = getattr(pool, "compartment_id", None) or self._compartment_id
+            cfg_id = getattr(pool, "instance_configuration_id", None)
+            if not cfg_id:
+                return True
+            cfg_resp = self._client.get_instance_configuration(
+                instance_configuration_id=cfg_id
+            )
+            inst_cfg = getattr(cfg_resp, "data", cfg_resp)
+            shape, ocpus, memory_gbs = _extract_pool_shape_spec(inst_cfg)
+            placements = getattr(pool, "placement_configurations", None) or []
+            ads = [
+                str(ad)
+                for p in placements
+                if (ad := getattr(p, "availability_domain", None))
+            ]
+            if not shape or not ads:
+                return True
+        except Exception:
+            return True
+
+        oci_mod = optional_dependency("oci")
+        probed_count = 0
+        for ad in ads:
+            verdict = _ad_reports_available(
+                compute_client=self._compute_client,
+                compartment_id=eff_comp,
+                availability_domain=ad,
+                shape=shape,
+                ocpus=ocpus,
+                memory_gbs=memory_gbs,
+                oci_mod=oci_mod,
+            )
+            if verdict is True:
+                return True
+            if verdict is False:
+                probed_count += 1
+        return probed_count == 0
 
     def register_mock_pool(self, pool: InstancePoolState) -> None:
         """Register a pool in the in-memory store for hermetic testing or simulation.

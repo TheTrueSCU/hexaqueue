@@ -20,6 +20,7 @@ resource "oci_identity_policy" "controller_policy" {
     "Allow dynamic-group hq-controller-dg to use vnics in tenancy",
     "Allow dynamic-group hq-controller-dg to manage object-family in tenancy",
     "Allow dynamic-group hq-controller-dg to manage bastion-family in tenancy",
+    "Allow dynamic-group hq-controller-dg to manage compute-capacity-reports in tenancy",
     "Allow dynamic-group hq-controller-dg to use tag-namespaces in tenancy"
   ]
 }

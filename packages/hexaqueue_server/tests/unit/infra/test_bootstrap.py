@@ -106,3 +106,27 @@ def test_bootstrap_server_container_wires_scheduler_storage(
     di_adb = bootstrap_server_container()
     adb_storage = di_adb.resolve(SchedulerStoragePort)
     assert isinstance(adb_storage, OciAutonomousDatabaseStorageAdapter)
+
+
+def test_bootstrap_server_container_parses_multi_pool_ids() -> None:
+    """Verify bootstrap parses comma-separated HEXAQUEUE_OCI_INSTANCE_POOL_IDS in order."""
+    env_vars = {
+        "HEXAQUEUE_CSP_PROVIDER": "OCI",
+        "HEXAQUEUE_OCI_INSTANCE_POOL_IDS": "ocid1..a1, ocid1..a4 , ocid1..e5",
+    }
+    with (
+        patch.dict("os.environ", env_vars, clear=False),
+        patch(
+            "hexaqueue_core.adapters.storage.oci.optional_dependency", return_value=None
+        ),
+        patch(
+            "hexaqueue_server.adapters.cloud.oci.optional_dependency", return_value=None
+        ),
+    ):
+        di = bootstrap_server_container()
+        coord = di.resolve(SliceLeaseCoordinator)
+        readiness = coord.get_capacity_readiness()
+        pool_ids = readiness["pool_ids"]
+        primary_id = readiness["pool_id"]
+        assert pool_ids == ["ocid1..a1", "ocid1..a4", "ocid1..e5"]
+        assert primary_id == "ocid1..a1"
