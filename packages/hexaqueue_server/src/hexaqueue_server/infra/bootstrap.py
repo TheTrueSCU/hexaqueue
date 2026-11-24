@@ -7,6 +7,7 @@ Notes/Architectural Intent:
 """
 
 import os
+from collections.abc import Sequence
 
 from hexastack_core.infra.container import create_container
 from hexastack_core.ports.container import ContainerPort
@@ -67,12 +68,33 @@ def _resolve_storage_port(
     return storage_port
 
 
+def _parse_pool_ids(
+    raw_pool_ids: str | None = None,
+    fallback_pool_id: str | None = None,
+) -> list[str]:
+    """Parse and deduplicate ordered cloud instance pool OCIDs from environment strings."""
+    source = (
+        raw_pool_ids if (raw_pool_ids and raw_pool_ids.strip()) else fallback_pool_id
+    )
+    if not source:
+        return []
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for token in source.split(","):
+        cleaned = token.strip()
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            ordered.append(cleaned)
+    return ordered
+
+
 def _resolve_coordinator(
     di: ContainerPort,
     storage_port: PresignedStoragePort,
     collateral_service: CollateralServicePort,
     provider: str,
     pool_id: str | None,
+    pool_ids: Sequence[str] | None = None,
 ) -> SliceLeaseCoordinator:
     """Resolve or construct SliceLeaseCoordinator implementation."""
     coordinator = (
@@ -81,15 +103,22 @@ def _resolve_coordinator(
     if coordinator is not None:
         return coordinator
 
+    resolved_pool_ids = list(
+        pool_ids if pool_ids is not None else ([pool_id] if pool_id else [])
+    )
+    primary_pool_id = resolved_pool_ids[0] if resolved_pool_ids else None
+
     autoscaler = (
         di.resolve(BudgetAwareInstancePoolAutoscaler)
         if BudgetAwareInstancePoolAutoscaler in di
         else None
     )
-    if autoscaler is None and pool_id and provider == "OCI":
+    if autoscaler is None and resolved_pool_ids and provider == "OCI":
         creds = OciCredentialsConfig(use_instance_principals=True)
         gov = OciInstancePoolAdapter.from_credentials(credentials=creds)
-        autoscaler = BudgetAwareInstancePoolAutoscaler(governors={pool_id: gov})
+        autoscaler = BudgetAwareInstancePoolAutoscaler(
+            governors=dict.fromkeys(resolved_pool_ids, gov)
+        )
         di.add_instance(autoscaler, declared_class=BudgetAwareInstancePoolAutoscaler)
 
     logger = (
@@ -102,7 +131,8 @@ def _resolve_coordinator(
         storage_port=storage_port,
         collateral_service=collateral_service,
         autoscaler=autoscaler,
-        pool_id=pool_id,
+        pool_id=primary_pool_id,
+        pool_ids=resolved_pool_ids,
         logger=logger,
         log_store=log_store,
     )
@@ -192,9 +222,12 @@ def bootstrap_server_container(
     di = container or create_container()
 
     provider = os.environ.get("HEXAQUEUE_CSP_PROVIDER", "LOCAL").upper()
-    pool_id = os.environ.get("HEXAQUEUE_OCI_INSTANCE_POOL_ID") or os.environ.get(
-        "HEXAQUEUE_INSTANCE_POOL_ID"
-    )
+    raw_pool_ids = os.environ.get("HEXAQUEUE_OCI_INSTANCE_POOL_IDS")
+    fallback_pool_id = os.environ.get(
+        "HEXAQUEUE_OCI_INSTANCE_POOL_ID"
+    ) or os.environ.get("HEXAQUEUE_INSTANCE_POOL_ID")
+    resolved_pool_ids = _parse_pool_ids(raw_pool_ids, fallback_pool_id)
+    pool_id = resolved_pool_ids[0] if resolved_pool_ids else None
 
     storage_port = _resolve_storage_port(di, provider, pool_id)
     scheduler_storage = _resolve_scheduler_storage(di)
@@ -211,7 +244,12 @@ def bootstrap_server_container(
         di.add_instance(collateral_service, declared_class=CollateralServicePort)
 
     coordinator = _resolve_coordinator(
-        di, storage_port, collateral_service, provider, pool_id
+        di,
+        storage_port,
+        collateral_service,
+        provider,
+        pool_id,
+        pool_ids=resolved_pool_ids,
     )
     _resolve_pipeline(
         di, coordinator, storage_port, collateral_service, scheduler_storage

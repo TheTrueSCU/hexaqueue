@@ -592,3 +592,133 @@ async def test_lease_slice_falls_back_to_initial_collateral_url_on_refresh_error
 
     leased_url = lease.task.collateral_download_url
     assert leased_url == "https://par-initial"
+
+
+@pytest.mark.asyncio
+async def test_periodic_reconciler_recovers_half_open_without_new_enqueue() -> None:
+    """Verify background reconciler retries scale-up once OPEN cooldown expires (#219)."""
+    from hexaqueue_core.domain.config import CspProvider
+    from hexaqueue_core.domain.pool import InstancePoolState, PoolScaleResult
+    from hexaqueue_server.domain.autoscaler import BudgetAwareInstancePoolAutoscaler
+
+    gov = MagicMock()
+    gov.check_pool_capacity = AsyncMock(return_value=True)
+    gov.get_pool_state = AsyncMock(
+        return_value=InstancePoolState(
+            pool_id="pool-rec-1",
+            provider=CspProvider.OCI,
+            min_nodes=0,
+            max_nodes=2,
+            desired_nodes=0,
+            current_nodes=0,
+            ready_nodes=0,
+        )
+    )
+    gov.scale_pool = AsyncMock(
+        return_value=PoolScaleResult(
+            pool_id="pool-rec-1",
+            previous_nodes=0,
+            target_nodes=1,
+            success=True,
+            message="ok",
+        )
+    )
+    autoscaler = BudgetAwareInstancePoolAutoscaler(
+        governors={"pool-rec-1": gov},
+        circuit_cooldown_seconds=0.05,
+    )
+    autoscaler.trip_circuit("pool-rec-1", "transient capacity miss")
+
+    coord = SliceLeaseCoordinator(autoscaler=autoscaler, pool_id="pool-rec-1")
+    job = JobSpec(id="job-rec-1", run_id="run-rec-1", name="rec", command="pytest")
+    await coord.enqueue_job(job)
+    initial_scale_calls = gov.scale_pool.call_count
+    assert initial_scale_calls == 0
+
+    coord.start_reconciler(interval_seconds=0.02)
+    try:
+        for _ in range(15):
+            if gov.scale_pool.call_count > 0:
+                break
+            await asyncio.sleep(0.02)
+    finally:
+        await coord.stop_reconciler()
+
+    after_scale_calls = gov.scale_pool.call_count
+    assert after_scale_calls >= 1
+
+
+@pytest.mark.asyncio
+async def test_periodic_reconciler_trips_stalled_scaling_pool_to_zero() -> None:
+    """Verify background reconciler trips stalled SCALING pool and scales to 0 (#219)."""
+    from hexaqueue_core.domain.config import CspProvider
+    from hexaqueue_core.domain.pool import InstancePoolState, PoolScaleResult
+    from hexaqueue_server.domain.autoscaler import BudgetAwareInstancePoolAutoscaler
+
+    gov = MagicMock()
+    gov.get_pool_state = AsyncMock(
+        return_value=InstancePoolState(
+            pool_id="pool-stall-1",
+            provider=CspProvider.OCI,
+            min_nodes=0,
+            max_nodes=2,
+            desired_nodes=1,
+            current_nodes=0,
+            ready_nodes=0,
+        )
+    )
+    gov.scale_pool = AsyncMock(
+        return_value=PoolScaleResult(
+            pool_id="pool-stall-1",
+            previous_nodes=1,
+            target_nodes=0,
+            success=True,
+            message="scaled down",
+        )
+    )
+    autoscaler = BudgetAwareInstancePoolAutoscaler(
+        governors={"pool-stall-1": gov},
+        scale_up_grace_seconds=0.03,
+    )
+    coord = SliceLeaseCoordinator(autoscaler=autoscaler, pool_id="pool-stall-1")
+    autoscaler._scale_up_started_at["pool-stall-1"] = 0.0
+
+    coord.start_reconciler(interval_seconds=0.02)
+    try:
+        for _ in range(15):
+            if autoscaler.get_pool_circuit_status("pool-stall-1")["state"] == "OPEN":
+                break
+            await asyncio.sleep(0.02)
+    finally:
+        await coord.stop_reconciler()
+
+    circuit_state = autoscaler.get_pool_circuit_status("pool-stall-1")["state"]
+    assert circuit_state == "OPEN"
+    scaled_targets = [c.args[0].target_nodes for c in gov.scale_pool.call_args_list]
+    assert 0 in scaled_targets
+
+
+def test_multi_pool_readiness_stays_closed_when_fallback_pool_healthy() -> None:
+    """Verify aggregate readiness stays CLOSED when a fallback pool remains healthy."""
+    from hexaqueue_server.domain.autoscaler import BudgetAwareInstancePoolAutoscaler
+
+    autoscaler = BudgetAwareInstancePoolAutoscaler(
+        governors={"pool-a1": MagicMock(), "pool-e5": MagicMock()}
+    )
+    autoscaler.trip_circuit("pool-a1", "Out of host capacity")
+
+    coord = SliceLeaseCoordinator(
+        autoscaler=autoscaler,
+        pool_ids=["pool-a1", "pool-e5"],
+    )
+    readiness = coord.get_capacity_readiness()
+    agg_state = readiness["pool_circuit"]["state"]
+    pool_ids = readiness["pool_ids"]
+    a1_state = readiness["pool_circuits"]["pool-a1"]["state"]
+    e5_state = readiness["pool_circuits"]["pool-e5"]["state"]
+    is_ready = readiness["ready"]
+    assert agg_state == "CLOSED"
+    assert pool_ids == ["pool-a1", "pool-e5"]
+    assert a1_state == "OPEN"
+    assert e5_state == "CLOSED"
+    assert is_ready is True

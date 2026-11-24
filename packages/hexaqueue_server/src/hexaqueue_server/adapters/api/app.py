@@ -239,9 +239,18 @@ def _attach_server_lifespan(app: FastAPI, di: ContainerPort) -> None:
             col_hydrate_fn: Any = getattr(collateral_svc, "hydrate_from_storage", None)
             if callable(col_hydrate_fn):
                 await col_hydrate_fn()
+            coordinator = (
+                di.resolve(SliceLeaseCoordinator)
+                if SliceLeaseCoordinator in di
+                else None
+            )
+            if coordinator is not None and hasattr(coordinator, "start_reconciler"):
+                coordinator.start_reconciler()
             try:
                 yield
             finally:
+                if coordinator is not None and hasattr(coordinator, "stop_reconciler"):
+                    await coordinator.stop_reconciler()
                 scheduler_storage = (
                     di.resolve(SchedulerStoragePort)
                     if SchedulerStoragePort in di

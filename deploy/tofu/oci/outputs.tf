@@ -13,6 +13,21 @@ output "worker_instance_pool_id" {
   value       = oci_core_instance_pool.worker_pool.id
 }
 
+output "worker_instance_pool_a4_id" {
+  description = "OCID of the Ampere A4 scale-to-zero worker instance pool"
+  value       = oci_core_instance_pool.worker_pool_a4.id
+}
+
+output "worker_instance_pool_e5_id" {
+  description = "OCID of the AMD E5.Flex scale-to-zero worker instance pool"
+  value       = oci_core_instance_pool.worker_pool_e5.id
+}
+
+output "worker_instance_pool_priority_ids" {
+  description = "Comma-separated priority list of worker pool OCIDs (A1 -> A4 -> E5)"
+  value       = join(",", [oci_core_instance_pool.worker_pool.id, oci_core_instance_pool.worker_pool_a4.id, oci_core_instance_pool.worker_pool_e5.id])
+}
+
 output "worker_nsg_id" {
   description = "OCID of the worker Network Security Group"
   value       = oci_core_network_security_group.worker_nsg.id
