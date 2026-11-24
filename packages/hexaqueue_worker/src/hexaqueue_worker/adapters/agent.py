@@ -16,6 +16,7 @@ import base64
 import contextlib
 import io
 import os
+import shlex
 import shutil
 import sys
 import tarfile
@@ -36,6 +37,131 @@ from hexaqueue_core.domain.lease import (
     WorkerRegistration,
 )
 from hexaqueue_core.ports.logging import LogChunk
+
+_WORKER_INTERNAL_ENV_KEYS: tuple[str, ...] = (
+    "HEXAQUEUE_CONTROLLER_URL",
+    "HEXAQUEUE_URL",
+    "HEXAQUEUE_JOIN_TOKEN",
+    "HEXAQUEUE_ADMIN_TOKEN",
+    "HEXAQUEUE_WORKER_ID",
+    "HEXAQUEUE_WORKER_HOSTNAME",
+    "HEXAQUEUE_WORKER_IP",
+    "HEXAQUEUE_WORKER_OCPUS",
+    "HEXAQUEUE_WORKER_MEMORY_MB",
+    "HEXAQUEUE_AGENT_IDLE_TIMEOUT",
+    "HEXAQUEUE_AGENT_SCRATCH_DIR",
+)
+_SHELL_METACHARACTERS: tuple[str, ...] = (
+    "&&",
+    "||",
+    "|",
+    ";",
+    ">",
+    "<",
+    "$",
+    "`",
+    "\n",
+)
+
+
+def _build_task_env(
+    workspace: Path,
+    task_env: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Build sanitized subprocess environment for leased worker tasks.
+
+    Args:
+        workspace: Base workspace directory for the leased task.
+        task_env: Optional explicit task environment overrides. When provided,
+            ``PYTHONUNBUFFERED`` is enabled and explicit keys take precedence.
+
+    Returns:
+        Isolated environment dictionary safe to pass to child task processes.
+
+    Notes/Architectural Intent:
+        Strips worker daemon control-plane variables (such as
+        ``HEXAQUEUE_CONTROLLER_URL`` and ``HEXAQUEUE_JOIN_TOKEN``) inherited from
+        the agent's systemd service so hermetic unit tests and unprivileged tasks
+        cannot unintentionally target the live cluster coordinator.
+    """
+    env = os.environ.copy()
+    for key in _WORKER_INTERNAL_ENV_KEYS:
+        env.pop(key, None)
+
+    src_paths: list[str] = [
+        str(p) for p in sorted((workspace / "packages").glob("*/src"))
+    ]
+    if (workspace / "src").is_dir():
+        src_paths.append(str(workspace / "src"))
+    src_paths.append(str(workspace.resolve()))
+    env["PYTHONPATH"] = os.pathsep.join(src_paths)
+
+    if task_env is not None:
+        env["PYTHONUNBUFFERED"] = "1"
+        env.update(task_env)
+        env.pop("HEXAQUEUE_CWD", None)
+    return env
+
+
+def _resolve_command_invocation(
+    command: str,
+    args: list[str],
+    workspace: Path,
+) -> tuple[bool, list[str] | str]:
+    """Resolve how a batch command task should be invoked in a workspace.
+
+    Args:
+        command: Executable or single-string command line specified by the job.
+        args: Explicit argument list (empty when job encoded args inside ``command``).
+        workspace: Base workspace directory for ``uv run --project`` detection.
+
+    Returns:
+        Tuple of ``(use_shell, command_spec)`` where ``use_shell=True`` returns
+        a shell command string and ``use_shell=False`` returns an ``argv`` list.
+
+    Notes/Architectural Intent:
+        Mirrors ``LocalSubprocessExecutionRuntimeAdapter`` semantics for jobs
+        submitted with single-string commands (e.g. ``"echo 'Hello World'"`` or
+        shell pipelines) while keeping explicit ``command`` + ``args`` tuples
+        direct via ``create_subprocess_exec``.
+    """
+    if not args and any(tok in command for tok in _SHELL_METACHARACTERS):
+        return True, command
+
+    if not args and any(ch.isspace() for ch in command):
+        try:
+            tokens = shlex.split(command)
+        except ValueError:
+            return True, command
+        if tokens:
+            executable, resolved_args = tokens[0], tokens[1:]
+        else:
+            executable, resolved_args = command, []
+    else:
+        executable, resolved_args = command, list(args)
+
+    uv_bin = shutil.which("uv") or (
+        "/usr/local/bin/uv" if Path("/usr/local/bin/uv").is_file() else None
+    )
+    has_uv_project = (workspace / "pyproject.toml").is_file() or (
+        workspace / "uv.lock"
+    ).is_file()
+
+    if (
+        uv_bin
+        and has_uv_project
+        and not Path(executable).is_absolute()
+        and not executable.startswith("uv")
+    ):
+        return False, [
+            uv_bin,
+            "run",
+            "--project",
+            str(workspace),
+            executable,
+            *resolved_args,
+        ]
+    return False, [executable, *resolved_args]
 
 
 @dataclass
@@ -216,6 +342,11 @@ class WorkerAgent:
 
         Returns:
             True if heartbeat was acknowledged, False otherwise.
+
+        Notes/Architectural Intent:
+            Self-heals after controller restarts (which reset in-memory worker
+            registrations) by re-registering automatically on HTTP 404 and
+            retrying the heartbeat once.
         """
         url = f"{self.config.controller_url}/worker/{self.config.worker_id}/heartbeat"
         payload: dict[str, Any] = {
@@ -224,6 +355,8 @@ class WorkerAgent:
         }
         try:
             resp = await client.post(url, json=payload, headers=self._headers())
+            if resp.status_code == 404 and await self.register(client):
+                resp = await client.post(url, json=payload, headers=self._headers())
             return resp.status_code == 200
         except Exception:
             return False
@@ -450,14 +583,7 @@ class WorkerAgent:
                 cmd.extend(["--cov", src])
         cmd.extend(nodeids)
 
-        env = os.environ.copy()
-        src_paths: list[str] = [
-            str(p) for p in sorted((workspace / "packages").glob("*/src"))
-        ]
-        if (workspace / "src").is_dir():
-            src_paths.append(str(workspace / "src"))
-        src_paths.append(str(workspace.resolve()))
-        env["PYTHONPATH"] = os.pathsep.join(src_paths)
+        env = _build_task_env(workspace)
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -517,42 +643,28 @@ class WorkerAgent:
         if not cwd_path.exists():
             cwd_path = workspace
 
-        uv_bin = shutil.which("uv") or (
-            "/usr/local/bin/uv" if Path("/usr/local/bin/uv").is_file() else None
-        )
-        has_uv_project = (workspace / "pyproject.toml").is_file() or (
-            workspace / "uv.lock"
-        ).is_file()
+        use_shell, resolved_cmd = _resolve_command_invocation(command, args, workspace)
+        env = _build_task_env(workspace, task_env)
 
-        if (
-            uv_bin
-            and has_uv_project
-            and not Path(command).is_absolute()
-            and not command.startswith("uv")
-        ):
-            cmd = [uv_bin, "run", "--project", str(workspace), command, *args]
+        if use_shell and isinstance(resolved_cmd, str):
+            proc = await asyncio.create_subprocess_shell(
+                resolved_cmd,
+                cwd=str(cwd_path),
+                env=env,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
         else:
-            cmd = [command, *args]
-
-        env = os.environ.copy()
-        src_paths: list[str] = [
-            str(p) for p in sorted((workspace / "packages").glob("*/src"))
-        ]
-        if (workspace / "src").is_dir():
-            src_paths.append(str(workspace / "src"))
-        src_paths.append(str(workspace.resolve()))
-        env["PYTHONPATH"] = os.pathsep.join(src_paths)
-        env["PYTHONUNBUFFERED"] = "1"
-        env.update(task_env)
-        env.pop("HEXAQUEUE_CWD", None)
-
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            cwd=str(cwd_path),
-            env=env,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+            cmd_list = (
+                resolved_cmd if isinstance(resolved_cmd, list) else [str(resolved_cmd)]
+            )
+            proc = await asyncio.create_subprocess_exec(
+                *cmd_list,
+                cwd=str(cwd_path),
+                env=env,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
         exit_code, stdout_text, stderr_text = await self._stream_process_output(
             proc, job_id=job_id, client=client
         )
@@ -623,6 +735,7 @@ class WorkerAgent:
         stderr_text = ""
         error_msg: str | None = None
         cov_key: str | None = None
+        inline_cov: dict[str, Any] | None = None
 
         try:
             if task.collateral_download_url:
@@ -666,7 +779,6 @@ class WorkerAgent:
                     )
 
             cov_key = await self._handle_coverage_upload(task, workspace)
-            inline_cov: dict[str, Any] | None = None
             cov_path = workspace / ".coverage"
             if cov_path.exists():
                 cov_bytes = cov_path.read_bytes()
@@ -732,7 +844,17 @@ class WorkerAgent:
 
         self._active_leases.add(lease.lease_id)
         try:
-            report = await self.execute_slice(lease, client)
+            try:
+                report = await self.execute_slice(lease, client)
+            except Exception as exc:
+                report = SliceReportPayload(
+                    lease_id=lease.lease_id,
+                    slice_id=lease.task.slice_id,
+                    worker_id=self.config.worker_id,
+                    exit_code=1,
+                    error_message=f"Worker execution error: {exc}",
+                    duration_seconds=0.001,
+                )
             await self.report_slice(client, report)
             return True
         finally:

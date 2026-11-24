@@ -431,3 +431,219 @@ async def test_worker_agent_execute_command_task(tmp_path: Path) -> None:
     assert outcome_status == "passed"
     stdout_txt = report.stdout or ""
     assert "val1" in stdout_txt
+
+
+@pytest.mark.asyncio
+async def test_worker_agent_strips_internal_env_from_pytest_slice(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify worker control-plane env vars do not leak into pytest slice subprocesses."""
+    monkeypatch.setenv("HEXAQUEUE_CONTROLLER_URL", "http://live-controller:8001")
+    monkeypatch.setenv("HEXAQUEUE_URL", "http://live-controller:8000")
+    monkeypatch.setenv("HEXAQUEUE_JOIN_TOKEN", "secret-join-token")
+
+    cfg = WorkerAgentConfig(worker_id="w-env-pytest", scratch_dir=tmp_path)
+    agent = WorkerAgent(cfg)
+    lease = _make_dummy_lease("sl-env")
+
+    mock_proc = AsyncMock()
+    mock_proc.stdout.readline = AsyncMock(side_effect=[b""])
+    mock_proc.stderr.readline = AsyncMock(side_effect=[b""])
+    mock_proc.wait = AsyncMock(return_value=0)
+    mock_proc.returncode = 0
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
+        report = await agent.execute_slice(lease)
+
+    exit_code = report.exit_code
+    assert exit_code == 0
+    call_env = mock_exec.call_args.kwargs["env"]
+    has_ctrl_url = "HEXAQUEUE_CONTROLLER_URL" in call_env
+    has_hq_url = "HEXAQUEUE_URL" in call_env
+    has_join_token = "HEXAQUEUE_JOIN_TOKEN" in call_env
+    assert has_ctrl_url is False
+    assert has_hq_url is False
+    assert has_join_token is False
+
+
+@pytest.mark.asyncio
+async def test_worker_agent_command_task_strips_internal_env_but_honors_explicit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify command tasks strip inherited worker env but keep explicit task overrides."""
+    monkeypatch.setenv("HEXAQUEUE_CONTROLLER_URL", "http://live-controller:8001")
+    monkeypatch.setenv("HEXAQUEUE_URL", "http://live-controller:8000")
+    monkeypatch.setenv("HEXAQUEUE_JOIN_TOKEN", "secret-join-token")
+
+    cfg = WorkerAgentConfig(worker_id="w-env-cmd", scratch_dir=tmp_path)
+    agent = WorkerAgent(cfg)
+    now = datetime.now(UTC)
+    task = SliceTaskDescriptor(
+        session_id="run-env-cmd",
+        slice_id="job-env-1",
+        command="python",
+        args=["-V"],
+        env={"HEXAQUEUE_CONTROLLER_URL": "http://explicit-task-target:9000"},
+        task_type="job",
+    )
+    lease = SliceLease(
+        task=task,
+        worker_id="w-env-cmd",
+        state=SliceLeaseState.LEASED,
+        leased_at=now,
+        expires_at=now + timedelta(seconds=60),
+    )
+
+    mock_proc = AsyncMock()
+    mock_proc.stdout.readline = AsyncMock(side_effect=[b"Python 3.13\n", b""])
+    mock_proc.stderr.readline = AsyncMock(side_effect=[b""])
+    mock_proc.wait = AsyncMock(return_value=0)
+    mock_proc.returncode = 0
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
+        report = await agent.execute_slice(lease)
+
+    exit_code = report.exit_code
+    assert exit_code == 0
+    call_env = mock_exec.call_args.kwargs["env"]
+    ctrl_val = call_env.get("HEXAQUEUE_CONTROLLER_URL")
+    has_hq_url = "HEXAQUEUE_URL" in call_env
+    has_join_token = "HEXAQUEUE_JOIN_TOKEN" in call_env
+    assert ctrl_val == "http://explicit-task-target:9000"
+    assert has_hq_url is False
+    assert has_join_token is False
+
+
+@pytest.mark.asyncio
+async def test_worker_agent_execute_command_task_single_string_and_shell(
+    tmp_path: Path,
+) -> None:
+    """Verify single-string commands with args=[] and shell metacharacters execute."""
+    cfg = WorkerAgentConfig(worker_id="w-shell", scratch_dir=tmp_path)
+    agent = WorkerAgent(cfg)
+    now = datetime.now(UTC)
+
+    split_task = SliceTaskDescriptor(
+        session_id="run-split",
+        slice_id="job-split",
+        command="echo 'Hello World'",
+        args=[],
+        task_type="job",
+    )
+    split_lease = SliceLease(
+        task=split_task,
+        worker_id="w-shell",
+        state=SliceLeaseState.LEASED,
+        leased_at=now,
+        expires_at=now + timedelta(seconds=60),
+    )
+    split_report = await agent.execute_slice(split_lease)
+    split_code = split_report.exit_code
+    split_stdout = split_report.stdout or ""
+    assert split_code == 0
+    assert "Hello World" in split_stdout
+
+    shell_task = SliceTaskDescriptor(
+        session_id="run-shell",
+        slice_id="job-shell",
+        command="echo alpha && echo beta",
+        args=[],
+        task_type="job",
+    )
+    shell_lease = SliceLease(
+        task=shell_task,
+        worker_id="w-shell",
+        state=SliceLeaseState.LEASED,
+        leased_at=now,
+        expires_at=now + timedelta(seconds=60),
+    )
+    shell_report = await agent.execute_slice(shell_lease)
+    shell_code = shell_report.exit_code
+    shell_stdout = shell_report.stdout or ""
+    assert shell_code == 0
+    assert "alpha" in shell_stdout
+    assert "beta" in shell_stdout
+
+
+@pytest.mark.asyncio
+async def test_worker_agent_execute_slice_exception_does_not_raise_unbound_inline_cov(
+    tmp_path: Path,
+) -> None:
+    """Verify command spawn failures return failed SliceReportPayload without UnboundLocalError."""
+    cfg = WorkerAgentConfig(worker_id="w-unbound", scratch_dir=tmp_path)
+    agent = WorkerAgent(cfg)
+    now = datetime.now(UTC)
+    task = SliceTaskDescriptor(
+        session_id="run-err",
+        slice_id="job-err",
+        command="nonexistent-cmd",
+        task_type="job",
+    )
+    lease = SliceLease(
+        task=task,
+        worker_id="w-unbound",
+        state=SliceLeaseState.LEASED,
+        leased_at=now,
+        expires_at=now + timedelta(seconds=60),
+    )
+
+    with patch.object(
+        agent, "_run_command_task", side_effect=FileNotFoundError("boom")
+    ):
+        report = await agent.execute_slice(lease)
+
+    exit_code = report.exit_code
+    cov_data = report.coverage_data
+    error_msg = report.error_message or ""
+    assert exit_code == 1
+    assert cov_data is None
+    assert "boom" in error_msg
+
+
+@pytest.mark.asyncio
+async def test_worker_agent_run_step_reports_unexpected_execute_slice_error() -> None:
+    """Verify run_step catches unexpected execute_slice errors and reports failure."""
+    agent = WorkerAgent(WorkerAgentConfig(worker_id="w-step-err"))
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    dummy_lease = _make_dummy_lease("sl-crash")
+
+    with (
+        patch.object(agent, "lease_slice", return_value=dummy_lease),
+        patch.object(
+            agent, "execute_slice", side_effect=RuntimeError("unexpected crash")
+        ),
+        patch.object(agent, "report_slice", return_value=True) as mock_report,
+    ):
+        processed = await agent.run_step(mock_client)
+
+    assert processed is True
+    active_len = len(agent._active_leases)
+    assert active_len == 0
+    reported_payload = mock_report.call_args[0][1]
+    assert reported_payload.exit_code == 1
+    assert "unexpected crash" in (reported_payload.error_message or "")
+
+
+@pytest.mark.asyncio
+async def test_worker_agent_heartbeat_reregisters_on_404() -> None:
+    """Verify heartbeat self-heals by re-registering and retrying after HTTP 404."""
+    agent = WorkerAgent(WorkerAgentConfig(worker_id="w-reheal"))
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    mock_client.post.side_effect = [
+        MagicMock(status_code=404),
+        MagicMock(status_code=201),
+        MagicMock(status_code=200),
+    ]
+
+    hb_ok = await agent.heartbeat(mock_client)
+    assert hb_ok is True
+
+    call_count = mock_client.post.call_count
+    assert call_count == 3
+
+    second_url = mock_client.post.call_args_list[1].args[0]
+    third_url = mock_client.post.call_args_list[2].args[0]
+    assert second_url.endswith("/worker/register")
+    assert third_url.endswith("/worker/w-reheal/heartbeat")
