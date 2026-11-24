@@ -8,6 +8,7 @@ Notes/Architectural Intent:
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -815,3 +816,75 @@ def test_multi_pool_readiness_stays_closed_when_fallback_pool_healthy() -> None:
     assert a1_state == "OPEN"
     assert e5_state == "CLOSED"
     assert is_ready is True
+
+
+@pytest.mark.asyncio
+async def test_reconcile_autoscaler_coalesces_concurrent_triggers(
+    coalescing_autoscaler: SimpleNamespace,
+) -> None:
+    """Verify concurrent _reconcile_autoscaler calls coalesce without overlapping CSP calls."""
+    coord = SliceLeaseCoordinator(
+        autoscaler=coalescing_autoscaler.autoscaler,
+        pool_id="pool-coalesce-1",
+    )
+    t1 = asyncio.create_task(coord._reconcile_autoscaler())
+    await asyncio.sleep(0.01)
+    t2 = asyncio.create_task(coord._reconcile_autoscaler())
+    t3 = asyncio.create_task(coord._reconcile_autoscaler())
+    await asyncio.sleep(0.01)
+    coalescing_autoscaler.release_first.set()
+    await asyncio.gather(t1, t2, t3)
+
+    max_in_flight = coalescing_autoscaler.stats["max_in_flight"]
+    call_count = coalescing_autoscaler.stats["call_count"]
+    assert max_in_flight == 1
+    assert call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_shutdown_evicts_leases_tracks_cancellations_and_notifies_controller() -> (
+    None
+):
+    """Verify coordinator.shutdown() drains pending/leased tasks, records cancelled IDs, and notifies controller."""
+    controller = MagicMock()
+    controller.update_job_outcome = AsyncMock()
+    coord = SliceLeaseCoordinator(controller=controller)
+    await coord.register_worker(
+        WorkerRegistration(
+            worker_id="worker-shut-1",
+            hostname="hq-shut",
+            ip_address="10.0.0.9",
+            ocpus=2,
+            memory_mb=4096,
+        )
+    )
+    job_active = JobSpec(
+        id="job-shut-active",
+        run_id="run-shut",
+        name="shut-active",
+        command="pytest",
+    )
+    job_pending = JobSpec(
+        id="job-shut-pending",
+        run_id="run-shut",
+        name="shut-pending",
+        command="pytest",
+    )
+    await coord.enqueue_job(job_active)
+    await coord.enqueue_job(job_pending)
+    lease = await coord.lease_slice("worker-shut-1")
+    assert lease is not None
+
+    has_active_before = coord.has_tracked_task("job-shut-active")
+    has_pending_before = coord.has_tracked_task("job-shut-pending")
+    assert has_active_before is True
+    assert has_pending_before is True
+
+    drained = await coord.shutdown(reason="Server shutting down")
+    assert drained == 2
+    assert coord.pending_count == 0
+    assert coord.active_lease_count == 0
+    cancelled_ids = coord.get_cancelled_lease_ids([lease.lease_id])
+    assert cancelled_ids == [lease.lease_id]
+    update_count = controller.update_job_outcome.await_count
+    assert update_count == 2

@@ -117,6 +117,8 @@ class SliceLeaseCoordinator:
         self._log_store = log_store
         self._reconciler_task: asyncio.Task[None] | None = None
         self._reconciler_stop = False
+        self._reconcile_in_progress = False
+        self._reconcile_pending = False
 
         self._lock = CrossLoopAsyncLock()
         self._condition = CrossLoopAsyncCondition(lock=self._lock)
@@ -393,8 +395,107 @@ class SliceLeaseCoordinator:
         """Return the event that triggers when the first slice of a session is leased."""
         return self._session_leased_events.get(session_id)
 
+    def has_tracked_task(self, task_id: str) -> bool:
+        """Return True if task_id matches any pending task or active lease.
+
+        Args:
+            task_id: Job, slice, or session identifier to check.
+
+        Returns:
+            True when the task is actively queued or leased in coordinator memory.
+
+        Notes/Architectural Intent:
+            Allows durable storage hydration to distinguish orphaned non-terminal
+            records left behind by an ungraceful restart from live work in memory.
+        """
+        if any(
+            t.slice_id == task_id or t.session_id == task_id
+            for t in self._pending_tasks
+        ):
+            return True
+        return any(
+            lse.task.slice_id == task_id or lse.task.session_id == task_id
+            for lse in self._active_leases.values()
+        )
+
+    async def shutdown(self, reason: str = "Controller shutting down") -> int:
+        """Stop background reconcilers, evict queued/active slices, and flush cancellations.
+
+        Args:
+            reason: Human-readable cancellation reason persisted on drained jobs.
+
+        Returns:
+            Total count of pending tasks and active leases drained during shutdown.
+
+        Notes/Architectural Intent:
+            Stops the periodic reconciler loop, records evicted leases in the cancelled
+            tombstone map so workers terminate child subprocesses on next heartbeat,
+            unblocks waiting session callers, and flushes CANCELLED job outcomes to
+            durable storage before closing database connections.
+        """
+        await self.stop_reconciler()
+        pending_job_ids: list[str] = []
+        active_job_ids: list[str] = []
+        now_mono = time.monotonic()
+
+        async with self._condition:
+            pending_cnt = len(self._pending_tasks)
+            for t in self._pending_tasks:
+                if t.task_type == "job":
+                    pending_job_ids.append(t.slice_id)
+            self._pending_tasks.clear()
+
+            active_cnt = len(self._active_leases)
+            for l_id, lse in list(self._active_leases.items()):
+                self._cancelled_lease_ids[l_id] = now_mono
+                if lse.task.task_type == "job":
+                    active_job_ids.append(lse.task.slice_id)
+            self._active_leases.clear()
+
+            for event in self._session_events.values():
+                if not event.is_set():
+                    event.set()
+            for leased_event in self._session_leased_events.values():
+                if not leased_event.is_set():
+                    leased_event.set()
+
+        if self._controller is not None:
+            for jid in pending_job_ids:
+                with contextlib.suppress(Exception):
+                    await self._controller.update_job_outcome(
+                        job_id=jid,
+                        outcome=TerminalOutcome.CANCELLED,
+                        reason=reason,
+                        walltime_seconds=0.0,
+                    )
+            for jid in active_job_ids:
+                with contextlib.suppress(Exception):
+                    await self._controller.update_job_outcome(
+                        job_id=jid,
+                        outcome=TerminalOutcome.CANCELLED,
+                        reason=reason,
+                        walltime_seconds=1.0,
+                    )
+
+        return pending_cnt + active_cnt
+
     async def _reconcile_autoscaler(self) -> None:
-        """Evaluate pending slices and running leases, dispatching autoscaler decisions."""
+        """Coalesce concurrent autoscaler reconciliation triggers into single-flight runs."""
+        if self._reconcile_in_progress:
+            self._reconcile_pending = True
+            return
+        self._reconcile_in_progress = True
+        try:
+            while True:
+                self._reconcile_pending = False
+                await self._run_reconcile_once()
+                if not self._reconcile_pending:
+                    break
+        finally:
+            self._reconcile_in_progress = False
+
+    async def _run_reconcile_once(self) -> None:
+        """Execute a single autoscaler reconciliation pass for pending slices and leases."""
         pool_ids = self._effective_pool_ids()
         if self._autoscaler is None or not pool_ids:
             return

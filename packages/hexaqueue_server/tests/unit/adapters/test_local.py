@@ -1531,3 +1531,83 @@ async def test_local_controller_persists_and_hydrates_from_storage() -> None:
     hydrated_runs = await ctrl2.list_runs()
     assert len(hydrated_runs) == 1
     assert hydrated_runs[0].run_id == "run-persist-1"
+
+
+@pytest.mark.anyio
+async def test_hydrate_reconciles_stranded_pending_and_running_jobs_to_cancelled() -> (
+    None
+):
+    """Verify controller restart hydration reconciles orphaned non-terminal jobs/runs to CANCELLED."""
+    storage = InMemorySchedulerStorageAdapter()
+    q1 = InMemoryJobQueueAdapter()
+    ctrl1 = LocalSchedulerControllerAdapter(queue=q1, storage=storage)
+
+    pending_sub = RunSubmission(
+        run_spec=RunSpec(id="run-orphan-pending", name="orphan-pending"),
+        jobs=[
+            JobSpec(
+                id="job-orphan-pending",
+                run_id="run-orphan-pending",
+                name="orphan-p",
+                command="echo pending",
+            )
+        ],
+    )
+    running_sub = RunSubmission(
+        run_spec=RunSpec(id="run-orphan-running", name="orphan-running"),
+        jobs=[
+            JobSpec(
+                id="job-orphan-running",
+                run_id="run-orphan-running",
+                name="orphan-r",
+                command="echo running",
+            )
+        ],
+    )
+    done_sub = RunSubmission(
+        run_spec=RunSpec(id="run-done-keep", name="done-keep"),
+        jobs=[
+            JobSpec(
+                id="job-done-keep",
+                run_id="run-done-keep",
+                name="done-k",
+                command="echo done",
+            )
+        ],
+    )
+    await ctrl1.submit_run(pending_sub)
+    await ctrl1.submit_run(running_sub)
+    await ctrl1.mark_job_running("job-orphan-running", "worker-gone")
+    await ctrl1.submit_run(done_sub)
+    await ctrl1.update_job_outcome("job-done-keep", TerminalOutcome.COMPLETED)
+
+    # Restart controller with fresh empty coordinator backed by same storage
+    q2 = InMemoryJobQueueAdapter()
+    coord2 = SliceLeaseCoordinator()
+    ctrl2 = LocalSchedulerControllerAdapter(
+        queue=q2, lease_coordinator=coord2, storage=storage
+    )
+    await ctrl2.hydrate_from_storage()
+
+    job_p = await ctrl2.get_job("job-orphan-pending")
+    job_r = await ctrl2.get_job("job-orphan-running")
+    job_d = await ctrl2.get_job("job-done-keep")
+    assert job_p.state == JobState.DONE
+    assert job_p.outcome == TerminalOutcome.CANCELLED
+    assert job_r.state == JobState.DONE
+    assert job_r.outcome == TerminalOutcome.CANCELLED
+    assert job_d.outcome == TerminalOutcome.COMPLETED
+
+    # Verify reconciled states were persisted back to durable storage
+    persisted_runs = {r.run_id: r for r in await storage.list_runs()}
+    pending_report = persisted_runs["run-orphan-pending"]
+    running_report = persisted_runs["run-orphan-running"]
+    done_report = persisted_runs["run-done-keep"]
+    pending_outcome = pending_report.outcome
+    running_outcome = running_report.outcome
+    done_outcome = done_report.outcome
+    assert pending_report.state == RunState.DONE
+    assert pending_outcome == RunOutcome.CANCELLED
+    assert running_report.state == RunState.DONE
+    assert running_outcome == RunOutcome.CANCELLED
+    assert done_outcome == RunOutcome.SUCCEEDED

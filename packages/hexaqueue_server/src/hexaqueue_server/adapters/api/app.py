@@ -249,8 +249,12 @@ def _attach_server_lifespan(app: FastAPI, di: ContainerPort) -> None:
             try:
                 yield
             finally:
-                if coordinator is not None and hasattr(coordinator, "stop_reconciler"):
-                    await coordinator.stop_reconciler()
+                if coordinator is not None:
+                    shutdown_fn: Any = getattr(coordinator, "shutdown", None)
+                    if callable(shutdown_fn):
+                        await shutdown_fn()
+                    elif hasattr(coordinator, "stop_reconciler"):
+                        await coordinator.stop_reconciler()
                 scheduler_storage = (
                     di.resolve(SchedulerStoragePort)
                     if SchedulerStoragePort in di

@@ -540,6 +540,7 @@ class BudgetAwareInstancePoolAutoscaler:
         running_jobs: int = 0,
         tenant_id: str | None = None,
         now: float | None = None,
+        pool_state: InstancePoolState | None = None,
     ) -> AutoscalerDecision:
         """Evaluate and apply scaling decision to the target pool governor.
 
@@ -549,6 +550,7 @@ class BudgetAwareInstancePoolAutoscaler:
             running_jobs: Number of currently executing jobs in this pool.
             tenant_id: Optional tenant identifier for budget accounting checks.
             now: Optional epoch timestamp override for deterministic testing.
+            pool_state: Optional pre-fetched InstancePoolState snapshot to avoid redundant CSP calls.
 
         Returns:
             Applied AutoscalerDecision.
@@ -562,31 +564,33 @@ class BudgetAwareInstancePoolAutoscaler:
             raise HexaqueueError(msg)
 
         ts = time.time() if now is None else now
-        pool_state = await governor.get_pool_state(pool_id)
+        resolved_state = (
+            await governor.get_pool_state(pool_id) if pool_state is None else pool_state
+        )
 
-        if pool_state.ready_nodes > 0:
+        if resolved_state.ready_nodes > 0:
             self.reset_circuit(pool_id)
-        elif pool_state.desired_nodes > 0 and pool_state.ready_nodes == 0:
+        elif resolved_state.desired_nodes > 0 and resolved_state.ready_nodes == 0:
             started = self._scale_up_started_at.setdefault(pool_id, ts)
             if ts - started >= self._scale_up_grace_seconds:
                 stall_reason = (
                     f"Pool scale-up stalled for {ts - started:.0f}s with "
-                    f"desired={pool_state.desired_nodes}, ready=0; tripping circuit breaker and scaling to 0"
+                    f"desired={resolved_state.desired_nodes}, ready=0; tripping circuit breaker and scaling to 0"
                 )
                 self.trip_circuit(pool_id, stall_reason, now=ts)
                 with contextlib.suppress(Exception):
                     await governor.scale_pool(
                         PoolScaleRequest(
                             pool_id=pool_id,
-                            target_nodes=pool_state.min_nodes,
+                            target_nodes=resolved_state.min_nodes,
                             reason=stall_reason,
                         )
                     )
                 return AutoscalerDecision(
                     pool_id=pool_id,
                     action="SCALE_DOWN",
-                    current_nodes=pool_state.current_nodes,
-                    target_nodes=pool_state.min_nodes,
+                    current_nodes=resolved_state.current_nodes,
+                    target_nodes=resolved_state.min_nodes,
                     pending_jobs=pending_jobs,
                     reason=stall_reason,
                 )
@@ -596,8 +600,8 @@ class BudgetAwareInstancePoolAutoscaler:
             return AutoscalerDecision(
                 pool_id=pool_id,
                 action="NOOP",
-                current_nodes=pool_state.current_nodes,
-                target_nodes=pool_state.min_nodes,
+                current_nodes=resolved_state.current_nodes,
+                target_nodes=resolved_state.min_nodes,
                 pending_jobs=pending_jobs,
                 reason=f"Circuit breaker OPEN ({circuit['reason']}); retry in {circuit['retry_after_seconds']}s",
             )
@@ -608,7 +612,7 @@ class BudgetAwareInstancePoolAutoscaler:
             available_budget = account.available_balance
 
         decision = self.evaluate_scaling(
-            pool=pool_state,
+            pool=resolved_state,
             pending_jobs=pending_jobs,
             running_jobs=running_jobs,
             available_budget=available_budget,
@@ -623,7 +627,7 @@ class BudgetAwareInstancePoolAutoscaler:
                         reason=decision.reason,
                     )
                 )
-                if decision.action == "SCALE_UP" and pool_state.ready_nodes == 0:
+                if decision.action == "SCALE_UP" and resolved_state.ready_nodes == 0:
                     self._scale_up_started_at.setdefault(pool_id, ts)
                 elif decision.action == "SCALE_DOWN":
                     self._scale_up_started_at.pop(pool_id, None)
@@ -646,8 +650,8 @@ class BudgetAwareInstancePoolAutoscaler:
                     return AutoscalerDecision(
                         pool_id=pool_id,
                         action="NOOP",
-                        current_nodes=pool_state.current_nodes,
-                        target_nodes=pool_state.current_nodes,
+                        current_nodes=resolved_state.current_nodes,
+                        target_nodes=resolved_state.current_nodes,
                         pending_jobs=pending_jobs,
                         reason=f"Circuit breaker tripped: {err_str}",
                     )
@@ -707,13 +711,23 @@ class BudgetAwareInstancePoolAutoscaler:
         for pid in pool_ids:
             if pid not in self._governors:
                 continue
-            dec = await self.reconcile_pool(
-                pool_id=pid,
-                pending_jobs=0,
-                running_jobs=running_jobs,
-                tenant_id=tenant_id,
-                now=now,
-            )
+            try:
+                dec = await self.reconcile_pool(
+                    pool_id=pid,
+                    pending_jobs=0,
+                    running_jobs=running_jobs,
+                    tenant_id=tenant_id,
+                    now=now,
+                )
+            except Exception as exc:
+                dec = AutoscalerDecision(
+                    pool_id=pid,
+                    action="NOOP",
+                    current_nodes=0,
+                    target_nodes=0,
+                    pending_jobs=0,
+                    reason=f"Pool evaluation error ({type(exc).__name__}): {exc}; continuing",
+                )
             decisions.append(dec)
         return decisions
 
@@ -730,10 +744,26 @@ class BudgetAwareInstancePoolAutoscaler:
         if governor is None:
             return None, remaining
 
+        circuit = self.get_pool_circuit_status(pid, now=ts)
+        has_active_scale_up = pid in self._scale_up_started_at
+        if circuit["state"] == "OPEN" and not has_active_scale_up:
+            return (
+                AutoscalerDecision(
+                    pool_id=pid,
+                    action="NOOP",
+                    current_nodes=0,
+                    target_nodes=0,
+                    pending_jobs=remaining,
+                    reason=f"Circuit breaker OPEN ({circuit['reason']}); retry in {circuit['retry_after_seconds']}s",
+                ),
+                remaining,
+            )
+
+        if not has_active_scale_up and remaining <= 0:
+            return None, remaining
+
         pool_state = await governor.get_pool_state(pid)
         stalled_candidate = pool_state.desired_nodes > 0 and pool_state.ready_nodes == 0
-        circuit = self.get_pool_circuit_status(pid, now=ts)
-
         if circuit["state"] == "OPEN" and not stalled_candidate:
             return (
                 AutoscalerDecision(
@@ -773,6 +803,7 @@ class BudgetAwareInstancePoolAutoscaler:
             running_jobs=running_jobs,
             tenant_id=tenant_id,
             now=ts,
+            pool_state=pool_state,
         )
         contributed = self._pool_capacity_contributed(dec, pool_state)
         return dec, max(0, remaining - contributed)
@@ -800,7 +831,8 @@ class BudgetAwareInstancePoolAutoscaler:
         Notes/Architectural Intent:
             Probes host capacity before attempting scale-up on preferred Always-Free/ARM64
             pools so exhausted ADs immediately spill over to fallback x86_64 pools instead
-            of stalling CI queues behind a single baseline node.
+            of stalling CI queues behind a single baseline node. Isolates per-pool errors
+            so a transient CSP error on one pool never aborts downstream fallback pools.
         """
         ts = time.time() if now is None else now
         if pending_jobs <= 0:
@@ -814,13 +846,23 @@ class BudgetAwareInstancePoolAutoscaler:
         decisions: list[AutoscalerDecision] = []
         remaining = pending_jobs
         for pid in pool_ids:
-            dec, remaining = await self._reconcile_priority_pool_step(
-                pid=pid,
-                remaining=remaining,
-                running_jobs=running_jobs,
-                tenant_id=tenant_id,
-                ts=ts,
-            )
+            try:
+                dec, remaining = await self._reconcile_priority_pool_step(
+                    pid=pid,
+                    remaining=remaining,
+                    running_jobs=running_jobs,
+                    tenant_id=tenant_id,
+                    ts=ts,
+                )
+            except Exception as exc:
+                dec = AutoscalerDecision(
+                    pool_id=pid,
+                    action="NOOP",
+                    current_nodes=0,
+                    target_nodes=0,
+                    pending_jobs=remaining,
+                    reason=f"Pool evaluation error ({type(exc).__name__}): {exc}; continuing",
+                )
             if dec is not None:
                 decisions.append(dec)
         return decisions
