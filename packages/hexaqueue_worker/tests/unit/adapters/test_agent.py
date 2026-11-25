@@ -30,6 +30,8 @@ from hexaqueue_core.domain.lease import (
 from hexaqueue_worker.adapters.agent import (
     WorkerAgent,
     WorkerAgentConfig,
+    _build_task_env,
+    _find_uv_binary,
     _resolve_command_invocation,
     main,
 )
@@ -771,3 +773,59 @@ def test_resolve_command_invocation_uv_project_syncs_workspace_extras(
     ]
     assert use_shell is False
     assert cmd == expected
+
+
+def test_find_uv_binary_falls_back_to_home_local_bin(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify _find_uv_binary falls back to ~/.local/bin/uv when not on PATH."""
+    local_bin = tmp_path / ".local" / "bin"
+    local_bin.mkdir(parents=True)
+    uv_bin = local_bin / "uv"
+    uv_bin.write_text("#!/bin/sh\nexit 0\n")
+    uv_bin.chmod(0o700)
+
+    monkeypatch.setattr("shutil.which", lambda _cmd: None)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+
+    resolved = _find_uv_binary()
+    assert resolved == str(uv_bin)
+
+
+def test_build_task_env_strips_worker_venv_and_adds_uv_dir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify _build_task_env isolates child env from worker virtualenv and exposes uv."""
+    worker_venv = tmp_path / "daemon-venv"
+    worker_venv_bin = worker_venv / "bin"
+    worker_venv_bin.mkdir(parents=True)
+    uv_dir = tmp_path / "custom" / ".local" / "bin"
+    uv_bin = uv_dir / "uv"
+
+    monkeypatch.setenv("VIRTUAL_ENV", str(worker_venv))
+    monkeypatch.setenv("UV_RUN_RECURSION_DEPTH", "1")
+    monkeypatch.setenv("UV_PROJECT_ENVIRONMENT", str(worker_venv))
+    monkeypatch.setenv("UV_PYTHON", "3.13")
+    monkeypatch.setenv("PYTHONHOME", str(worker_venv))
+    monkeypatch.setenv("PATH", f"{worker_venv_bin}{os.pathsep}/usr/bin")
+    monkeypatch.setattr(
+        "hexaqueue_worker.adapters.agent._find_uv_binary",
+        lambda: str(uv_bin),
+    )
+
+    task_env = _build_task_env(tmp_path)
+    for var in (
+        "VIRTUAL_ENV",
+        "UV_RUN_RECURSION_DEPTH",
+        "UV_PROJECT_ENVIRONMENT",
+        "UV_PYTHON",
+        "PYTHONHOME",
+    ):
+        assert var not in task_env
+
+    path_entries = task_env["PATH"].split(os.pathsep)
+    assert str(worker_venv_bin) not in path_entries
+    assert "/usr/bin" in path_entries
+    assert str(uv_dir) in path_entries
