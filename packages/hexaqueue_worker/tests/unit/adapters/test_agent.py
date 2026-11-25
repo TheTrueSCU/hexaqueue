@@ -30,6 +30,7 @@ from hexaqueue_core.domain.lease import (
 from hexaqueue_worker.adapters.agent import (
     WorkerAgent,
     WorkerAgentConfig,
+    _resolve_command_invocation,
     main,
 )
 
@@ -279,11 +280,18 @@ async def test_worker_agent_execute_slice_uv_project(tmp_path: Path) -> None:
         assert report.slice_id == "sl-uv"
         assert report.exit_code == 0
         call_args = mock_exec.call_args[0]
-        assert call_args[0] == "/custom/bin/uv"
-        assert call_args[1] == "run"
-        assert call_args[2] == "--project"
-        assert call_args[3] == str(workspace)
-        assert call_args[4] == "pytest"
+        ws_str = str(workspace)
+        expected_prefix = (
+            "/custom/bin/uv",
+            "run",
+            "--project",
+            ws_str,
+            "--all-packages",
+            "--all-extras",
+            "--all-groups",
+            "pytest",
+        )
+        assert call_args[:8] == expected_prefix
 
 
 @pytest.mark.asyncio
@@ -739,3 +747,27 @@ async def test_worker_agent_enforces_slice_timeout_seconds(tmp_path: Path) -> No
     stderr_text = (report.stderr or "").lower()
     assert exit_code == 124
     assert "exceeded worker timeout" in stderr_text
+
+
+def test_resolve_command_invocation_uv_project_syncs_workspace_extras(
+    tmp_path: Path,
+) -> None:
+    """Verify command tasks include workspace/extra/group sync flags under uv projects."""
+    (tmp_path / "pyproject.toml").write_text("[project]\nname = 'test-pkg'\n")
+
+    with patch("shutil.which", return_value="/custom/bin/uv"):
+        use_shell, cmd = _resolve_command_invocation("pytest", ["-q"], tmp_path)
+
+    expected = [
+        "/custom/bin/uv",
+        "run",
+        "--project",
+        str(tmp_path),
+        "--all-packages",
+        "--all-extras",
+        "--all-groups",
+        "pytest",
+        "-q",
+    ]
+    assert use_shell is False
+    assert cmd == expected

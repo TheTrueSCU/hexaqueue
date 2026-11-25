@@ -104,6 +104,41 @@ def _build_task_env(
     return env
 
 
+def _uv_project_cmd_prefix(workspace: Path) -> list[str] | None:
+    """Return ``uv run --project ...`` prefix syncing all workspace packages if present.
+
+    Args:
+        workspace: Base workspace directory inspected for ``pyproject.toml`` or ``uv.lock``.
+
+    Returns:
+        Command prefix list when ``uv`` and a project manifest exist, else ``None``.
+
+    Notes/Architectural Intent:
+        Multi-package uv workspaces (e.g. Hexastack) declare package dependencies in
+        member ``pyproject.toml`` manifests under ``packages/*``. Passing
+        ``--all-packages --all-extras --all-groups`` ensures remote worker slices
+        provision member dependencies on first execution while staying a clean no-op
+        for single-package repositories.
+    """
+    uv_bin = shutil.which("uv") or (
+        "/usr/local/bin/uv" if Path("/usr/local/bin/uv").is_file() else None
+    )
+    has_uv_project = (workspace / "pyproject.toml").is_file() or (
+        workspace / "uv.lock"
+    ).is_file()
+    if uv_bin and has_uv_project:
+        return [
+            uv_bin,
+            "run",
+            "--project",
+            str(workspace),
+            "--all-packages",
+            "--all-extras",
+            "--all-groups",
+        ]
+    return None
+
+
 def _resolve_command_invocation(
     command: str,
     args: list[str],
@@ -141,27 +176,13 @@ def _resolve_command_invocation(
     else:
         executable, resolved_args = command, list(args)
 
-    uv_bin = shutil.which("uv") or (
-        "/usr/local/bin/uv" if Path("/usr/local/bin/uv").is_file() else None
-    )
-    has_uv_project = (workspace / "pyproject.toml").is_file() or (
-        workspace / "uv.lock"
-    ).is_file()
-
+    uv_prefix = _uv_project_cmd_prefix(workspace)
     if (
-        uv_bin
-        and has_uv_project
+        uv_prefix is not None
         and not Path(executable).is_absolute()
         and not executable.startswith("uv")
     ):
-        return False, [
-            uv_bin,
-            "run",
-            "--project",
-            str(workspace),
-            executable,
-            *resolved_args,
-        ]
+        return False, [*uv_prefix, executable, *resolved_args]
     return False, [executable, *resolved_args]
 
 
@@ -658,19 +679,10 @@ class WorkerAgent:
         Returns:
             Tuple of (exit_code, outcomes, stdout, stderr).
         """
-        uv_bin = shutil.which("uv") or (
-            "/usr/local/bin/uv" if Path("/usr/local/bin/uv").is_file() else None
-        )
-        has_uv_project = (workspace / "pyproject.toml").is_file() or (
-            workspace / "uv.lock"
-        ).is_file()
-
-        if uv_bin and has_uv_project:
+        uv_prefix = _uv_project_cmd_prefix(workspace)
+        if uv_prefix is not None:
             cmd = [
-                uv_bin,
-                "run",
-                "--project",
-                str(workspace),
+                *uv_prefix,
                 "pytest",
                 "-o",
                 "junit_family=xunit2",
