@@ -51,6 +51,11 @@ _WORKER_INTERNAL_ENV_KEYS: tuple[str, ...] = (
     "HEXAQUEUE_WORKER_MEMORY_MB",
     "HEXAQUEUE_AGENT_IDLE_TIMEOUT",
     "HEXAQUEUE_AGENT_SCRATCH_DIR",
+    "VIRTUAL_ENV",
+    "UV_RUN_RECURSION_DEPTH",
+    "UV_PROJECT_ENVIRONMENT",
+    "UV_PYTHON",
+    "PYTHONHOME",
 )
 _SHELL_METACHARACTERS: tuple[str, ...] = (
     "&&",
@@ -63,6 +68,84 @@ _SHELL_METACHARACTERS: tuple[str, ...] = (
     "`",
     "\n",
 )
+
+
+def _find_uv_binary() -> str | None:
+    """Locate the ``uv`` CLI executable across PATH and standard install directories.
+
+    Returns:
+        Absolute executable path to ``uv`` when available, else ``None``.
+
+    Notes/Architectural Intent:
+        Worker daemons started under minimal ``systemd`` environments inherit a
+        restricted ``PATH`` that omits user-local install directories such as
+        ``~/.local/bin`` or ``~/.cargo/bin``. Checking standard candidate paths
+        ensures ``uv run --project`` reliably syncs workspace dependencies rather
+        than falling back to the daemon's own virtual environment.
+    """
+    if path_uv := shutil.which("uv"):
+        return path_uv
+
+    home = Path.home()
+    candidates = (
+        home / ".local" / "bin" / "uv",
+        home / ".cargo" / "bin" / "uv",
+        Path("/usr/local/bin/uv"),
+        Path("/root/.local/bin/uv"),
+    )
+    for candidate in candidates:
+        try:
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return str(candidate)
+        except OSError:
+            continue
+    return None
+
+
+def _sanitize_task_path(
+    raw_path: str,
+    worker_venv: str | None,
+    uv_bin: str | None,
+) -> str:
+    """Strip the worker daemon virtualenv from ``PATH`` and expose ``uv``.
+
+    Args:
+        raw_path: Original ``PATH`` string inherited from the worker process.
+        worker_venv: Active worker ``VIRTUAL_ENV`` path, if any.
+        uv_bin: Resolved ``uv`` binary path, if found.
+
+    Returns:
+        Sanitized ``PATH`` string safe for isolated workspace task execution.
+
+    Notes/Architectural Intent:
+        Removes entries inside the worker agent's own virtualenv so child
+        ``pytest`` or ``uv`` processes resolve executables from the target
+        workspace instead of the daemon's environment, while appending the
+        parent directory of ``uv_bin`` when missing.
+    """
+    venv_root: Path | None = None
+    if worker_venv:
+        with contextlib.suppress(OSError):
+            venv_root = Path(worker_venv).resolve()
+
+    filtered: list[str] = []
+    for entry in raw_path.split(os.pathsep):
+        if not entry:
+            continue
+        if venv_root is not None:
+            try:
+                if Path(entry).resolve().is_relative_to(venv_root):
+                    continue
+            except OSError:
+                pass
+        filtered.append(entry)
+
+    if uv_bin:
+        uv_dir = str(Path(uv_bin).parent)
+        if uv_dir not in filtered:
+            filtered.append(uv_dir)
+
+    return os.pathsep.join(filtered)
 
 
 def _build_task_env(
@@ -81,13 +164,21 @@ def _build_task_env(
 
     Notes/Architectural Intent:
         Strips worker daemon control-plane variables (such as
-        ``HEXAQUEUE_CONTROLLER_URL`` and ``HEXAQUEUE_JOIN_TOKEN``) inherited from
-        the agent's systemd service so hermetic unit tests and unprivileged tasks
-        cannot unintentionally target the live cluster coordinator.
+        ``HEXAQUEUE_CONTROLLER_URL`` and ``HEXAQUEUE_JOIN_TOKEN``) and virtual
+        environment variables inherited from the agent's systemd service so
+        hermetic unit tests and unprivileged tasks cannot unintentionally target
+        the live cluster coordinator or resolve the daemon virtualenv.
     """
     env = os.environ.copy()
+    worker_venv = env.get("VIRTUAL_ENV")
     for key in _WORKER_INTERNAL_ENV_KEYS:
         env.pop(key, None)
+
+    env["PATH"] = _sanitize_task_path(
+        env.get("PATH", ""),
+        worker_venv,
+        _find_uv_binary(),
+    )
 
     src_paths: list[str] = [
         str(p) for p in sorted((workspace / "packages").glob("*/src"))
@@ -120,9 +211,7 @@ def _uv_project_cmd_prefix(workspace: Path) -> list[str] | None:
         provision member dependencies on first execution while staying a clean no-op
         for single-package repositories.
     """
-    uv_bin = shutil.which("uv") or (
-        "/usr/local/bin/uv" if Path("/usr/local/bin/uv").is_file() else None
-    )
+    uv_bin = _find_uv_binary()
     has_uv_project = (workspace / "pyproject.toml").is_file() or (
         workspace / "uv.lock"
     ).is_file()
