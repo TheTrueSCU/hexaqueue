@@ -1,5 +1,26 @@
 # CHANGELOG
 
+## v0.12.0 (2026-11-24)
+
+### Multi-Pool OCI Autoscaling, Oracle ADB Persistence, CLI CQRS Alignment & Operator Dashboard
+
+* **CLI CQRS Alignment & Remote Controller Support (`hexaqueue-cli`, `hexaqueue-core`, `#145`, `#207`)**:
+  * Unified CLI commands and `ClientPort` with the CQRS pipeline and remote HTTP controller (`HEXAQUEUE_CONTROLLER_URL`), aligning controller and collateral HTTP adapters.
+  * Added operator password rotation and dashboard SSH tunnel commands (`hq cluster tunnel` / password rotation).
+  * Hardened local subprocess `CancelledError` cleanup and detached run session teardown to prevent orphaned subprocess deadlocks.
+* **Multi-Pool OCI Autoscaling, Capacity Fallback & Restart Reconciliation (`hexaqueue-server`, `hexaqueue-worker`, `#139`, `#141`, `#206`, `#225`, `#226`)**:
+  * Implemented priority multi-pool OCI capacity fallback (`HEXAQUEUE_OCI_INSTANCE_POOL_IDS`, e.g., `A1 -> A4 -> E5`) with capacity preflight checks, TTL verdict caching, circuit-breaker skipping, and periodic pool reconciler.
+  * Added single-flight coalesced autoscaler reconciliation, terminal-state instance filtering (`Terminated`/`Stopping`/`Stopped` exclusion), and per-pool error isolation.
+  * Added capacity-aware `/health/ready`, graceful `SliceLeaseCoordinator.shutdown()` flush, startup orphan job/run reconciliation across persisted storage, HA Database/Kubernetes lease leader election adapters, and subordinate GCP `e2-micro` spillover adapter.
+* **Oracle Autonomous Database Persistence (`hexaqueue-server`, `#137`, `#144`, `#154`, `#206`)**:
+  * Added Oracle ADB `SchedulerStoragePort` adapter with write-behind outbox, mTLS `MERGE` binds, controller startup hydration, and persistent collateral metadata storage.
+* **Reactive NiceGUI Operator Dashboard & WCAG 2.1 AA Compliance (`hexaqueue-dashboard`, `#142`–`#200`, `#188`, `#204`)**:
+  * Built standalone FastAPI + NiceGUI operator dashboard with `hexastack-auth` RBAC, role switcher, HTTPS guard, and Playwright `axe-core` WCAG 2.1 AA E2E verification gate.
+  * Added SSE live updates, sortable Jobs, Runs & DAG, and Collateral & Quarantine tables, unified inspection drawers, live log tailing, owner identity propagation, fair-share quotas, live node topology & burst telemetry (removing fabricated fallback nodes), and History Explorer analytics charts.
+* **Distributed CI Hardening, Worker Isolation & `hexaqual v0.12.1` Adoption (`hexaqueue-worker`, `pytest-hexaqueue`, `.github/workflows/`, `#195`, `#197`, `#209`, `#216`, `#223`)**:
+  * Hardened worker task environment isolation, command/inline coverage aggregation, cancelled lease eviction, and slice timeout alignment.
+  * Adopted `hexaqual v0.12.1` with AST-weighted LPT mutation planning, `PRIVATE`-mode pytest-gremlins execution, and operator sharding.
+
 ## v0.11.0 (2026-11-10)
 
 ### Cluster Operations CLI, Cloud Mutation Offloading & Comprehensive Docs Overhaul

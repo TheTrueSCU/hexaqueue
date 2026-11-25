@@ -47,7 +47,7 @@ def create_dashboard_app(
     app = FastAPI(
         title="Hexaqueue Dashboard",
         description="Modern web interface, cluster visualizer, and operator console",
-        version="0.11.0",
+        version="0.12.0",
     )
     app.state.pipeline = pipeline
     app.state.auth_manager = auth_manager or DashboardAuthManager()
