@@ -1759,6 +1759,7 @@ dependencies = [
     { name = "hexastack-logging" },
     { name = "hexastack-mcp" },
     { name = "hexastack-otel" },
+    { name = "httpx" },
     { name = "polars" },
     { name = "pyarrow" },
 ]
@@ -1795,6 +1796,7 @@ requires-dist = [
     { name = "hexastack-logging", specifier = ">=0.11.0" },
     { name = "hexastack-mcp", specifier = ">=0.11.0" },
     { name = "hexastack-otel", specifier = ">=0.11.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
     { name = "oci", marker = "extra == 'oci'", specifier = ">=2.120.0" },
     { name = "oracledb", marker = "extra == 'oracle'", specifier = ">=2.4.0" },
     { name = "polars", specifier = ">=1.0.0" },

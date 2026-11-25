@@ -1,12 +1,13 @@
 """Unit tests for hq node CLI commands."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
 
 from hexaqueue_cli.domain.session import LocalCliSession, set_default_session
 from hexaqueue_cli.main import app
+from hexaqueue_worker.domain.pty import PtySessionInfo
 
 runner = CliRunner()
 
@@ -90,3 +91,44 @@ def test_node_ssh_bastion_failure() -> None:
     ):
         res = runner.invoke(app, ["node", "ssh", "node-1", "--admin"])
         assert res.exit_code == 1
+
+
+def test_cli_node_commands_forward_url() -> None:
+    """Verify --url passes through hq node list and hq node ssh to LocalClientAdapter."""
+    mock_client = MagicMock()
+    mock_client.get_nodes = AsyncMock(return_value=[])
+    mock_client.create_bastion_session = AsyncMock(
+        return_value=PtySessionInfo(
+            session_id="bastion-rem",
+            job_id="bastion-w1",
+            user_id="alice",
+            pid=77,
+        )
+    )
+    with patch(
+        "hexaqueue_cli.commands.node.LocalClientAdapter", return_value=mock_client
+    ) as mock_cls:
+        res_list = runner.invoke(
+            app,
+            ["node", "list", "--url", "http://ctrl:8000", "--user", "alice", "--admin"],
+        )
+        assert res_list.exit_code == 0
+        res_ssh = runner.invoke(
+            app,
+            [
+                "node",
+                "ssh",
+                "w1",
+                "--admin",
+                "--user",
+                "alice",
+                "--url",
+                "http://ctrl:8000",
+            ],
+        )
+        assert res_ssh.exit_code == 0
+        assert "bastion-rem" in res_ssh.stdout
+
+    assert mock_cls.call_count == 2
+    assert mock_cls.call_args_list[0].kwargs == {"controller_url": "http://ctrl:8000"}
+    assert mock_cls.call_args_list[1].kwargs == {"controller_url": "http://ctrl:8000"}

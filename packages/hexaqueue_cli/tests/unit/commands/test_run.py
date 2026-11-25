@@ -1,13 +1,22 @@
 """Tests for CLI commands."""
 
+import json
+from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import yaml
 from typer.testing import CliRunner
 
-from hexaqueue_cli.domain.session import LocalCliSession, set_default_session
+from hexaqueue_cli.domain.session import (
+    LocalCliSession,
+    get_default_session,
+    set_default_session,
+)
 from hexaqueue_cli.main import app
+from hexaqueue_core.domain.lifecycle import RunState
+from hexaqueue_server.domain.models import RunStatusReport
 
 runner = CliRunner()
 
@@ -184,3 +193,116 @@ def test_cli_permission_elevation_for_cross_user_mutations(tmp_path: Path) -> No
     )
     assert bob_cancel_elevated.exit_code == 0
     assert "cancelled" in bob_cancel_elevated.stdout
+
+
+def test_cli_run_list_command(tmp_path: Path) -> None:
+    """Verify hq run list outputs submitted runs across JSON and table formats."""
+    data = {
+        "run": {"id": "run-list-1", "name": "Listable Run"},
+        "jobs": [{"id": "j-list-1", "command": "echo list"}],
+    }
+    yaml_file = tmp_path / "list_run.yaml"
+    with yaml_file.open("w") as f:
+        yaml.safe_dump(data, f)
+
+    sub = runner.invoke(app, ["run", "submit", str(yaml_file), "--user", "alice"])
+    assert sub.exit_code == 0
+
+    res_json = runner.invoke(app, ["run", "list", "--user", "alice", "-f", "json"])
+    assert res_json.exit_code == 0
+    runs = json.loads(res_json.stdout)
+    assert len(runs) == 1
+    assert runs[0]["run_id"] == "run-list-1"
+
+    res_table = runner.invoke(app, ["run", "list", "--user", "alice", "-f", "table"])
+    assert res_table.exit_code == 0
+    assert "run-list-1" in res_table.stdout
+
+
+def test_cli_run_submit_remote_does_not_start_local_worker(tmp_path: Path) -> None:
+    """Verify remote --url run submission avoids starting in-process LocalCliSession."""
+    data = {
+        "run": {"id": "run-remote-sub"},
+        "jobs": [{"id": "j-rem-1", "command": "echo hi"}],
+    }
+    yaml_file = tmp_path / "remote_sub.yaml"
+    with yaml_file.open("w") as f:
+        yaml.safe_dump(data, f)
+
+    now = datetime.now(UTC)
+    report = RunStatusReport(
+        run_id="run-remote-sub",
+        owner="alice",
+        state=RunState.SUBMITTED,
+        total_jobs=1,
+        completed_jobs=0,
+        failed_jobs=0,
+        running_jobs=0,
+        pending_jobs=1,
+        created_at=now,
+        updated_at=now,
+    )
+    mock_client = MagicMock()
+    mock_client.submit_run = AsyncMock(return_value=report)
+
+    with (
+        patch("hexaqueue_cli.commands.run.get_default_session") as mock_session_fn,
+        patch(
+            "hexaqueue_cli.commands.run.LocalClientAdapter", return_value=mock_client
+        ) as mock_cls,
+    ):
+        res = runner.invoke(
+            app,
+            [
+                "run",
+                "submit",
+                str(yaml_file),
+                "--url",
+                "http://remote-ctrl:8000",
+                "--user",
+                "alice",
+            ],
+        )
+
+    assert res.exit_code == 0
+    assert "run-remote-sub" in res.stdout
+    assert "detached mode" not in res.stdout
+    mock_session_fn.assert_not_called()
+    mock_cls.assert_called_once_with(controller_url="http://remote-ctrl:8000")
+
+
+def test_cli_run_submit_detached_does_not_start_worker_and_watch_stops_worker(
+    tmp_path: Path,
+) -> None:
+    """Verify detached submit skips starting local worker and --watch cleanly stops it."""
+    detached_yaml = tmp_path / "detached.yaml"
+    detached_yaml.write_text(
+        yaml.safe_dump(
+            {
+                "run": {"id": "run-detached-lifecycle"},
+                "jobs": [{"id": "j-det-1", "command": "sleep 10"}],
+            }
+        )
+    )
+    session = get_default_session()
+    detached_res = runner.invoke(app, ["run", "submit", str(detached_yaml)])
+    detached_code = detached_res.exit_code
+    worker_running_after_detached = session.worker._running
+    assert detached_code == 0
+    assert worker_running_after_detached is False
+
+    watched_yaml = tmp_path / "watched.yaml"
+    watched_yaml.write_text(
+        yaml.safe_dump(
+            {
+                "run": {"id": "run-watched-lifecycle"},
+                "jobs": [{"id": "j-watch-1", "command": "echo ok"}],
+            }
+        )
+    )
+    watched_res = runner.invoke(app, ["run", "submit", str(watched_yaml), "--watch"])
+    watched_code = watched_res.exit_code
+    worker_running_after_watch = session.worker._running
+    assert watched_code == 0
+    assert "Run completed" in watched_res.stdout
+    assert worker_running_after_watch is False

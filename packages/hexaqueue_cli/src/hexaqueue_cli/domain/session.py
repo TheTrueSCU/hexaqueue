@@ -83,8 +83,72 @@ class LocalCliSession:
         await self.worker.stop()
 
 
-# Global default in-process session for CLI runs
+# Global default in-process session and controller URL override for CLI runs
 _DEFAULT_SESSION: LocalCliSession | None = None
+_ACTIVE_CONTROLLER_URL: str | None = None
+
+
+def _normalize_url(url: str | None) -> str | None:
+    """Strip whitespace and trailing slashes from an optional controller URL."""
+    if url is None:
+        return None
+    cleaned = url.strip().rstrip("/")
+    return cleaned or None
+
+
+def get_active_controller_url() -> str | None:
+    """Return the active controller URL configured via CLI callback, if any.
+
+    Returns:
+        Normalized active controller base URL string, or ``None`` for local mode.
+
+    Notes/Architectural Intent:
+        Supports propagation of a root ``hq --url ...`` flag down to subcommands
+        without mutating process-wide environment variables.
+    """
+    return _ACTIVE_CONTROLLER_URL
+
+
+def set_active_controller_url(url: str | None) -> None:
+    """Set or clear the active controller URL override for CLI invocations.
+
+    Args:
+        url: Base controller URL string, or ``None`` / blank string to clear.
+
+    Notes/Architectural Intent:
+        Called on every root CLI invocation via ``@app.callback`` so explicit
+        flag values and implicit defaults never leak across sequential runs.
+    """
+    global _ACTIVE_CONTROLLER_URL
+    _ACTIVE_CONTROLLER_URL = _normalize_url(url)
+
+
+def resolve_controller_url(explicit_url: str | None = None) -> str | None:
+    """Resolve effective remote controller URL using CLI precedence rules.
+
+    Args:
+        explicit_url: Explicit ``--url`` / ``--controller-url`` option passed to
+            a command or adapter.
+
+    Returns:
+        Normalized base controller URL string when remote mode is selected, or
+        ``None`` when the CLI should operate against the in-process local session.
+
+    Notes/Architectural Intent:
+        Enforces strict configuration precedence:
+        explicit flag > root callback ``_ACTIVE_CONTROLLER_URL`` >
+        ``HEXAQUEUE_CONTROLLER_URL`` > ``HEXAQUEUE_URL`` > ``None`` (local).
+    """
+    for candidate in (
+        explicit_url,
+        _ACTIVE_CONTROLLER_URL,
+        os.environ.get("HEXAQUEUE_CONTROLLER_URL"),
+        os.environ.get("HEXAQUEUE_URL"),
+    ):
+        normalized = _normalize_url(candidate)
+        if normalized is not None:
+            return normalized
+    return None
 
 
 def get_default_session(
@@ -115,7 +179,10 @@ def set_default_session(session: LocalCliSession | None) -> None:
 
 
 __all__ = [
+    "get_active_controller_url",
     "get_default_session",
     "LocalCliSession",
+    "resolve_controller_url",
+    "set_active_controller_url",
     "set_default_session",
 ]

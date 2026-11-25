@@ -20,6 +20,7 @@ from hexaqueue_cli.domain.options import OutputFormat
 __all__ = [
     "format_option",
     "resolve_format",
+    "url_option",
 ]
 
 
@@ -71,3 +72,24 @@ def format_option(
         Standardizes '-f' / '--format' flag across all Hexaqueue CLI commands.
     """
     return typer.Option(default, "-f", "--format", help=help_text)
+
+
+def url_option(
+    help_text: str = (
+        "Remote Hexaqueue controller URL "
+        "(or set HEXAQUEUE_CONTROLLER_URL / HEXAQUEUE_URL)."
+    ),
+) -> Any:
+    """Construct a standardized Typer option for remote controller URL selection.
+
+    Args:
+        help_text: Help string to render in CLI usage catalogs.
+
+    Returns:
+        Configured Typer Option specification.
+
+    Notes/Architectural Intent:
+        Standardizes '--url' / '--controller-url' flag across CLI subcommands while
+        allowing ``resolve_controller_url`` to enforce explicit > callback > env precedence.
+    """
+    return typer.Option(None, "--url", "--controller-url", help=help_text)

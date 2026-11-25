@@ -14,7 +14,7 @@ from rich.console import Console
 
 from hexaqueue_cli.adapters.local import LocalClientAdapter
 from hexaqueue_cli.adapters.presenter import CliPresenter
-from hexaqueue_cli.infra.options import format_option, resolve_format
+from hexaqueue_cli.infra.options import format_option, resolve_format, url_option
 
 app = typer.Typer(
     name="node",
@@ -27,19 +27,29 @@ console = Console()
 @app.command("list")
 def list_nodes_cmd(
     format_type: str = format_option(),
+    user: str = typer.Option(
+        "default", "--user", "-u", help="Requesting user identity"
+    ),
+    admin: bool = typer.Option(
+        False, "--admin", help="Assert explicit administrative elevation"
+    ),
+    url: str | None = url_option(),
 ) -> None:
     """List registered compute worker nodes and their telemetry pulses.
 
     Args:
         format_type: Chosen serialization output format.
+        user: Requesting user identity.
+        admin: Explicit administrative elevation flag.
+        url: Optional remote controller base URL.
     """
     resolved_fmt = resolve_format(format_type)
     presenter = CliPresenter(console=console)
 
     async def _nodes() -> None:
-        client = LocalClientAdapter()
+        client = LocalClientAdapter(controller_url=url)
         try:
-            nodes = await client.get_nodes()
+            nodes = await client.get_nodes(user_id=user, elevate=admin)
             presenter.render_nodes_table(nodes, resolved_fmt)
         except Exception as exc:
             console.print(f"[bold red]Error fetching worker nodes:[/] {exc}")
@@ -79,6 +89,7 @@ def ssh_node_cmd(
         "--jump-user",
         help="Jump host SSH user",
     ),
+    url: str | None = url_option(),
 ) -> None:
     """Open an administrative bastion terminal session on a worker node.
 
@@ -89,6 +100,7 @@ def ssh_node_cmd(
         direct: Whether to connect directly via SSH jump host.
         jump_host: Public IP/hostname of jump host.
         jump_user: Administrative user on jump host.
+        url: Optional remote controller base URL.
 
     Notes/Architectural Intent:
         Enforces least privilege: connecting to worker node underlying infrastructure
@@ -131,7 +143,7 @@ def ssh_node_cmd(
             raise typer.Exit(code=130) from None
 
     async def _ssh() -> None:
-        client = LocalClientAdapter()
+        client = LocalClientAdapter(controller_url=url)
         try:
             session = await client.create_bastion_session(
                 node_id=node_id, user_id=user, elevate=admin
