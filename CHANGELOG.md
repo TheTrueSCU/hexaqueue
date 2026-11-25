@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## v0.12.1 (2026-11-24)
+
+### Worker Workspace Dependency Sync, Umbrella Lockstep Bounds & Pages Workflow Hardening
+
+* **Remote Workspace Sync (`hexaqueue-worker`, `#228`)**:
+  * Updated `WorkerAgent` (`_uv_project_cmd_prefix` used by `_run_pytest_slice()` and `_resolve_command_invocation()`) to pass `--all-packages --all-extras --all-groups` to `uv run --project <workspace>` so multi-package workspaces (e.g. `hexastack`) resolve member and optional dependencies on remote cloud slices without impacting single-package repositories.
+* **Lockstep Subpackage Pinning (`hexaqueue`)**:
+  * Pinned lockstep `>=0.12.1` minimum version bounds across all 13 internal dependencies in `packages/hexaqueue/pyproject.toml` so downstream consumers never resolve stale `hexaqueue-*` or `pytest-hexaqueue` wheels alongside newer umbrella releases.
+* **Documentation & Release Workflows**:
+  * Added `Tested on Hexaqueue` badges across root `README.md` and all 14 subpackage `README.md` files (`#228`).
+  * Split `.github/workflows/docs.yml` into separate `build` and `deploy` jobs to eliminate GitHub Pages artifact propagation/rerun collisions.
+
 ## v0.12.0 (2026-11-24)
 
 ### Multi-Pool OCI Autoscaling, Oracle ADB Persistence, CLI CQRS Alignment & Operator Dashboard
