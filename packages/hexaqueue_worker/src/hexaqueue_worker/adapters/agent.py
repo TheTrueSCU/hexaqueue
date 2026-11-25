@@ -94,12 +94,30 @@ def _find_uv_binary() -> str | None:
         Path("/root/.local/bin/uv"),
     )
     for candidate in candidates:
-        try:
+        with contextlib.suppress(OSError):
             if candidate.is_file() and os.access(candidate, os.X_OK):
                 return str(candidate)
-        except OSError:
-            continue
     return None
+
+
+def _is_path_in_venv(entry: str, venv_root: Path) -> bool:
+    """Return True when a PATH entry resolves inside ``venv_root``.
+
+    Args:
+        entry: Candidate ``PATH`` directory entry.
+        venv_root: Resolved worker virtualenv root directory.
+
+    Returns:
+        ``True`` if ``entry`` resolves inside ``venv_root``, otherwise ``False``.
+
+    Notes/Architectural Intent:
+        Uses ``contextlib.suppress(OSError)`` so broken symlinks or unresolvable
+        ``PATH`` segments safely return ``False`` instead of raising or leaving
+        an empty ``except`` block.
+    """
+    with contextlib.suppress(OSError):
+        return Path(entry).resolve().is_relative_to(venv_root)
+    return False
 
 
 def _sanitize_task_path(
@@ -132,12 +150,8 @@ def _sanitize_task_path(
     for entry in raw_path.split(os.pathsep):
         if not entry:
             continue
-        if venv_root is not None:
-            try:
-                if Path(entry).resolve().is_relative_to(venv_root):
-                    continue
-            except OSError:
-                pass
+        if venv_root is not None and _is_path_in_venv(entry, venv_root):
+            continue
         filtered.append(entry)
 
     if uv_bin:
