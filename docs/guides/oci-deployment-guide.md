@@ -54,10 +54,10 @@ Create a VCN with the standard OCI wizard ("Create VCN with Internet Connectivit
 
 #### Security List Rules:
 1. **Public Subnet Ingress**:
-   - TCP Port 22 (SSH): Restricted to your IP or zero-trust bastion.
-   - TCP Port 8000 (Controller REST API): Public or VPN/Tailscale ingress.
+   - TCP Port 22 (SSH): Restricted to your IP or CI bastion (zero-trust `hexaqueue-ci` tunnel forwarding `127.0.0.1:8000`, per ADR-007).
+   - Port `8000` (Controller REST API): Bind strictly to `127.0.0.1:8000` (`--host 127.0.0.1 --port 8000`) and access exclusively via SSH tunnel (`-L 8000:localhost:8000`) rather than exposing publicly.
 2. **Private Subnet Ingress**:
-   - TCP Port 22 & 8001 (Worker internal port): Allow from `10.0.1.0/24` (Public Subnet CIDR).
+   - TCP Port 8001 (Internal Worker API): Allow from Worker Subnet / Private VCN (`worker-nsg`) via private VNIC IP only.
 3. **Egress**:
    - Allow all outbound traffic via Internet Gateway (Public Subnet) and NAT Gateway (Private Subnet).
 
@@ -125,7 +125,7 @@ Environment="HEXAQUEUE_COLLATERAL_BUCKET=hexaqueue-collateral"
 # Optional: Auto-sync on startup
 ExecStartPre=-/bin/bash -c "timeout 30s git fetch origin main && git reset --hard origin/main && git clean -fd && /home/ubuntu/.local/bin/uv sync --all-packages --all-extras"
 
-ExecStart=/home/ubuntu/.local/bin/uv run hq server start --host 0.0.0.0 --port 8000
+ExecStart=/home/ubuntu/.local/bin/uv run hq server start --host 127.0.0.1 --port 8000
 Restart=always
 RestartSec=5
 
@@ -165,11 +165,10 @@ Wants=network-online.target
 Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/hexaqueue
-Environment="HEXAQUEUE_SERVER_URL=http://10.0.1.X:8000"
-Environment="HEXAQUEUE_WORKER_PORT=8001"
+Environment="HEXAQUEUE_CONTROLLER_URL=http://<controller-private-ip>:8001"
 Environment="HEXAQUEUE_COLLATERAL_BUCKET=hexaqueue-collateral"
 
-ExecStart=/home/ubuntu/.local/bin/uv run hq worker start --host 0.0.0.0 --port 8001
+ExecStart=/home/ubuntu/.local/bin/uv run python -m hexaqueue_worker.adapters.agent
 Restart=always
 RestartSec=5
 
@@ -181,15 +180,15 @@ WantedBy=multi-user.target
 
 ## 5. Operations & Troubleshooting Utilities
 
-Hexaqueue ships with dedicated pure-Python operational tools in `scripts/ops/` runnable with `uv run` on the controller VM or over jump tunnels:
+Hexaqueue exposes built-in operational and diagnostic commands directly via the `hq` CLI:
 
 | Tool | Purpose | Command |
 |---|---|---|
-| **Cluster Journal** | Stream live controller journal logs | `uv run python scripts/ops/controller_journal.py` |
-| **Worker SSH** | Jump-host SSH into private subnet (10.0.2.x) workers | `uv run python scripts/ops/worker_ssh.py <worker-private-ip>` |
-| **Inspect Pool** | Query OCI Instance Pool sizing and active worker IPs | `uv run python scripts/ops/oci_inspect_pool.py` |
-| **Pool Status** | High-level status dashboard of workers and tasks | `uv run python scripts/ops/pool_status.py` |
-| **SSH Tunnel** | Establish secure local port-forwarding to cluster API | `uv run python scripts/ops/cluster_tunnel.py` |
+| **Cluster Journal** | Stream live controller journal logs | `uv run hq cluster journal` |
+| **Worker SSH** | Jump-host SSH into registered cluster workers | `uv run hq node ssh <node-id>` |
+| **Inspect Pool** | Query OCI Instance Pool sizing and capacity | `uv run hq cluster pool` |
+| **Cluster Status** | Check controller status and worker inventory | `uv run hq cluster status` |
+| **SSH Tunnel** | Establish zero-trust local port-forwarding to cluster API | `uv run hq cluster tunnel` |
 
 ---
 

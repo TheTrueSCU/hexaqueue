@@ -6,7 +6,7 @@
 
 ## 🎯 Overview
 
-Hexaqueue provides a first-class, cloud-agnostic integration bridge for GitHub Actions via the [`hexaqueue-github-runner`](../packages/hexaqueue_github_runner/README.md) package. It allows Hexaqueue clusters to serve as an intelligent runner autoscaler, translating inbound webhook events into isolated execution tasks with micro-latency queueing and fine-grained credit accounting.
+Hexaqueue provides a first-class, cloud-agnostic integration bridge for GitHub Actions via the [`hexaqueue-github-runner`](https://github.com/TheTrueSCU/hexaqueue/blob/main/packages/hexaqueue_github_runner/README.md) package. It allows Hexaqueue clusters to serve as an intelligent runner autoscaler, translating inbound webhook events into isolated execution tasks with micro-latency queueing and fine-grained credit accounting.
 
 ```mermaid
 sequenceDiagram
@@ -17,7 +17,7 @@ sequenceDiagram
     participant Worker as hexaqueue-worker (Ephemeral Runner Node)
 
     Note over GH,Webhook: 1. Workflow Job Queued
-    GH->>Webhook: POST /webhooks/github (workflow_job.queued)
+    GH->>Webhook: POST /v1/webhooks/github (workflow_job.queued)
     Webhook->>Webhook: Verify HMAC-SHA256 signature
     Webhook->>Scheduler: Evaluate Labels & Hardware Claims
 
@@ -47,7 +47,7 @@ To authenticate and manage Just-In-Time (JIT) ephemeral runners, register a GitH
    - `Workflow job` (emits `queued`, `in_progress`, and `completed` events)
 
 3. **Webhook URL & Secret**:
-   - URL: `https://<your-hexaqueue-server>/webhooks/github`
+   - URL: `https://<your-hexaqueue-server>/v1/webhooks/github` (or `/webhooks/github` when mounting standalone `create_github_webhook_router`)
    - Content type: `application/json`
    - Secret: Configure a cryptographically secure token and supply it to Hexaqueue via `HEXAQUEUE_WEBHOOK_SECRET_GITHUB`.
 
@@ -55,7 +55,7 @@ To authenticate and manage Just-In-Time (JIT) ephemeral runners, register a GitH
 
 ## 🏷️ Label-to-Hardware Translation
 
-Hexaqueue eliminates manual runner fleet management by automatically mapping GitHub Actions `runs-on` labels to pure domain [`ResourceRequirements`](../packages/hexaqueue_core/README.md):
+Hexaqueue eliminates manual runner fleet management by automatically mapping GitHub Actions `runs-on` labels to pure domain [`ResourceRequirements`](https://github.com/TheTrueSCU/hexaqueue/blob/main/packages/hexaqueue_core/README.md):
 
 | Label Syntax | Parsed Claim | Example Label |
 |---|---|---|
@@ -175,8 +175,8 @@ The federated mesh pools perpetual Always-Free tiers across OCI, GCP, AWS, Azure
 | **Oracle Cloud (OCI)** | 4 vCPUs / 24 GB RAM / 200 GB Storage | Ampere A1 ARM64 | `runs-on: [self-hosted, arm64, 4-cores]` |
 | **Google Cloud (GCP)** | 2 vCPUs / 1 GB RAM / 30 GB Storage | e2-micro x86_64 | `runs-on: [self-hosted, gcp, 2-cores]` |
 | **Amazon Web Services (AWS)** | 1 vCPU / 1 GB RAM / 30 GB Storage | t2/t3.micro x86_64 | `runs-on: [self-hosted, aws, 1-core]` |
-| **Microsoft Azure** | 1 vCPU / 1 GB RAM / 32 GB Storage | B1s x86_64 | `runs-on: [self-hosted, azure, 1-core]` |
-| **Local Workstation** | Host Cores / 2 GB RAM / 50 GB Storage | Local Bare-Metal Sandbox | `runs-on: [self-hosted, local, 2-cores]` |
+| **Microsoft Azure** | 1 vCPU / 1 GB RAM / 30 GB Storage | B1s x86_64 | `runs-on: [self-hosted, azure, 1-core]` |
+| **Local Workstation** | 2 vCPUs / 2 GB RAM / 5 GB Storage | Local Bare-Metal Sandbox | `runs-on: [self-hosted, local, 2-cores]` |
 
 ### Matrix Fan-Out Example
 

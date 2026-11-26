@@ -20,7 +20,7 @@
 ```mermaid
 graph TD
     subgraph S1["hexaqueue (Umbrella Metapackage)"]
-        META["hexaqueue[all]"]
+        META["hexaqueue"]
     end
 
     subgraph S2["Hexaqueue Workspace Packages"]
@@ -36,6 +36,7 @@ graph TD
         HQ_SERVER["hexaqueue-server"]
         HQ_WORKER["hexaqueue-worker"]
         HQ_WORKFLOW["hexaqueue-workflow"]
+        PYTEST_HQ["pytest-hexaqueue"]
     end
 
     META --> HQ_CLI
@@ -50,16 +51,17 @@ graph TD
     META --> HQ_SERVER
     META --> HQ_WORKER
     META --> HQ_WORKFLOW
+    META --> PYTEST_HQ
 ```
 
 ---
 
 ## 🚀 Installation & Extras
 
-Install the unified distribution:
+Install the unified distribution (`pip install hexaqueue` installs all workspace subpackages by default):
 
 ```bash
-# Core umbrella with default runner bridges
+# Full workspace distribution (all subpackages included)
 pip install hexaqueue
 
 # With Oracle Cloud Infrastructure (OCI) elastic instance pool & object storage
@@ -68,11 +70,11 @@ pip install hexaqueue[oci]
 # With GitHub Actions dynamic runner autoscaler
 pip install hexaqueue[github]
 
-# With Sentry observability integrations
-pip install hexaqueue[sentry]
+# With GCP or Oracle Autonomous Database adapters
+pip install hexaqueue[gcp,oracle]
 
-# Complete ecosystem installation
-pip install hexaqueue[all]
+# With .env loader or Sentry worker telemetry
+pip install hexaqueue[dotenv,sentry]
 ```
 
 ---

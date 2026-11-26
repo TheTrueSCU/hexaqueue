@@ -12,7 +12,7 @@ Hexaqueue provides three primary ways to run work across a cluster:
 flowchart TD
     subgraph Inputs["Submission Frontends"]
         Pytest["1. pytest-hexaqueue<br/>(Unit & Integration Suites)"]
-        Mutate["2. hexaqual mutate --cluster<br/>(Mutation Testing Batches)"]
+        Mutate["2. hexaqual mutate run --cluster hexaqueue<br/>(Mutation Testing Batches)"]
         CLI["3. hq run submit<br/>(Custom JobSpec DAGs)"]
     end
 
@@ -66,12 +66,12 @@ pytest --hexaqueue --hq-slices 8
 | `--hq-server <url>` | Overrides the cluster REST endpoint URL. | `HEXAQUEUE_SERVER_URL` |
 | `--hq-token <token>` | Hexaqueue bearer authentication token. | `HEXAQUEUE_API_TOKEN` |
 | `--hq-slices <n>` | Number of parallel test slices to partition test cases across. | `4` |
-| `--hq-fallback` | Automatically execute tests locally if cluster is unreachable. | `True` |
-| `--hq-profile <name>` | Select named execution profile configured in `pyproject.toml`. | `default` |
+| `--hq-fallback` | Automatically execute tests locally if cluster is unreachable (disable with `--no-hq-fallback`). | `True` |
+| `--hq-profile <name>` | Select named execution profile configured in `pyproject.toml`. | `None` |
 
 ---
 
-## 3. Distributed Mutation Testing (`hexaqual mutate --cluster`)
+## 3. Distributed Mutation Testing (`hexaqual mutate run --cluster hexaqueue`)
 
 Mutation testing creates modified variants ("mutants") of your source code to measure whether your test suite detects artificial faults. Because mutation testing can require evaluating hundreds or thousands of test runs, offloading mutation batches to Hexaqueue scales crunching linearly with cluster capacity.
 
@@ -105,7 +105,7 @@ For generic batch workflows, pipeline DAGs, and simulations, construct a YAML or
 
 ### Example Run Specification (`pipeline.yaml`):
 ```yaml
-run_spec:
+run:
   id: "data-pipeline-01"
   name: "ETL & Model Validation"
   tags: ["env:production", "tier:batch"]
@@ -123,6 +123,7 @@ jobs:
     name: "Transform Partition 1"
     command: "python"
     args: ["scripts/transform.py", "--partition", "1"]
+    depends_on: ["extract"]
     resources:
       cpus: 4
       ram_mb: 4096
@@ -131,6 +132,7 @@ jobs:
     name: "Transform Partition 2"
     command: "python"
     args: ["scripts/transform.py", "--partition", "2"]
+    depends_on: ["extract"]
     resources:
       cpus: 4
       ram_mb: 4096
@@ -139,20 +141,16 @@ jobs:
     name: "Aggregate Final Metrics"
     command: "python"
     args: ["scripts/aggregate.py"]
+    depends_on: ["transform-part-1", "transform-part-2"]
     resources:
       cpus: 2
       ram_mb: 2048
-
-dependencies:
-  "transform-part-1": ["extract"]
-  "transform-part-2": ["extract"]
-  "aggregate": ["transform-part-1", "transform-part-2"]
 ```
 
 ### Submitting the Pipeline:
 ```bash
-# Submit and stream execution progress in real time
-hq run submit pipeline.yaml --stream
+# Submit and watch execution progress in real time
+hq run submit pipeline.yaml --watch
 ```
 
 ---
@@ -162,17 +160,17 @@ hq run submit pipeline.yaml --stream
 ### Cluster Health & Worker Inventory:
 ```bash
 # Check overall cluster status and connection health
-hq status
+hq cluster status
 
 # View real-time cluster worker slots, CPU, and memory utilization
-hq cluster top
+hq top
 ```
 
 ### Live Log Streaming & Run Inspection:
 ```bash
-# Stream live stdout/stderr for a specific running task
-hq run logs <run-id> -f
+# Stream live stdout/stderr for a specific running job
+hq logs <job-id> -f
 
-# Inspect detailed status, error codes, and step outputs
-hq run get <run-id>
+# Inspect detailed status, error codes, and step outputs for a run
+hq status <run-id>
 ```

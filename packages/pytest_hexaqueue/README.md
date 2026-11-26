@@ -4,11 +4,14 @@
 
 [![PyPI: pytest-hexaqueue](https://img.shields.io/pypi/v/pytest-hexaqueue.svg)](https://pypi.org/project/pytest-hexaqueue/)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![Coverage](https://codecov.io/github/TheTrueSCU/hexaqueue/graph/badge.svg?component=pytest_hexaqueue)](https://codecov.io/github/TheTrueSCU/hexaqueue)
 [![Part of Hexaqueue](https://img.shields.io/badge/part%20of-hexaqueue-blue.svg)](https://dopplereffect.us/hexaqueue/)
 [![Built with Hexastack](https://img.shields.io/badge/built%20with-hexastack-blueviolet.svg)](https://dopplereffect.us/hexastack/)
 [![Governed by Hexaqual](https://img.shields.io/badge/governed%20by-hexaqual-10b981.svg)](https://dopplereffect.us/hexaqual/)
 [![Tested on Hexaqueue](https://img.shields.io/badge/tested%20on-hexaqueue-blue.svg)](https://dopplereffect.us/hexaqueue/)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](../../LICENSE)
+
+> Part of the [**Hexaqueue Scheduler**](https://dopplereffect.us/hexaqueue/) · Built on [**Hexastack**](https://dopplereffect.us/hexastack/) · Governed by [**Hexaqual**](https://dopplereffect.us/hexaqual/).
 
 ---
 
@@ -29,7 +32,7 @@ A common question is how `pytest-hexaqueue` relates to the widely used [`pytest-
 **`pytest-hexaqueue` replaces `pytest-xdist` when scaling tests beyond a single local machine:**
 
 - **Content-Addressed Workspace Sync (CAS)**: Automatically snapshots uncommitted workspace diffs and git revisions into `hexaqueue-collateral` content-addressed storage (SHA-256), synchronizing code to worker nodes instantly without rsync or shared network mounts.
-- **Multi-CSP Free-Tier Mesh**: Schedules test slices across free compute quotas (OCI 4-vCPU ARM, GCP e2-micro, AWS t4g.small, Azure B1s, and local worker pools) while mathematically enforcing a $0.00 spend ceiling.
+- **Multi-CSP Free-Tier Mesh**: Schedules test slices across free compute quotas (OCI 4-vCPU ARM, GCP e2-micro, AWS t2.micro / t3.micro, Azure B1s, and local worker pools) while mathematically enforcing a $0.00 spend ceiling.
 - **Fair-Share Queueing & Preemption**: Leverages Hexaqueue's central scheduling engine with priority aging and placement constraints rather than naive socket round-robining.
 - **Fail-Safe Fallback**: If remote cluster nodes are offline or unreachable, `--hq-fallback` (enabled by default) seamlessly falls back to standard in-process test execution.
 
@@ -189,16 +192,19 @@ mode = "csp"
 
 | Option | Environment Variable | Default | Description |
 |---|---|---|---|
-| `--hexaqueue` | `HEXAQUEUE_PYTEST` | `False` | Enable Hexaqueue distributed test execution |
-| `--hq-config` | `HEXAQUEUE_CONFIG` | None | Path to configuration file (`pyproject.toml` or `hexaqueue.yaml`) |
-| `--hq-profile` | `HEXAQUEUE_PROFILE` | None | Active configuration profile name (e.g., `ci`, `container`, `paid-cloud`) |
+| `--hexaqueue` | *(CLI flag only)* | `False` | Enable Hexaqueue distributed test execution |
+| `--hq-config` | *(CLI flag only)* | `None` | Path to configuration file (`pyproject.toml` or `hexaqueue.yaml`) |
+| `--hq-profile` (`--profile`) | `HEXAQUEUE_PROFILE` | `None` | Active configuration profile name (e.g., `ci`, `container`, `paid-cloud`) |
 | `--hq-server` | `HEXAQUEUE_SERVER_URL` | Config / `http://127.0.0.1:8000` | Hexaqueue cluster controller base URL |
-| `--hq-token` | `HEXAQUEUE_API_TOKEN` | None | Authentication bearer token |
+| `--hq-token` | `HEXAQUEUE_API_TOKEN` | `None` | Authentication bearer token |
 | `--hq-slices` | `HEXAQUEUE_SLICES` | Config / `4` | Number of parallel execution slices |
-| `--hq-container` | `HEXAQUEUE_CONTAINER` | Config / `False` | Execute slices inside isolated OCI container sandboxes |
-| `--hq-image` | `HEXAQUEUE_WORKER_IMAGE` | Config / `latest` | Container image tag for worker runtime |
+| `--hq-container` | `HEXAQUEUE_MODE=container` | Config / `False` | Execute slices inside isolated OCI container sandboxes |
+| `--hq-image` | `HEXAQUEUE_WORKER_IMAGE` | Config / `hexaqueue-worker:latest` | Container image tag for worker runtime |
 | `--hq-pool` | `HEXAQUEUE_POOL` | Config / `default` | Target compute instance pool for runner placement |
 | `--hq-paid` | `HEXAQUEUE_PAID` | Config / `False` | Authorize paid cloud compute (disables zero-cost free-tier guardrails) |
 | `--hq-free-tier` | `HEXAQUEUE_FREE_TIER` | Config / `True` | Enforce zero-cost Multi-CSP Free-Tier mesh execution ($0.00 spend ceiling) |
-| `--hq-fallback` | `HEXAQUEUE_LOCAL_FALLBACK` | Config / `True` | Fall back to local in-process execution if cluster is unreachable |
+| `--hq-fallback` / `--no-hq-fallback` | `HEXAQUEUE_FALLBACK` | Config / `True` | Fall back to local in-process execution if cluster is unreachable |
 | `--hq-slicer` | `HEXAQUEUE_SLICER` | Config / `round-robin` | Test partitioning algorithm: `round-robin` or `file` |
+| `--hq-local-slices` | `HEXAQUEUE_LOCAL_SLICES` | Config / `None` | Slices executed locally across workstation vCPUs, or `auto` (`0` to disable) |
+| `--hq-remote-slices` | `HEXAQUEUE_REMOTE_SLICES` | Config / `None` | Slices dispatched remotely across Hexaqueue cluster, or `auto` (`0` to disable) |
+| `--hq-hybrid` | *(CLI flag only)* | `False` | Enable hybrid concurrent local and remote execution with automatic slice sizing |

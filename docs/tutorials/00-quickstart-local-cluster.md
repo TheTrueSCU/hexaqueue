@@ -31,9 +31,10 @@ Copy the example template to `.env.local`:
 cp .env.example .env.local
 ```
 
-For local testing, the default settings in `.env.local` work out-of-the-box:
+For local testing, configure `.env.local` for both client (`8000`) and internal worker API (`8001`):
 ```ini
 HEXAQUEUE_SERVER_URL=http://127.0.0.1:8000
+HEXAQUEUE_WORKER_PORT=8001
 HEXAQUEUE_API_TOKEN=dev-secret-token
 HEXAQUEUE_FREE_TIER=true
 ```
@@ -44,7 +45,7 @@ HEXAQUEUE_FREE_TIER=true
 
 ### Terminal 1: Start Hexaqueue Controller
 ```bash
-uv run hq server start --host 127.0.0.1 --port 8000
+HEXAQUEUE_WORKER_PORT=8001 uv run hq server start --host 127.0.0.1 --port 8000
 ```
 You should see:
 ```text
@@ -54,7 +55,7 @@ You should see:
 
 ### Terminal 2: Start Local Worker Daemon
 ```bash
-uv run hq worker start --server-url http://127.0.0.1:8000 --port 8001
+HEXAQUEUE_CONTROLLER_URL=http://127.0.0.1:8001 uv run python -m hexaqueue_worker.adapters.agent
 ```
 
 ---
@@ -62,14 +63,14 @@ uv run hq worker start --server-url http://127.0.0.1:8000 --port 8001
 ## 5. Submit Your First Distributed Task
 
 ### Terminal 3: Verify Status & Submit Run
-Verify the controller recognizes the worker:
+Verify the controller is reachable and inspect cluster status:
 ```bash
-uv run hq status
+uv run hq cluster status
 ```
 
 Create a simple workflow definition `quickstart.yaml`:
 ```yaml
-run_spec:
+run:
   id: "quickstart-run-01"
   name: "My First Hexaqueue DAG"
 
@@ -86,17 +87,16 @@ jobs:
     name: "Compute Sum"
     command: "python"
     args: ["-c", "print('Computed sum: 55')"]
+    depends_on:
+      - "step-1"
     resources:
       cpus: 1
       ram_mb: 512
-
-dependencies:
-  "step-2": ["step-1"]
 ```
 
-Submit and stream the execution:
+Submit and watch the execution:
 ```bash
-uv run hq run submit quickstart.yaml --stream
+uv run hq run submit quickstart.yaml --watch
 ```
 
 You will see the job transition through `RUNNING` to `DONE`, successfully executing your first DAG!

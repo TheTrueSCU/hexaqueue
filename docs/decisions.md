@@ -6,12 +6,12 @@
 
 ## Index of Architectural Decisions
 
-- [ADR-001: Strict Hexagonal Layer Boundaries & Multi-Package Monorepo Topology](#adr-001-strict-hexagonal-layer-boundaries--multi-package-monorepo-topology)
-- [ADR-002: Dual-Implementation Oracle Verification for Job DAGs & State Transitions](#adr-002-dual-implementation-oracle-verification-for-job-dags--state-transitions)
-- [ADR-003: Cloud-Agnostic Elasticity & Dollar-Denominated Budget Accounting](#adr-003-cloud-agnostic-elasticity--dollar-denominated-budget-accounting)
-- [ADR-004: Anti-Fake-Pass Exercise Gates & Strict Test Symmetry](#adr-004-anti-fake-pass-exercise-gates--strict-test-symmetry)
-- [ADR-005: Hexaqual Governance, Gate Audits & Anti-Drift Documentation](#adr-005-hexaqual-governance-gate-audits--anti-drift-documentation)
-- [ADR-006: Monorepo PEP 420 Namespace Package Traversal & Single-Pass Distributed CI Slicing](#adr-006-monorepo-pep-420-namespace-package-traversal--single-pass-distributed-ci-slicing)
+- [ADR-001: Strict Hexagonal Layer Boundaries & Multi-Package Monorepo Topology](#adr-001-strict-hexagonal-layer-boundaries-multi-package-monorepo-topology)
+- [ADR-002: Dual-Implementation Oracle Verification for Job DAGs & State Transitions](#adr-002-dual-implementation-oracle-verification-for-job-dags-state-transitions)
+- [ADR-003: Cloud-Agnostic Elasticity & Dollar-Denominated Budget Accounting](#adr-003-cloud-agnostic-elasticity-dollar-denominated-budget-accounting)
+- [ADR-004: Anti-Fake-Pass Exercise Gates & Strict Test Symmetry](#adr-004-anti-fake-pass-exercise-gates-strict-test-symmetry)
+- [ADR-005: Hexaqual Governance, Gate Audits & Anti-Drift Documentation](#adr-005-hexaqual-governance-gate-audits-anti-drift-documentation)
+- [ADR-006: Monorepo PEP 420 Namespace Package Traversal & Single-Pass Distributed CI Slicing](#adr-006-monorepo-pep-420-namespace-package-traversal-single-pass-distributed-ci-slicing)
 - [ADR-007: Zero-Trust OpenSSH Confinement and Ephemeral Git Worktree Isolation for Distributed Test Execution](#adr-007-zero-trust-openssh-confinement-and-ephemeral-git-worktree-isolation-for-distributed-test-execution)
 - [ADR-008: Elastic Scale-to-Zero Worker Pool Governed by an Always-On Controller](#adr-008-elastic-scale-to-zero-worker-pool-governed-by-an-always-on-controller)
 
@@ -110,7 +110,7 @@ Documentation and quality gates frequently drift over time as packages evolve, r
 
 ### Decision
 1. **Pinned Composite Actions**:
-   - All CI workflows use immutable commit SHAs for composite actions (`TheTrueSCU/hexaqual@7de5ade62e96ac7623b5ec649997e562eea2822d # v0.9.3`).
+   - All CI workflows use immutable commit SHAs for composite actions (`TheTrueSCU/hexaqual@6117ce25b1d39768f22396a55d13103abee88926 # v0.12.1`).
 2. **Automated Quality Gate Auditing**:
    - Every CI quality gate run executes `uv run hexaqual sanity --audit-gates`, verifying that all 10 canonical gates remain active.
 3. **Anti-Drift Documentation Linter**:

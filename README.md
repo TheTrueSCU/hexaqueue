@@ -50,7 +50,7 @@ graph TD
         GH["hexaqueue-github-runner (GitHub Actions JIT Autoscaler)"]
         GL["hexaqueue-gitlab-runner (GitLab Custom Executor)"]
         KUEUE["hexaqueue-kueue (Kubernetes Batch v1 Bridge)"]
-        WORKFLOW["hexaqueue-workflow (Temporal Activity / Argo Task Driver)"]
+        WORKFLOW["hexaqueue-workflow (Distributed Hexaflow Engine & Artifact Staging)"]
         PYTEST["pytest-hexaqueue (Distributed Slicing & Free-Tier Plugin)"]
     end
 
@@ -94,7 +94,7 @@ graph TD
         HQ_SCANNER["hexaqueue-scanner"]
         HQ_MONITOR["hexaqueue-monitor"]
         HQ_DASHBOARD["hexaqueue-dashboard"]
-        HQ_GITHUB["hexaqueue-github-runner"]
+        HQ_WORKFLOW["hexaqueue-workflow"]
     end
 
     subgraph S2["Hexastack Foundation"]
@@ -104,15 +104,18 @@ graph TD
         HS_CQRS["hexastack-cqrs (Commands, Queries, Events)"]
         HS_DB["hexastack-db (PostgreSQL / SQLite Persistence)"]
         HS_EVENTS["hexastack-events (NATS JetStream & Redis)"]
-        HS_FASTAPI["hexastack-fastapi (REST, Rate Limits & UI)"]
+        HS_FASTAPI["hexastack-fastapi (REST & Middleware)"]
         HS_GRPC["hexastack-grpc (Protobuf Streaming & Reflection)"]
         HS_LOG["hexastack-logging (Structured JSON Logs)"]
+        HS_MCP["hexastack-mcp (Model Context Protocol)"]
         HS_OTEL["hexastack-otel (OpenTelemetry & Prometheus)"]
+        HS_UI["hexastack-ui (NiceGUI DevTools & Web UI)"]
     end
 
     HQ_CORE --> HS_CORE
     HQ_CORE --> HS_CQRS
 
+    HQ_CLI --> HS_AUTH
     HQ_CLI --> HS_CLI
     HQ_CLI --> HS_CORE
     HQ_CLI --> HS_CQRS
@@ -125,6 +128,8 @@ graph TD
     HQ_SERVER --> HS_EVENTS
     HQ_SERVER --> HS_FASTAPI
     HQ_SERVER --> HS_GRPC
+    HQ_SERVER --> HS_LOG
+    HQ_SERVER --> HS_MCP
     HQ_SERVER --> HS_OTEL
 
     HQ_WORKER --> HS_AUTH
@@ -147,30 +152,48 @@ graph TD
     HQ_MONITOR --> HS_OTEL
 
     HQ_DASHBOARD --> HS_AUTH
+    HQ_DASHBOARD --> HS_CORE
+    HQ_DASHBOARD --> HS_CQRS
     HQ_DASHBOARD --> HS_FASTAPI
     HQ_DASHBOARD --> HS_GRPC
+    HQ_DASHBOARD --> HS_UI
 
-    HQ_GITHUB --> HS_CORE
-    HQ_GITHUB --> HS_FASTAPI
+    HQ_WORKFLOW --> HS_CORE
+    HQ_WORKFLOW --> HS_GRPC
+```
+
+---
+
+## ⚡ GitHub Action (`TheTrueSCU/hexaqueue`)
+
+Use the repository's composite action (`action.yml`) in CI workflows to install `hq`, probe the fleet, and establish the zero-trust OpenSSH tunnel for `pytest-hexaqueue`:
+
+```yaml
+- uses: TheTrueSCU/hexaqueue@1e7b3c4625c82bece17dbc9eafc72664e4bd501c # v0.12.1
+  with:
+    cluster-env: ${{ secrets.HEXAQUEUE_ENV }}
+    probe-only: "false"
+    auto-tunnel: "true"
+    step-summary: "true"
 ```
 
 ---
 
 ## 📚 Package Directory Index
 
-| Package | Version | Description |
-|---|---|---|
-| [`hexaqueue`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue/README.md) | `0.9.0` | Umbrella metapackage (`pip install hexaqueue[all,oci]`) |
-| [`hexaqueue-core`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_core/README.md) | `0.9.0` | Pure domain models, lifecycle state machines, port interfaces |
-| [`hexaqueue-cli`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_cli/README.md) | `0.9.0` | `hq` interactive terminal CLI |
-| [`hexaqueue-server`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_server/README.md) | `0.9.0` | HA controller, lease coordinator & scale-to-zero autoscaler engine |
-| [`hexaqueue-worker`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_worker/README.md) | `0.9.0` | Compute daemon & autonomous pull-based worker agent (cgroups v2, GPU isolation) |
-| [`hexaqueue-collateral`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_collateral/README.md) | `0.9.0` | Direct presigned multi-part upload & OCI Object Storage staging service |
-| [`hexaqueue-scanner`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_scanner/README.md) | `0.9.0` | Malware scanning, AV (ClamAV/YARA) & quarantine daemon |
-| [`hexaqueue-monitor`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_monitor/README.md) | `0.9.0` | Health, heartbeat telemetry & budget tracking daemon |
-| [`hexaqueue-dashboard`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_dashboard/README.md) | `0.9.0` | Web interface, cluster visualizer & operator console |
-| [`hexaqueue-github-runner`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_github_runner/README.md) | `0.9.0` | GitHub Actions JIT autoscaler & webhook bridge |
-| [`hexaqueue-gitlab-runner`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_gitlab_runner/README.md) | `0.9.0` | GitLab CI/CD Custom Executor driver |
-| [`hexaqueue-kueue`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_kueue/README.md) | `0.9.0` | Kubernetes Batch v1 & Kueue controller bridge |
-| [`hexaqueue-workflow`](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_workflow/README.md) | `0.9.0` | Native Hexaflow cluster scheduler adapter & distributed engine |
-| [`pytest-hexaqueue`](file:///home/rjdw/Projects/hexaqueue/packages/pytest_hexaqueue/README.md) | `0.9.0` | Distributed Pytest execution, test suite slicing engine, and multi-CSP free-tier runner plugin |
+| Package | Description |
+|---|---|
+| [`hexaqueue`](packages/hexaqueue/README.md) | Umbrella metapackage (`pip install hexaqueue`, optional `[oci]`, `[github]`, `[gcp]`, `[oracle]`, `[dotenv]`, `[pytest]`, `[sentry]`) |
+| [`hexaqueue-core`](packages/hexaqueue_core/README.md) | Pure domain models, lifecycle state machines, port interfaces |
+| [`hexaqueue-cli`](packages/hexaqueue_cli/README.md) | `hq` interactive terminal CLI |
+| [`hexaqueue-server`](packages/hexaqueue_server/README.md) | HA controller, lease coordinator & scale-to-zero autoscaler engine |
+| [`hexaqueue-worker`](packages/hexaqueue_worker/README.md) | Compute daemon & autonomous pull-based worker agent (cgroups v2, GPU isolation) |
+| [`hexaqueue-collateral`](packages/hexaqueue_collateral/README.md) | Direct presigned multi-part upload & OCI Object Storage staging service |
+| [`hexaqueue-scanner`](packages/hexaqueue_scanner/README.md) | Malware scanning, AV (ClamAV/YARA) & quarantine daemon |
+| [`hexaqueue-monitor`](packages/hexaqueue_monitor/README.md) | Health, heartbeat telemetry & budget tracking daemon |
+| [`hexaqueue-dashboard`](packages/hexaqueue_dashboard/README.md) | Web interface, cluster visualizer & operator console |
+| [`hexaqueue-github-runner`](packages/hexaqueue_github_runner/README.md) | GitHub Actions JIT autoscaler & webhook bridge |
+| [`hexaqueue-gitlab-runner`](packages/hexaqueue_gitlab_runner/README.md) | GitLab CI/CD Custom Executor driver |
+| [`hexaqueue-kueue`](packages/hexaqueue_kueue/README.md) | Kubernetes Batch v1 & Kueue controller bridge |
+| [`hexaqueue-workflow`](packages/hexaqueue_workflow/README.md) | Distributed Hexaflow cluster workflow engine & artifact staging adapter |
+| [`pytest-hexaqueue`](packages/pytest_hexaqueue/README.md) | Distributed Pytest execution, test suite slicing engine, and multi-CSP free-tier runner plugin |

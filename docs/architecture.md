@@ -20,7 +20,7 @@
    - `LogStreamPort`: Chunked stdout/stderr real-time streaming.
 
 3. **Adapters Implement Ports (`adapters/`)**:
-   - Translate external protocols (POSIX subprocesses, local memory queues, disk storage, S3/GCS, Kubernetes Kueue, Temporal/Argo) into internal domain contracts.
+   - Translate external protocols (POSIX subprocesses, local memory queues, disk storage, S3/GCS/OCI, Kubernetes Kueue, Hexaflow) into internal domain contracts.
    - Adapters never import from `infra/`.
 
 4. **Zero-Cost Guard & Native Deference**:

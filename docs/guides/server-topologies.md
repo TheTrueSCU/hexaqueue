@@ -11,7 +11,7 @@ In large-scale HPC batch scheduling and multi-tenant ML engineering, running a m
 - **FinOps Contention**: Running heavy analytical spend projections or columnar Parquet exports on the same thread loop as millisecond-critical task leasing causes latency spikes.
 - **AI Sandboxing**: Modern AI pair-programming assistants (Antigravity CLI, Cursor IDE, Claude Code) require tool access to query jobs and stream traces without having permission to leak compute secrets or hijack worker leases.
 
-Hexaqueue solves this by structuring all HTTP and RPC entrypoints into **9 granular interface switches** under a unified [CQRS Execution Pipeline](file:///home/rjdw/Projects/hexaqueue/packages/hexaqueue_server/src/hexaqueue_server/infra/cqrs/pipeline.py):
+Hexaqueue solves this by structuring all HTTP and RPC entrypoints into **10 granular interface switches** under a unified [CQRS Execution Pipeline](https://github.com/TheTrueSCU/hexaqueue/blob/main/packages/hexaqueue_server/src/hexaqueue_server/infra/cqrs/pipeline.py):
 
 | Interface Switch | Purpose | Primary Endpoints |
 |---|---|---|
@@ -19,10 +19,11 @@ Hexaqueue solves this by structuring all HTTP and RPC entrypoints into **9 granu
 | `jobs` | Job lifecycle operations (cancel, pause, explain) | `/v1/jobs` |
 | `nodes` | Worker node registration & heartbeat telemetry | `/v1/nodes`, `/v1/nodes/profiles` |
 | `logs` | Real-time chunked log streaming & presigned URLs | `/v1/jobs/{job_id}/logs` |
-| `cluster` | Cluster statistics, fairshare, and DLQ diagnostics | `/v1/cluster/stats`, `/v1/dlq` |
-| `collateral` | Content-Addressable Storage (CAS) ingestion | `/v1/collateral/ingest`, `/v1/collateral/manifest` |
+| `cluster` | Cluster statistics, fairshare, and DLQ diagnostics | `/v1/stats`, `/v1/cluster/metrics`, `/v1/fairshare`, `/v1/dlq` |
+| `collateral` | Content-Addressable Storage (CAS) ingestion | `/v1/collateral/upload`, `/v1/collateral/stage`, `/v1/collateral` |
 | `budget` | FinOps credit reservation, balance, and settlement | `/v1/budget/reserve`, `/v1/budget/report` |
-| `webhooks` | Signature-verified CI/CD inbound receivers | `/v1/webhooks/github`, `/v1/webhooks/gitlab` |
+| `webhooks` | Signature-verified CI/CD inbound receivers | `/v1/webhooks/github`, `/v1/webhooks/gitlab`, `/v1/webhooks/registry` |
+| `worker_pool` | Pull-based worker registration, heartbeats, and slice leasing | `/v1/worker/*`, `/worker/*` |
 | `mcp` | Model Context Protocol driving adapter (SSE & stdio) | `/mcp/sse`, `/mcp/messages` |
 
 ---
@@ -35,12 +36,12 @@ Hexaqueue ships with pre-configured **Server Roles** (`all`, `gateway`, `worker-
 
 ### Setup 1: Monolithic All-in-One Controller (`role = "all"`)
 
-For local development, single-server staging, or small on-premises teams, Hexaqueue runs all 9 interfaces in a single process.
+For local development, single-server staging, or small on-premises teams, Hexaqueue runs all 10 interfaces in a single process.
 
 ![Single-Node Controller](../assets/topologies/single_node.png)
 
 #### Interface Matrix
-- **Enabled (9/9)**: `runs`, `jobs`, `nodes`, `logs`, `cluster`, `collateral`, `budget`, `webhooks`, `mcp`
+- **Enabled (10/10)**: `runs`, `jobs`, `nodes`, `logs`, `cluster`, `collateral`, `budget`, `webhooks`, `worker_pool`, `mcp`
 - **Engine**: Granian (Rust ASGI) or Uvicorn
 
 #### Command Line
@@ -69,7 +70,7 @@ Positioned in a public DMZ or behind a cloud load balancer (ALB / Ingress-Nginx)
 
 #### Interface Matrix
 - **Enabled**: `runs`, `jobs`, `collateral`, `webhooks`
-- **Blocked**: `nodes`, `logs`, `cluster`, `budget`, `mcp`
+- **Blocked**: `nodes`, `logs`, `cluster`, `budget`, `worker_pool`, `mcp`
 
 #### Command Line
 ```bash
@@ -94,6 +95,7 @@ nodes = false
 logs = false
 cluster = false
 budget = false
+worker_pool = false
 mcp = false
 ```
 
@@ -106,7 +108,7 @@ Deployed inside a private VPC or high-speed InfiniBand subnet directly adjacent 
 ![Worker Coordinator Node](../assets/topologies/worker_api_node.png)
 
 #### Interface Matrix
-- **Enabled**: `jobs`, `nodes`, `logs`, `collateral`
+- **Enabled**: `jobs`, `nodes`, `logs`, `collateral`, `worker_pool`
 - **Blocked**: `runs`, `cluster`, `budget`, `webhooks`, `mcp`
 
 #### Command Line
@@ -135,7 +137,7 @@ Dedicated to business intelligence, cost allocation, and audit reporting. Powere
 
 #### Interface Matrix
 - **Enabled**: `cluster`, `budget`
-- **Blocked**: `runs`, `jobs`, `nodes`, `logs`, `collateral`, `webhooks`, `mcp`
+- **Blocked**: `runs`, `jobs`, `nodes`, `logs`, `collateral`, `webhooks`, `worker_pool`, `mcp`
 
 #### Command Line
 ```bash
@@ -160,6 +162,7 @@ nodes = false
 logs = false
 collateral = false
 webhooks = false
+worker_pool = false
 mcp = false
 ```
 
