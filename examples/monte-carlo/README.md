@@ -22,9 +22,12 @@ examples/monte-carlo/
 │   ├── adapters/                   # Geometric Brownian Motion & Moving Average smoother
 │   │   ├── __init__.py
 │   │   └── local.py
-│   └── infra/                      # Pipeline loader
-│       ├── __init__.py
-│       └── runner.py
+│   ├── infra/                      # Pipeline loader, local builder & scripts
+│   │   ├── __init__.py
+│   │   ├── builder.py
+│   │   ├── runner.py
+│   │   └── scripts.py
+│   └── cli.py                      # Example CLI entrypoint
 └── tests/
     └── unit/                       # 1:1 Parity Unit Tests
 ```

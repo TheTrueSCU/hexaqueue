@@ -34,7 +34,7 @@ flowchart LR
 ```
 
 > [!IMPORTANT]
-> **The Test Runner Invariant**: Client runners executing test suites or mutation testing (`pytest-hexaqueue`, `hexaqual mutate --cluster hexaqueue`, `hq run submit`) **never require and must never possess CSP cloud credentials** (such as OCI tenancy/user OCIDs, private keys, or AWS secret access keys).
+> **The Test Runner Invariant**: Client runners executing test suites or mutation testing (`pytest-hexaqueue`, `hexaqual mutate run --cluster hexaqueue`, `hq run submit`) **never require and must never possess CSP cloud credentials** (such as OCI tenancy/user OCIDs, private keys, or AWS secret access keys).
 >
 > Clients connect exclusively to the Hexaqueue control plane via `HEXAQUEUE_SERVER_URL` and `HEXAQUEUE_API_TOKEN`. All cloud infrastructure management is quarantined inside the controller and worker nodes.
 
@@ -66,7 +66,7 @@ flowchart TD
 
 ## 3. Comprehensive Configuration Reference
 
-Hexaqueue ships with a template file [`.env.example`](file:///.env.example). Below is the complete reference of all recognized variables.
+Hexaqueue ships with a template file [`.env.example`](https://github.com/TheTrueSCU/hexaqueue/blob/main/.env.example). Below is the complete reference of all recognized variables.
 
 ### 3.1 Control-Plane Variables (Clients & Test Runners)
 
@@ -122,21 +122,23 @@ Used when running the controller or worker daemons on AWS EC2 or utilizing S3 CA
 |---|---|---|
 | `HEXAQUEUE_GCP_PROJECT_ID` | *(None)* | Google Cloud project identifier. |
 | `HEXAQUEUE_GCP_ZONE` | `us-central1-a` | Compute Engine compute zone. |
-| `HEXAQUEUE_GCP_USE_WORKLOAD_IDENTITY`| `false` | Authenticate using ambient GCE Service Account or GitHub OIDC Workload Identity Federation. |
+| `HEXAQUEUE_GCP_WORKLOAD_IDENTITY`| `false` | Authenticate using ambient GCE Service Account or GitHub OIDC Workload Identity Federation. |
 | `HEXAQUEUE_GCP_SERVICE_ACCOUNT_FILE` | *(None)* | Path to service account JSON key file (standard `GOOGLE_APPLICATION_CREDENTIALS` supported). |
 | `HEXAQUEUE_AZURE_TENANT_ID` | *(None)* | Microsoft Entra (Azure AD) Directory Tenant ID. |
 | `HEXAQUEUE_AZURE_CLIENT_ID` | *(None)* | Application (Client) ID of the Service Principal. |
 | `HEXAQUEUE_AZURE_CLIENT_SECRET` | *(None)* | Client Secret value. |
-| `HEXAQUEUE_AZURE_USE_MANAGED_IDENTITY`| `false` | Enable Azure VM System-Assigned or User-Assigned Managed Identity. |
+| `HEXAQUEUE_AZURE_MANAGED_IDENTITY`| `false` | Enable Azure VM System-Assigned or User-Assigned Managed Identity. |
 
 ---
 
-### 3.5 Worker Daemon & Cluster Networking
+### 3.5 Worker Daemon, Server & Cluster Networking
 
 | Variable Name | Default Value | Description |
 |---|---|---|
-| `HEXAQUEUE_WORKER_PORT` | `8001` | Local port used by `hexaqueue-worker` for internal task execution. |
-| `HEXAQUEUE_SSH_USER` | `ubuntu` | SSH user account used by bastion jump scripts to access worker instances. |
+| `HEXAQUEUE_WORKER_PORT` | *(None)* | Optional `hexaqueue-server` internal port for worker registration & pull leasing (e.g. `8001`). |
+| `HEXAQUEUE_CONTROLLER_URL` | `http://localhost:8001` | Worker agent / dashboard controller URL (`HEXAQUEUE_URL` is also supported as a CLI override). |
+| `HEXAQUEUE_JOIN_TOKEN` | *(None)* | Shared join token authenticating worker registrations on the internal worker API. |
+| `HEXAQUEUE_SSH_USER` | `hexaqueue-ci` | Unprivileged OpenSSH tunnel account used to reach the cluster host (`ADR-007`). |
 | `HEXAQUEUE_SSH_KEY` | `~/.ssh/id_ed25519` | Private SSH key path for cluster node management. |
 | `HEXAQUEUE_CLUSTER_HOST` | *(None)* | Public IP address or DNS hostname of the primary bastion / controller node. |
 
@@ -157,7 +159,7 @@ To configure your local environment for development:
    ```
 3. Verify discovery using the `hq` CLI:
    ```bash
-   uv run hq status
+   uv run hq cluster status
    ```
 
 > [!NOTE]

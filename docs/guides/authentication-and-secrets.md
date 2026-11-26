@@ -38,7 +38,7 @@ flowchart TD
 ```
 
 ### Key Invariant
-> **The Test Runner Invariant**: Test execution clients (`pytest-hexaqueue`, `hexaqueue job submit`, CI matrix runners) **never require and must never possess CSP cloud credentials**. They only communicate with the Hexaqueue control plane via an API token. Cloud credentials remain strictly quarantined within the controller/worker infrastructure.
+> **The Test Runner Invariant**: Test execution clients (`pytest-hexaqueue`, `hq submit` / `hq run submit`, CI matrix runners) **never require and must never possess CSP cloud credentials**. They only communicate with the Hexaqueue control plane via an API token. Cloud credentials remain strictly quarantined within the controller/worker infrastructure.
 
 ---
 
@@ -103,7 +103,7 @@ jobs:
 
       - name: Launch Controller
         run: |
-          uv run hexaqueue-server start --port 8000
+          uv run hq server start --port 8000
 ```
 
 ---
@@ -189,4 +189,4 @@ To eliminate accidental secret exposure in git, logs, or CI artifacts:
 2. **Log Scrubbing (`LogSanitizer`)**:
    Hexastack's structured logging engine scrubs cloud credentials, PEM private keys, AWS access keys, and authorization bearer tokens using high-entropy pattern detection before writing logs or traces to disk.
 3. **Pre-commit Quality Gates**:
-   Git hooks enforce `detect-secrets` and `detect-private-key` on every commit, preventing developers from committing unversioned tokens or private key files.
+   Git hooks enforce `detect-private-key` on every commit, preventing developers from committing unversioned keys or private key files.

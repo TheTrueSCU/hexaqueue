@@ -3,7 +3,7 @@
 > Lightweight compute node execution daemon with GPU isolation and real-time streaming.
 
 [![PyPI: hexaqueue-worker](https://img.shields.io/pypi/v/hexaqueue-worker.svg)](https://pypi.org/project/hexaqueue-worker/)
-[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![Coverage](https://codecov.io/github/TheTrueSCU/hexaqueue/graph/badge.svg?component=hexaqueue_worker)](https://codecov.io/github/TheTrueSCU/hexaqueue)
 [![Part of Hexaqueue](https://img.shields.io/badge/part%20of-hexaqueue-blue.svg)](https://dopplereffect.us/hexaqueue/)
 [![Built with Hexastack](https://img.shields.io/badge/built%20with-hexastack-blueviolet.svg)](https://dopplereffect.us/hexastack/)
@@ -49,7 +49,7 @@ In elastic cloud environments (e.g. OCI scale-to-zero instance pools under priva
 
 ```bash
 # Start autonomous worker agent connecting to controller
-hq-worker-agent --controller-url http://10.0.1.101:8001
+HEXAQUEUE_CONTROLLER_URL=http://10.0.1.101:8001 uv run python -m hexaqueue_worker.adapters.agent
 ```
 
 ### Agent Lifecycle
@@ -58,4 +58,4 @@ hq-worker-agent --controller-url http://10.0.1.101:8001
 3. **Collateral Ingestion**: Fetches and unpacks content-addressed workspace bundles (via local cache or signed OCI Object Storage PAR URLs).
 4. **Isolated Virtualenv Execution**: Spawns test runners with isolated environments (`VIRTUAL_ENV`, `PATH`).
 5. **Outcome Reporting**: Posts exit codes, JUnit reports, and coverage back via `POST /worker/{id}/report`.
-6. **Heartbeat & Self-Healing**: Transmits heartbeats every 10 seconds; backs off gracefully when the queue is drained so the cloud pool can scale down.
+6. **Heartbeat & Self-Healing**: Transmits heartbeats every 15 seconds (default); backs off gracefully when the queue is drained so the cloud pool can scale down.

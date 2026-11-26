@@ -3,7 +3,7 @@
 > Ingestion service for direct presigned multi-part uploads and staging storage management.
 
 [![PyPI: hexaqueue-collateral](https://img.shields.io/pypi/v/hexaqueue-collateral.svg)](https://pypi.org/project/hexaqueue-collateral/)
-[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![Coverage](https://codecov.io/github/TheTrueSCU/hexaqueue/graph/badge.svg?component=hexaqueue_collateral)](https://codecov.io/github/TheTrueSCU/hexaqueue)
 [![Part of Hexaqueue](https://img.shields.io/badge/part%20of-hexaqueue-blue.svg)](https://dopplereffect.us/hexaqueue/)
 [![Built with Hexastack](https://img.shields.io/badge/built%20with-hexastack-blueviolet.svg)](https://dopplereffect.us/hexastack/)
@@ -29,7 +29,7 @@ graph TD
         HQ_CORE["hexaqueue-core (PresignedStoragePort & Collateral Models)"]
         HS_AUTH["hexastack-auth (SPIFFE/mTLS)"]
         HS_CORE["hexastack-core"]
-        HS_EVENTS["hexastack-events (Emits CollateralUploadedEvent)"]
+        HS_EVENTS["hexastack-events (Event Bus Primitives)"]
         HS_FASTAPI["hexastack-fastapi"]
     end
 

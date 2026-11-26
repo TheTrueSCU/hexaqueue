@@ -47,7 +47,7 @@ A central architectural decision when adopting `pytest-hexaqueue` is how it inte
 **`pytest-hexaqueue` replaces `pytest-xdist` for any workflow requiring multiple machines or cloud bursting:**
 
 - **Zero-Configuration Workspace Delta Sync**: Using `hexaqueue-collateral`, uncommitted git diffs and modified files are content-addressed (SHA-256) into a CAS bundle and synchronized to worker nodes with zero overhead on unmodified files.
-- **Multi-CSP Free-Tier Federation**: Tests can burst into free-tier compute quotas across multiple cloud providers (OCI 4-vCPU ARM, GCP e2-micro, AWS t4g.small, Azure B1s, and local nodes) with a mathematically verified $0.00 spend ceiling.
+- **Multi-CSP Free-Tier Federation**: Tests can burst into free-tier compute quotas across multiple cloud providers (OCI 4-vCPU ARM, GCP e2-micro, AWS t2.micro / t3.micro, Azure B1s, and local nodes) with a mathematically verified $0.00 spend ceiling.
 - **Enterprise Fair-Share Scheduling**: Test jobs participate in Hexaqueue's central scheduler, benefiting from priority aging, preemption, and compute placement affinity.
 - **Transparent Local Fallback**: If the cluster is unreachable or offline, `--hq-fallback` (enabled by default) automatically runs the suite locally in-process without failing developer workflows.
 
@@ -261,23 +261,20 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
 
-      - name: Open Zero-Trust Tunnel to Hexaqueue Cluster
-        run: |
-          uv run hq cluster tunnel --host "${{ secrets.HEXAQUEUE_CLUSTER_HOST }}" --key ~/.ssh/hexaqueue_ci_id
+      - name: Setup Hexaqueue Cloud Mesh & Zero-Trust Tunnel
+        uses: TheTrueSCU/hexaqueue@1e7b3c4625c82bece17dbc9eafc72664e4bd501c # v0.12.1
+        with:
+          cluster-env: ${{ secrets.HEXAQUEUE_ENV }}
 
       - name: Run Distributed Tests via Hexaqueue Cloud
         run: |
           uv run pytest --hexaqueue --hq-profile ci
-
-      - name: Disconnect Tunnel
-        if: always()
-        run: uv run hq cluster tunnel --stop || true
 ```
 
 ---
@@ -288,19 +285,19 @@ Layered resolution order: **CLI flags (highest)** $\to$ **Environment variables*
 
 | Flag | Env Var | Default | Description |
 |---|---|---|---|
-| `--hexaqueue` | `HEXAQUEUE_PYTEST` | `False` | Enable Hexaqueue distributed test execution |
-| `--hq-config` | `HEXAQUEUE_CONFIG` | None | Explicit path to configuration file (`pyproject.toml` or `hexaqueue.yaml`) |
-| `--hq-profile` | `HEXAQUEUE_PROFILE` | None | Active configuration profile name (e.g., `ci`, `container`, `free-tier`) |
+| `--hexaqueue` | *(CLI flag only)* | `False` | Enable Hexaqueue distributed test execution |
+| `--hq-config` | *(CLI flag only)* | `None` | Explicit path to configuration file (`pyproject.toml` or `hexaqueue.yaml`) |
+| `--hq-profile` (`--profile`) | `HEXAQUEUE_PROFILE` | `None` | Active configuration profile name (e.g., `ci`, `container`, `free-tier`) |
 | `--hq-server` | `HEXAQUEUE_SERVER_URL` | Config / `http://127.0.0.1:8000` | Hexaqueue cluster controller base URL |
-| `--hq-token` | `HEXAQUEUE_API_TOKEN` | None | Authentication bearer token for cluster access |
+| `--hq-token` | `HEXAQUEUE_API_TOKEN` | `None` | Authentication bearer token for cluster access |
 | `--hq-slices` | `HEXAQUEUE_SLICES` | Config / `4` | Number of parallel execution slices to partition the suite into |
-| `--hq-container` | `HEXAQUEUE_CONTAINER` | Config / `False` | Execute slices inside isolated OCI container sandboxes |
-| `--hq-image` | `HEXAQUEUE_WORKER_IMAGE` | Config / `latest` | Container image tag for worker runtime |
+| `--hq-container` | `HEXAQUEUE_MODE=container` | Config / `False` | Execute slices inside isolated OCI container sandboxes |
+| `--hq-image` | `HEXAQUEUE_WORKER_IMAGE` | Config / `hexaqueue-worker:latest` | Container image tag for worker runtime |
 | `--hq-pool` | `HEXAQUEUE_POOL` | Config / `default` | Target compute instance pool for runner placement |
 | `--hq-paid` | `HEXAQUEUE_PAID` | Config / `False` | Authorize paid cloud compute (disables zero-cost free-tier guardrails) |
 | `--hq-free-tier` | `HEXAQUEUE_FREE_TIER` | Config / `True` | Enforce zero-cost Multi-CSP Free-Tier mesh execution ($0.00 spend ceiling) |
-| `--hq-fallback` | `HEXAQUEUE_LOCAL_FALLBACK` | Config / `True` | Fall back to local in-process execution if cluster is unreachable |
+| `--hq-fallback` / `--no-hq-fallback` | `HEXAQUEUE_FALLBACK` | Config / `True` | Fall back to local in-process execution if cluster is unreachable |
 | `--hq-slicer` | `HEXAQUEUE_SLICER` | Config / `round-robin` | Test partitioning algorithm: `round-robin` or `file` |
 | `--hq-local-slices` | `HEXAQUEUE_LOCAL_SLICES` | Config / `None` | Number of slices executed locally across workstation vCPUs, or `auto` (`0` to disable) |
 | `--hq-remote-slices` | `HEXAQUEUE_REMOTE_SLICES` | Config / `None` | Number of slices dispatched remotely across Hexaqueue cluster, or `auto` (`0` to disable) |
-| `--hq-hybrid` | `HEXAQUEUE_HYBRID` | `False` | Enable hybrid concurrent local and remote test execution with automatic slice sizing |
+| `--hq-hybrid` | *(CLI flag only)* | `False` | Enable hybrid concurrent local and remote test execution with automatic slice sizing |

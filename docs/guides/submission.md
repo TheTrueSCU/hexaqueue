@@ -18,8 +18,8 @@ jobs:
     name: ingest_sequencing_reads
     command: python -m pipeline.ingest --reads data/sample_R1.fastq.gz
     resources:
-      cpu: 4
-      memory: "16GB"
+      cpus: 4
+      ram_mb: 16384
 
   - id: bwa-alignment
     name: bwa_mem_alignment
@@ -27,8 +27,8 @@ jobs:
     depends_on:
       - ingest-fastq
     resources:
-      cpu: 8
-      memory: "32GB"
+      cpus: 8
+      ram_mb: 32768
 ```
 
 ---

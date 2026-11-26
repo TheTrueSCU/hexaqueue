@@ -11,7 +11,7 @@ Built with **[Hexaqueue](https://github.com/TheTrueSCU/hexaqueue)** — The Clou
 This example demonstrates how **Hexaqual** uses its `HexaqueueClusterRunnerAdapter` to distribute test suites and mutation testing jobs (`pytest-gremlins`) across a **Hexaqueue cluster** over REST (`POST /v1/runs`) and real-time Server-Sent Events (SSE) telemetry (`GET /v1/runs/{id}/stream`).
 
 It supports two execution modes:
-1. **v0.1.0 Local Subprocess Cluster**: Runs compute tasks directly on the host using POSIX subprocesses inside isolated scratch directories with zero external dependencies.
+1. **Local Subprocess Cluster**: Runs compute tasks directly on the host using POSIX subprocesses inside isolated scratch directories with zero external dependencies.
 2. **Local Container Cluster**: Executes compute tasks inside rootless OCI containers (via Podman/Docker) using `PodmanExecutionRuntimeAdapter`.
 
 ---
@@ -46,9 +46,9 @@ sequenceDiagram
 ## Running the Example
 
 ### Prerequisites
-Requires `hexaqual[all] >= 0.10.0` (with `HexaqueueClusterRunnerAdapter` support).
+Requires `hexaqual[all]>=0.12.1` (with `HexaqueueClusterRunnerAdapter` support).
 
-### 1. Run on v0.1.0 Local Subprocess Cluster
+### 1. Run on Local Subprocess Cluster
 ```bash
 uv run python examples/hexaqual-cluster/run_hexaqual_cluster.py
 ```

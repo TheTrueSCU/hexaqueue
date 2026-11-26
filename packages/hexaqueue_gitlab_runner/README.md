@@ -3,7 +3,7 @@
 > GitLab CI/CD Custom Executor Driver.
 
 [![PyPI: hexaqueue-gitlab-runner](https://img.shields.io/pypi/v/hexaqueue-gitlab-runner.svg)](https://pypi.org/project/hexaqueue-gitlab-runner/)
-[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![Coverage](https://codecov.io/github/TheTrueSCU/hexaqueue/graph/badge.svg?component=hexaqueue_gitlab_runner)](https://codecov.io/github/TheTrueSCU/hexaqueue)
 [![Part of Hexaqueue](https://img.shields.io/badge/part%20of-hexaqueue-blue.svg)](https://dopplereffect.us/hexaqueue/)
 [![Built with Hexastack](https://img.shields.io/badge/built%20with-hexastack-blueviolet.svg)](https://dopplereffect.us/hexastack/)

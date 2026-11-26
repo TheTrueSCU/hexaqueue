@@ -8,13 +8,22 @@ nav = [
     { "Interactive Demos" = "demos.md" },
     { "Guides" = [
         "guides/server-topologies.md",
+        "guides/workload-submission.md",
         "guides/submission.md",
-        "guides/scheduling-explainability.md"
+        "guides/scheduling-explainability.md",
+        "guides/pytest-distributed-execution.md",
+        "guides/github-actions-runner.md",
+        "guides/environment-and-configuration.md",
+        "guides/authentication-and-secrets.md",
+        "guides/oci-deployment-guide.md"
     ]},
     { "Architecture" = "architecture.md" },
+    { "Architecture Decisions (ADRs)" = "decisions.md" },
     { "Tutorials" = [
+        "tutorials/00-quickstart-local-cluster.md",
         "tutorials/01-building-a-batch-data-pipeline.md",
-        "tutorials/02-monte-carlo-simulation-and-smoothing.md"
+        "tutorials/02-monte-carlo-simulation-and-smoothing.md",
+        "tutorials/03-resolving-the-100-slot-monopoly.md"
     ]},
     { "Packages" = "packages.md" },
     { "Ecosystem Architecture" = "ecosystem.md" }
