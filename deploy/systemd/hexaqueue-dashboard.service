@@ -1,6 +1,6 @@
 [Unit]
 Description=Hexaqueue Standalone Web Dashboard
-After=network-online.target hexaqueue.service
+After=network-online.target hexaqueue.service tailscaled.service
 Wants=network-online.target
 
 [Service]
@@ -10,7 +10,7 @@ WorkingDirectory=/home/ubuntu/hexaqueue
 Environment="HEXAQUEUE_CONTROLLER_URL=http://127.0.0.1:8000"
 EnvironmentFile=-/home/ubuntu/.config/hexaqueue/dashboard.env
 
-ExecStart=/home/ubuntu/.local/bin/uv run uvicorn hexaqueue_dashboard.infra.app:create_standalone_dashboard_app --factory --host 127.0.0.1 --port 8080
+ExecStart=/home/ubuntu/.local/bin/uv run uvicorn hexaqueue_dashboard.infra.app:create_standalone_dashboard_app --factory --host 127.0.0.1 --port 8080 --proxy-headers --forwarded-allow-ips=127.0.0.1
 Restart=always
 RestartSec=5
 

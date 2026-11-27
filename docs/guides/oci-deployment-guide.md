@@ -145,6 +145,36 @@ sudo systemctl status hexaqueue.service
 sudo journalctl -u hexaqueue.service -f
 ```
 
+### Step 3.4: Standalone Operator Dashboard & Dual Remote Access (SSH Tunnel + Tailscale Serve)
+
+Deploy the standalone NiceGUI/FastAPI operator console from [`deploy/systemd/hexaqueue-dashboard.service`](../../deploy/systemd/hexaqueue-dashboard.service) bound strictly to loopback (`127.0.0.1:8080`) with trusted loopback proxy headers enabled (`--proxy-headers --forwarded-allow-ips=127.0.0.1`):
+
+```bash
+sudo cp ~/hexaqueue/deploy/systemd/hexaqueue-dashboard.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now hexaqueue-dashboard.service
+```
+
+The dashboard enforces HTTPS/loopback transport checks (`HEXAQUEUE_REQUIRE_HTTPS=1` by default) and `HttpOnly`/`Secure` session cookies, allowing **both** remote access methods to run simultaneously against the same `127.0.0.1:8080` listener with zero public firewall ports opened:
+
+1. **SSH Tunnel (Desktop / Break-Glass Fallback)**:
+   ```bash
+   ssh -fN -L 127.0.0.1:8080:127.0.0.1:8080 ubuntu@<RESERVED_CONTROLLER_IP>
+   # Open http://127.0.0.1:8080/dashboard/ui
+   ```
+
+2. **Tailscale Serve HTTPS (Phone & Remote Zero-Trust Access)**:
+   Install Tailscale on the controller VM, join your tailnet, enable **MagicDNS** and **HTTPS Certificates** in the Tailscale Admin Console (`DNS` tab), and publish the loopback dashboard over private tailnet HTTPS:
+   ```bash
+   curl -fsSL https://tailscale.com/install.sh | sudo sh
+   sudo tailscale up --hostname=hexaqueue-controller
+   sudo cp ~/hexaqueue/deploy/systemd/hexaqueue-dashboard-tailscale.service /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now hexaqueue-dashboard-tailscale.service
+   # Open https://hexaqueue-controller.<tailnet>.ts.net/dashboard/ui
+   ```
+   Tailscale Serve terminates Let's Encrypt TLS on the private `tailscale0` interface, forwards `X-Forwarded-Proto: https` to `127.0.0.1:8080`, and supports NiceGUI WebSockets (`wss://`) on mobile browsers without opening port `8080` or `443` publicly in OCI.
+
 ---
 
 ## 4. Worker Instance Pool & Worker Daemon

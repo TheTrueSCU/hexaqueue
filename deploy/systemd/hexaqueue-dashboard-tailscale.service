@@ -1,0 +1,14 @@
+[Unit]
+Description=Hexaqueue Dashboard Tailscale Serve HTTPS Proxy
+After=network-online.target tailscaled.service hexaqueue-dashboard.service
+Requires=tailscaled.service
+Wants=hexaqueue-dashboard.service
+ConditionPathExists=/usr/bin/tailscale
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/tailscale serve --bg http://127.0.0.1:8080
+
+[Install]
+WantedBy=multi-user.target
