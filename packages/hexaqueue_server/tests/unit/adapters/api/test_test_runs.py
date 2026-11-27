@@ -140,6 +140,7 @@ def test_build_slice_cmd_container() -> None:
     assert "pytest" in cmd
     assert "tests/unit/test_demo.py::test_it" in cmd
     assert "no:cacheprovider" in cmd
+    assert "no:hexaqueue" in cmd
     assert "consider_namespace_packages=true" in " ".join(cmd)
 
     # Also test local command construction
@@ -154,6 +155,7 @@ def test_build_slice_cmd_container() -> None:
     assert "-m" in local_cmd
     assert "pytest" in local_cmd
     assert "no:cacheprovider" in local_cmd
+    assert "no:hexaqueue" in local_cmd
     assert "consider_namespace_packages=true" in " ".join(local_cmd)
 
 

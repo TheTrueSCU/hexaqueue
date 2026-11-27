@@ -3,6 +3,7 @@
 import asyncio
 import importlib
 import sqlite3
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, cast
@@ -1101,3 +1102,32 @@ def test_dispatch_remote_with_cancellation_session_id_file_and_errors(
     mock_client_int.cancel_run.assert_awaited_once_with("sess-int")
     exists_after_int = sid_file.exists()
     assert exists_after_int is False
+
+
+def test_plugin_import_defers_hexaqueue_core_and_hexastack_core() -> None:
+    """Verify importing pytest_hexaqueue.infra.plugin leaves core packages unloaded."""
+    check_code = (
+        "import pytest_hexaqueue.infra.plugin, sys; "
+        "assert 'hexaqueue_core' not in sys.modules; "
+        "assert 'hexastack_core' not in sys.modules"
+    )
+    res = subprocess.run(
+        [sys.executable, "-c", check_code],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    returncode = res.returncode
+    assert returncode == 0, f"stderr={res.stderr}"
+
+
+def test_plugin_lazy_discover_and_merge_env_wrapper(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify plugin.discover_and_merge_env lazily delegates to hexaqueue_core."""
+    from pytest_hexaqueue.infra import plugin
+
+    monkeypatch.chdir(tmp_path)
+    merged = plugin.discover_and_merge_env()
+    assert isinstance(merged, dict)

@@ -95,6 +95,8 @@ class LocalSliceRunner:
             "consider_namespace_packages=true",
             "-p",
             "no:cacheprovider",
+            "-p",
+            "no:hexaqueue",
             "--tb=short",
             "-q",
             *cov_flags,
