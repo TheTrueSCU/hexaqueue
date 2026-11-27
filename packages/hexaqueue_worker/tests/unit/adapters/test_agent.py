@@ -294,6 +294,11 @@ async def test_worker_agent_execute_slice_uv_project(tmp_path: Path) -> None:
             "pytest",
         )
         assert call_args[:8] == expected_prefix
+        assert "-p" in call_args
+        assert "no:hexaqueue" in call_args
+        no_hq_idx = call_args.index("no:hexaqueue")
+        prev_flag = call_args[no_hq_idx - 1]
+        assert prev_flag == "-p"
 
 
 @pytest.mark.asyncio
@@ -468,6 +473,9 @@ async def test_worker_agent_strips_internal_env_from_pytest_slice(
 
     exit_code = report.exit_code
     assert exit_code == 0
+    call_args = mock_exec.call_args[0]
+    assert "-p" in call_args
+    assert "no:hexaqueue" in call_args
     call_env = mock_exec.call_args.kwargs["env"]
     has_ctrl_url = "HEXAQUEUE_CONTROLLER_URL" in call_env
     has_hq_url = "HEXAQUEUE_URL" in call_env

@@ -21,8 +21,6 @@ from urllib.parse import urlparse
 
 import pytest
 
-from hexaqueue_core.domain.credentials import discover_and_merge_env
-
 if TYPE_CHECKING:
     from pytest_hexaqueue.domain.outcome import SliceOutcomeReport
     from pytest_hexaqueue.domain.slice import TestRunSession, TestSliceSpec
@@ -800,6 +798,21 @@ def _normalize_cov_sources(
                 continue
         normalized.append(src)
     return normalized
+
+
+def discover_and_merge_env(*args: Any, **kwargs: Any) -> dict[str, str]:
+    """Lazily import and invoke ``discover_and_merge_env`` on demand.
+
+    Notes/Architectural Intent:
+        Defers importing ``hexaqueue_core`` until SSH tunnel construction so loading
+        the ``pytest11`` plugin entry point does not pre-import workspace dependencies
+        before ``pytest-cov`` initializes coverage tracing.
+    """
+    from hexaqueue_core.domain.credentials import (
+        discover_and_merge_env as _discover_and_merge_env,
+    )
+
+    return _discover_and_merge_env(*args, **kwargs)
 
 
 def _build_tunnel_command(resolved: Any) -> list[str] | None:

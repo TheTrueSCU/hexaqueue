@@ -789,6 +789,8 @@ class WorkerAgent:
                 "pytest",
                 "-o",
                 "junit_family=xunit2",
+                "-p",
+                "no:hexaqueue",
                 "--cov-fail-under=0",
                 "--cov-report=",
             ]
@@ -799,6 +801,8 @@ class WorkerAgent:
                 "pytest",
                 "-o",
                 "junit_family=xunit2",
+                "-p",
+                "no:hexaqueue",
                 "--cov-fail-under=0",
                 "--cov-report=",
             ]

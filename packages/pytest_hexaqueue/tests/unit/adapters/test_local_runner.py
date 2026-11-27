@@ -3,6 +3,7 @@
 import tempfile
 import uuid
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from pytest_hexaqueue.adapters.local_runner import LocalSliceRunner
@@ -105,3 +106,30 @@ def test_local_slice_runner_concurrency_auto() -> None:
     runner = LocalSliceRunner(concurrency="auto")
     conc = runner.concurrency
     assert conc >= 1
+
+
+@pytest.mark.asyncio
+async def test_local_slice_runner_disables_hexaqueue_plugin_in_subprocess() -> None:
+    """Verify LocalSliceRunner passes -p no:hexaqueue to slice worker subprocesses."""
+    runner = LocalSliceRunner(concurrency=1)
+    spec = TestSliceSpec(
+        slice_id="slice-no-hq",
+        slice_index=0,
+        total_slices=1,
+        test_nodeids=["tests/unit/test_demo.py::test_it"],
+    )
+    mock_proc = AsyncMock()
+    mock_proc.communicate = AsyncMock(return_value=(b"1 passed\n", b""))
+    mock_proc.returncode = 0
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
+        report = await runner.execute_slice(spec)
+
+    passed = report.passed_count
+    assert passed == 1
+    cmd_args = list(mock_exec.call_args.args)
+    assert "-p" in cmd_args
+    assert "no:hexaqueue" in cmd_args
+    no_hq_idx = cmd_args.index("no:hexaqueue")
+    prev_flag = cmd_args[no_hq_idx - 1]
+    assert prev_flag == "-p"
