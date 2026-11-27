@@ -30,10 +30,9 @@ repos:
       - id: validate-pyproject
 
   - repo: https://github.com/TheTrueSCU/hexaqual
-    rev: f0535b866d614538d6890c5c1c7efc15ad144365 # v0.9.1
+    rev: 7981788eea94e3a37cb5e24d4d30a07b1bc0bab4 # v0.13.0
     hooks:
       - id: hexaqual-sanity
-        args: [--skip-diagrams]
       - id: hexaqual-architecture
       - id: hexaqual-agents
       - id: hexaqual-extras
@@ -41,7 +40,6 @@ repos:
       - id: hexaqual-commit-msg
         stages: [commit-msg]
       - id: hexaqual-pre-push
-        args: [--skip-diagrams]
         stages: [pre-push]
       - id: hexaqual-agents-sync
         stages: [post-merge, post-checkout]
