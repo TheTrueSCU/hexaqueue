@@ -1,6 +1,6 @@
 [project]
 name = "hexaqueue"
-version = "0.12.1"
+version = "0.12.2"
 description = "Hexaqueue - Cloud-Agnostic HPC Batch Scheduler and Distributed Job Orchestrator"
 readme = "README.md"
 license = "Apache-2.0"
@@ -9,19 +9,19 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "hexaqueue-cli>=0.12.1",
-    "hexaqueue-collateral>=0.12.1",
-    "hexaqueue-core>=0.12.1",
-    "hexaqueue-dashboard>=0.12.1",
-    "hexaqueue-github-runner>=0.12.1",
-    "hexaqueue-gitlab-runner>=0.12.1",
-    "hexaqueue-kueue>=0.12.1",
-    "hexaqueue-monitor>=0.12.1",
-    "hexaqueue-scanner>=0.12.1",
-    "hexaqueue-server>=0.12.1",
-    "hexaqueue-worker>=0.12.1",
-    "hexaqueue-workflow>=0.12.1",
-    "pytest-hexaqueue>=0.12.1",
+    "hexaqueue-cli>=0.12.2",
+    "hexaqueue-collateral>=0.12.2",
+    "hexaqueue-core>=0.12.2",
+    "hexaqueue-dashboard>=0.12.2",
+    "hexaqueue-github-runner>=0.12.2",
+    "hexaqueue-gitlab-runner>=0.12.2",
+    "hexaqueue-kueue>=0.12.2",
+    "hexaqueue-monitor>=0.12.2",
+    "hexaqueue-scanner>=0.12.2",
+    "hexaqueue-server>=0.12.2",
+    "hexaqueue-worker>=0.12.2",
+    "hexaqueue-workflow>=0.12.2",
+    "pytest-hexaqueue>=0.12.2",
 ]
 
 [project.scripts]
