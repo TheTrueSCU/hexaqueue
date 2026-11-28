@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## v0.12.2 (2026-11-27)
+
+### Lazy Plugin Imports, Slice Worker Coverage Isolation & Deployment Hardening
+
+* **Pytest Plugin & Coverage Isolation (`pytest-hexaqueue`, `hexaqueue-worker`, `hexaqueue-server`, `#237`, `#238`)**:
+  * Deferred `hexaqueue_core` imports in `pytest_hexaqueue.infra.plugin` so loading the `pytest11` entry point does not eagerly import `hexastack_core` before `pytest-cov` initializes coverage tracing.
+  * Passed `-p no:hexaqueue` in `LocalSliceRunner.execute_slice`, `WorkerAgent._run_pytest_slice`, and `_build_slice_cmd` so local and cloud slice subprocesses isolate coverage instrumentation.
+* **Worker & Deployment Fixes (`hexaqueue-worker`, `deploy/`, `#229`, `#230`, `#235`, `#236`)**:
+  * Improved user-installed `uv` binary discovery and daemon virtualenv environment isolation (`#229`).
+  * Added Tailscale Serve systemd unit and proxy-header configuration for operator dashboard access (`#236`).
+  * Adopted `hexaqual v0.13.0` guardrails (`#235`) and synchronized documentation accuracy fixes across package READMEs (`#230`).
+
 ## v0.12.1 (2026-11-24)
 
 ### Worker Workspace Dependency Sync, Umbrella Lockstep Bounds & Pages Workflow Hardening
