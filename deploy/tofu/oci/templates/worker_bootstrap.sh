@@ -46,6 +46,8 @@ if [ -n "$IP_SUFFIX" ]; then
 else
   WORKER_ID="$WORKER_HOSTNAME-$(date +%s)"
 fi
+# OpenTofu templatefile() substitutes controller_ip, controller_port, worker_ocpus, worker_memory_mb at render time.
+# shellcheck disable=SC2154
 cat <<EOF > /etc/hexaqueue/worker.env
 HEXAQUEUE_CONTROLLER_URL=http://${controller_ip}:${controller_port}
 HEXAQUEUE_WORKER_ID=$WORKER_ID

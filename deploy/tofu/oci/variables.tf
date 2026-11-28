@@ -28,12 +28,6 @@ variable "vcn_ocid" {
   default     = "ocid1.vcn.oc1.phx.amaaaaaafqa2klyanleslac7fnq5gwmugoljxx4snd477c344bbgyxcmi3oa"
 }
 
-variable "public_subnet_ocid" {
-  description = "OCID of the existing public subnet housing the controller"
-  type        = string
-  default     = "ocid1.subnet.oc1.phx.aaaaaaaazewllkw72a3ho36oyg5xmrtnr4kkxb3rdlgnvo6jz7vakqzf3bjq"
-}
-
 variable "controller_private_ip" {
   description = "Private IP address of the primary controller node"
   type        = string

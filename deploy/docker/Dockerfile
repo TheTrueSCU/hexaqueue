@@ -49,9 +49,9 @@ ENTRYPOINT ["hq", "server", "start", "--host", "0.0.0.0", "--port", "8000"]
 # ------------------------------------------------------------------------------
 FROM runtime-base AS dashboard
 
-USER root
+USER 0
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends graphviz && \
+    apt-get install -y --no-install-recommends graphviz=2.42.* && \
     rm -rf /var/lib/apt/lists/*
 USER 10001:10001
 
