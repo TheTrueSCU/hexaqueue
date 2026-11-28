@@ -37,6 +37,7 @@ repos:
       - id: hexaqual-agents
       - id: hexaqual-extras
       - id: hexaqual-usage-docs
+      - id: hexaqual-iac
       - id: hexaqual-commit-msg
         stages: [commit-msg]
       - id: hexaqual-pre-push

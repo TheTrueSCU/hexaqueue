@@ -48,6 +48,52 @@ jobs:
         run: uv run hexaqual docs drift
 
   # =========================================================================
+  # Stage 1a: Infrastructure-as-Code Quality & Security Gate (Strict Mode)
+  # Validates OpenTofu, Dockerfile, and Shell bootstrap assets via Hexaqual
+  # =========================================================================
+  iac-gate:
+    name: IaC Quality & Security Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --all-packages --all-extras --all-groups
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_wrapper: false
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
+
+      - name: Setup Trivy
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+
+      - name: Install Hadolint (SHA-256 verified)
+        run: |
+          mkdir -p "${{ runner.temp }}/bin"
+          curl -fsSL "https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-linux-x86_64" \
+            -o "${{ runner.temp }}/bin/hadolint"
+          echo "c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507  ${{ runner.temp }}/bin/hadolint" | sha256sum -c -
+          chmod +x "${{ runner.temp }}/bin/hadolint"
+          echo "${{ runner.temp }}/bin" >> "$GITHUB_PATH"
+
+      - name: Run Strict IaC Quality & Security Gate
+        run: uv run hexaqual iac check --strict --init --skip checkov --summary
+
+  # =========================================================================
   # Stage 1b: Cluster Health & Discovery Probe (Fast Parallel Cloud Check)
   # Discovers and probes multi-provider fleet using unified .env secret & CLI
   # =========================================================================
@@ -387,6 +433,7 @@ jobs:
     name: CI Success (All Required Checks)
     needs:
       - quality-gate
+      - iac-gate
       - cluster-probe
       - test-suite
       - architecture-diagrams
@@ -432,6 +479,7 @@ jobs:
         run: |
           echo "Evaluating CI pipeline status:"
           echo "  Pre-Commit Quality Gate:      ${{ needs.quality-gate.result }}"
+          echo "  IaC Quality & Security Gate:  ${{ needs.iac-gate.result }}"
           echo "  Cluster Discovery Probe:      ${{ needs.cluster-probe.result }}"
           echo "  Unit & Integration Tests:     ${{ needs.test-suite.result }}"
           echo "  Architecture Diagrams:        ${{ needs.architecture-diagrams.result }}"
@@ -441,6 +489,7 @@ jobs:
 
           results=(
             "${{ needs.quality-gate.result }}"
+            "${{ needs.iac-gate.result }}"
             "${{ needs.cluster-probe.result }}"
             "${{ needs.test-suite.result }}"
             "${{ needs.architecture-diagrams.result }}"
